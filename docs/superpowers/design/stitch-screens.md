@@ -3,7 +3,7 @@
 Stitch project: **AI Web Clone Tool** (`projects/5886124613364668099`)
 Design system: `assets/12550457517034224226` — dark, Space Grotesk headline, Inter body, JetBrains Mono for URLs/code/scores, indigo #6366F1 primary, green/amber/red status. Đây là nguồn token khởi tạo cho `css/styles.css` của UI (SP1 Task 24).
 
-Bản tải về (HTML + PNG 2560px) ở `docs/superpowers/design/stitch/`: settings-ai, history (+alt1-3), new-clone, sitemap, progress, qa-preview (+alt). Mở `.html` trực tiếp trong trình duyệt (dùng Tailwind CDN, cần mạng).
+Bản tải về (HTML + PNG 2560px) ở `docs/superpowers/design/stitch/`: settings-ai, history (+alt1-3), new-clone, sitemap, progress, qa-preview (+alt), code-viewer. Mở `.html` trực tiếp trong trình duyệt (dùng Tailwind CDN, cần mạng).
 
 | Route (spec §10) | Màn Stitch | Screen ID |
 |---|---|---|
@@ -14,7 +14,7 @@ Bản tải về (HTML + PNG 2560px) ở `docs/superpowers/design/stitch/`: sett
 | `/p/[id]` | Clone Progress (phase stepper + log + auth banner) | `09b69e1bb548414086a28374933a425c` |
 | `/p/[id]/preview` | QA Preview & Compare | `480fa9cbfb75480696136e0cddff7785` |
 | `/p/[id]/preview` (variant) | Visual Diff & QA Compare | `9410f8b12f0940bfa715f530a09abdfd` |
-| `/p/[id]/code` | Code viewer | (đang finalize, lấy qua list_screens) |
+| `/p/[id]/code` | Export - Source Browser | `e367b9ea70fa4329bfba8a9d6d19fdb1` |
 | `/p/[id]/editor` | GrapesJS — dùng editor thật, không mock Stitch | — |
 
 ## Ghi chú khi implement (khớp spec, sửa copy do Stitch tự thêm)

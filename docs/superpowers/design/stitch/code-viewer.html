@@ -1,0 +1,339 @@
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Export - Source Browser</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary": "#ffb95f",
+            "on-surface": "#e0e2ec",
+            "surface-container-highest": "#32353c",
+            "primary-fixed": "#e1e0ff",
+            "primary-container": "#8083ff",
+            "on-tertiary-container": "#3e2400",
+            "tertiary-container": "#ca8100",
+            "secondary": "#4ae176",
+            "outline-variant": "#464554",
+            "on-primary-container": "#0d0096",
+            "surface-container-high": "#272a31",
+            "surface-dim": "#10131a",
+            "on-surface-variant": "#c7c4d7",
+            "surface-variant": "#32353c",
+            "primary": "#c0c1ff",
+            "secondary-fixed": "#6bff8f",
+            "inverse-on-surface": "#2d3038",
+            "surface-container-lowest": "#0b0e15",
+            "surface-container-low": "#191c23",
+            "tertiary-fixed-dim": "#ffb95f",
+            "on-error-container": "#ffdad6",
+            "error": "#ffb4ab",
+            "secondary-fixed-dim": "#4ae176",
+            "on-secondary-fixed": "#002109",
+            "inverse-primary": "#494bd6",
+            "secondary-container": "#00b954",
+            "on-tertiary-fixed": "#2a1700",
+            "surface-tint": "#c0c1ff",
+            "surface-container": "#1d2027",
+            "surface": "#10131a",
+            "on-primary": "#1000a9",
+            "background": "#10131a",
+            "on-secondary-fixed-variant": "#005321",
+            "tertiary-fixed": "#ffddb8",
+            "inverse-surface": "#e0e2ec",
+            "primary-fixed-dim": "#c0c1ff",
+            "on-secondary-container": "#004119",
+            "on-secondary": "#003915",
+            "error-container": "#93000a",
+            "on-primary-fixed": "#07006c",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "on-tertiary": "#472a00",
+            "outline": "#908fa0",
+            "on-error": "#690005",
+            "on-background": "#e0e2ec",
+            "surface-bright": "#363941",
+            "on-tertiary-fixed-variant": "#653e00"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "space-xl": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-lg": "1rem",
+            "margin": "1rem",
+            "gutter": "1rem",
+            "space-md": "0.75rem"
+          },
+          "fontFamily": {
+            "body-md": ["Inter"],
+            "headline-sm": ["Space Grotesk"],
+            "headline-md": ["Space Grotesk"],
+            "headline-lg": ["Space Grotesk"],
+            "body-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "label-md": ["JetBrains Mono"],
+            "label-sm": ["JetBrains Mono"]
+          },
+          "fontSize": {
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }]
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-surface text-on-surface font-body-md h-screen flex flex-col overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-4 h-14 bg-surface-container-low shrink-0 select-none">
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary" data-icon="terminal">terminal</span>
+<span class="text-headline-sm font-headline-sm font-semibold text-on-surface dark:text-on-surface">DevBrowser</span>
+</div>
+<div class="hidden md:flex items-center gap-space-xs ml-4 bg-surface-container-lowest px-3 py-1 rounded border border-outline-variant text-label-md font-label-md text-on-surface-variant w-80">
+<span class="material-symbols-outlined text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none outline-none text-on-surface w-full text-label-md font-label-md p-0 focus:ring-0" placeholder="Search project files..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-space-md">
+<nav class="hidden md:flex items-center gap-space-lg">
+<a class="text-on-surface-variant hover:text-on-surface transition-colors text-label-md font-label-md" href="#">Files</a>
+<a class="text-primary font-bold border-b-2 border-primary pb-1 text-label-md font-label-md" href="#">Search</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors text-label-md font-label-md" href="#">Export</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors text-label-md font-label-md" href="#">Settings</a>
+</nav>
+<div class="h-4 w-[1px] bg-outline-variant hidden md:block"></div>
+<div class="flex items-center gap-space-xs">
+<button class="px-space-md py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface transition-all duration-200 active:scale-[0.98] text-label-md font-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+</button>
+<button class="px-space-md py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface transition-all duration-200 active:scale-[0.98] text-label-md font-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Workspace Area -->
+<div class="flex flex-1 overflow-hidden relative">
+<!-- SideNavBar / File Tree Panel -->
+<aside class="flex flex-col justify-between p-space-md w-64 h-full bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant shrink-0 select-none">
+<div class="flex flex-col gap-space-md">
+<!-- Workspace Header -->
+<div class="flex items-center justify-between pb-2 border-b border-outline-variant">
+<div class="flex items-center gap-space-sm overflow-hidden">
+<span class="material-symbols-outlined text-primary text-base" data-icon="folder_zip">folder_zip</span>
+<div class="flex flex-col truncate">
+<span class="text-headline-sm font-headline-sm text-on-surface text-sm truncate">workspace-root</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">main branch</span>
+</div>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<div class="flex flex-col gap-1 text-label-sm font-label-sm">
+<a class="flex items-center gap-space-md px-space-md py-space-sm bg-surface-container-high text-primary rounded-lg transition-all duration-200 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-base" data-icon="folder">folder</span>
+<span>Explorer</span>
+</a>
+<a class="flex items-center gap-space-md px-space-md py-space-sm text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface rounded-lg transition-all duration-200 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-base" data-icon="search">search</span>
+<span>Search</span>
+</a>
+<a class="flex items-center gap-space-md px-space-md py-space-sm text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface rounded-lg transition-all duration-200 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-base" data-icon="code">code</span>
+<span>Git</span>
+</a>
+<a class="flex items-center gap-space-md px-space-md py-space-sm text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface rounded-lg transition-all duration-200 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-base" data-icon="download">download</span>
+<span>Export</span>
+</a>
+</div>
+<!-- Folder Tree Content -->
+<div class="flex flex-col gap-1 mt-2 overflow-y-auto max-h-[calc(100vh-18rem)] pr-1 font-label-sm text-label-sm">
+<div class="flex items-center gap-1.5 py-1 px-2 text-on-surface font-medium">
+<span class="material-symbols-outlined text-xs text-primary" data-icon="expand_more">expand_more</span>
+<span class="material-symbols-outlined text-xs text-tertiary" data-icon="folder_open">folder_open</span>
+<span>out</span>
+</div>
+<div class="flex flex-col pl-5 gap-1 border-l border-outline-variant/40 ml-3">
+<a class="flex items-center gap-1.5 py-1 px-2 bg-primary-container/20 text-primary rounded border border-primary/30" href="#">
+<span class="material-symbols-outlined text-xs text-primary" data-icon="html">html</span>
+<span class="truncate">index.html</span>
+</a>
+<a class="flex items-center gap-1.5 py-1 px-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest rounded" href="#">
+<span class="material-symbols-outlined text-xs text-on-surface-variant" data-icon="html">html</span>
+<span class="truncate">about.html</span>
+</a>
+<div class="flex items-center gap-1.5 py-1 px-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+<span class="material-symbols-outlined text-xs text-tertiary" data-icon="folder">folder</span>
+<span>css</span>
+</div>
+<div class="flex flex-col pl-4 gap-1">
+<a class="flex items-center gap-1.5 py-0.5 px-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest rounded text-[11px]" href="#">
+<span class="material-symbols-outlined text-[11px] text-secondary" data-icon="css">css</span>
+<span class="truncate">styles.css</span>
+</a>
+</div>
+<div class="flex items-center gap-1.5 py-1 px-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+<span class="material-symbols-outlined text-xs text-tertiary" data-icon="folder">folder</span>
+<span>js</span>
+</div>
+<div class="flex flex-col pl-4 gap-1">
+<a class="flex items-center gap-1.5 py-0.5 px-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest rounded text-[11px]" href="#">
+<span class="material-symbols-outlined text-[11px] text-tertiary" data-icon="javascript">javascript</span>
+<span class="truncate">runtime.js</span>
+</a>
+</div>
+<div class="flex items-center gap-1.5 py-1 px-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+<span class="material-symbols-outlined text-xs text-tertiary" data-icon="folder">folder</span>
+<span>assets</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer CTA in Sidebar -->
+<div class="pt-2 border-t border-outline-variant flex flex-col gap-2">
+<button class="w-full py-2 px-3 bg-primary-container text-on-primary-container font-medium rounded hover:opacity-90 transition-all text-label-sm font-label-sm flex items-center justify-center gap-1.5 shadow-sm">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+<span>Export Package</span>
+</button>
+</div>
+</aside>
+<!-- Main Content Panel -->
+<main class="flex-1 flex flex-col bg-surface overflow-hidden">
+<!-- Header bar -->
+<div class="flex flex-wrap items-center justify-between px-6 py-3 bg-surface-container-low border-b border-outline-variant gap-4">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-surface-container-lowest px-3 py-1.5 rounded border border-outline-variant">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="description">description</span>
+<span class="font-label-md text-label-md text-on-surface tracking-tight">out/index.html</span>
+</div>
+<div class="flex items-center gap-3 text-label-sm font-label-sm text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-xs" data-icon="data_object">data_object</span> 18.6 KB</span>
+<span class="text-outline-variant">•</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-xs" data-icon="format_list_numbered">format_list_numbered</span> 42 lines</span>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<button class="px-space-md py-space-xs bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded text-label-md font-label-md transition-all active:scale-[0.98] flex items-center gap-1.5 border border-outline-variant">
+<span class="material-symbols-outlined text-sm" data-icon="content_copy">content_copy</span>
+<span>Copy</span>
+</button>
+<button class="px-space-md py-space-xs bg-primary-container text-on-primary-container rounded text-label-md font-label-md transition-all hover:opacity-90 active:scale-[0.98] flex items-center gap-1.5 font-medium shadow-sm">
+<span class="material-symbols-outlined text-sm" data-icon="folder_zip">folder_zip</span>
+<span>Export ZIP</span>
+</button>
+<button class="px-space-md py-space-xs bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded text-label-md font-label-md transition-all active:scale-[0.98] flex items-center gap-1.5 border border-outline-variant">
+<span class="material-symbols-outlined text-sm" data-icon="drive_folder_upload">drive_folder_upload</span>
+<span>Export to folder</span>
+</button>
+</div>
+</div>
+<!-- Source Code View Area -->
+<div class="flex-1 overflow-auto bg-surface-container-lowest font-label-md text-label-md leading-relaxed p-4 select-text">
+<div class="flex">
+<!-- Line Numbers -->
+<div class="flex flex-col text-right pr-6 select-none text-on-surface-variant/40 border-r border-outline-variant/30 mr-6 font-label-sm">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+<span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span>
+<span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span>
+<span>31</span><span>32</span><span>33</span><span>34</span><span>35</span><span>36</span><span>37</span><span>38</span><span>39</span><span>40</span>
+<span>41</span><span>42</span>
+</div>
+<!-- Code Content with Colored Syntax -->
+<div class="flex flex-col text-on-surface whitespace-pre font-label-md">
+<div><span class="text-tertiary">&lt;!DOCTYPE</span> <span class="text-secondary">html</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;</span><span class="text-primary">html</span> <span class="text-on-surface-variant">lang</span>=<span class="text-secondary">"en"</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"dark"</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;</span><span class="text-primary">head</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">meta</span> <span class="text-on-surface-variant">charset</span>=<span class="text-secondary">"UTF-8"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">meta</span> <span class="text-on-surface-variant">name</span>=<span class="text-secondary">"viewport"</span> <span class="text-on-surface-variant">content</span>=<span class="text-secondary">"width=device-width, initial-scale=1.0"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">title</span><span class="text-tertiary">&gt;</span>Optimized Static Export<span class="text-tertiary">&lt;/</span><span class="text-primary">title</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">link</span> <span class="text-on-surface-variant">rel</span>=<span class="text-secondary">"stylesheet"</span> <span class="text-on-surface-variant">href</span>=<span class="text-secondary">"css/styles.css"</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;/</span><span class="text-primary">head</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;</span><span class="text-primary">body</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"bg-surface text-on-surface font-body-md"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">header</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"flex items-center justify-between p-4 bg-surface-container"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">h1</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"text-headline-md font-headline-md"</span><span class="text-tertiary">&gt;</span>Project Alpha<span class="text-tertiary">&lt;/</span><span class="text-primary">h1</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">nav</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"flex gap-4"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">a</span> <span class="text-on-surface-variant">href</span>=<span class="text-secondary">"index.html"</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"text-primary"</span><span class="text-tertiary">&gt;</span>Home<span class="text-tertiary">&lt;/</span><span class="text-primary">a</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">a</span> <span class="text-on-surface-variant">href</span>=<span class="text-secondary">"about.html"</span><span class="text-tertiary">&gt;</span>About<span class="text-tertiary">&lt;/</span><span class="text-primary">a</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">nav</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">header</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">main</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"p-8 max-w-4xl mx-auto"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">section</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"flex flex-col gap-4"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">h2</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"text-headline-lg"</span><span class="text-tertiary">&gt;</span>Production Ready Build<span class="text-tertiary">&lt;/</span><span class="text-primary">h2</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">p</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"text-on-surface-variant"</span><span class="text-tertiary">&gt;</span>This bundle was compiled via DevBrowser static generator pipeline.<span class="text-tertiary">&lt;/</span><span class="text-primary">p</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">div</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"p-6 bg-surface-container-low rounded-xl border border-outline-variant"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">img</span> <span class="text-on-surface-variant">src</span>=<span class="text-secondary">"assets/hero.png"</span> <span class="text-on-surface-variant">alt</span>=<span class="text-secondary">"Hero Graphic"</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"rounded w-full"</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">div</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">section</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">main</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">footer</span> <span class="text-on-surface-variant">class</span>=<span class="text-secondary">"py-4 text-center text-on-surface-variant text-body-sm"</span><span class="text-tertiary">&gt;</span></div>
+<div>    © 2025 Workspace Root. All rights reserved.</div>
+<div> <span class="text-tertiary">&lt;/</span><span class="text-primary">footer</span><span class="text-tertiary">&gt;</span></div>
+<div> <span class="text-tertiary">&lt;</span><span class="text-primary">script</span> <span class="text-on-surface-variant">src</span>=<span class="text-secondary">"js/runtime.js"</span><span class="text-tertiary">&gt;&lt;/</span><span class="text-primary">script</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;/</span><span class="text-primary">body</span><span class="text-tertiary">&gt;</span></div>
+<div><span class="text-tertiary">&lt;/</span><span class="text-primary">html</span><span class="text-tertiary">&gt;</span></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+<div></div>
+</div>
+</div>
+</div>
+<!-- Footer status bar -->
+<footer class="flex items-center justify-between px-4 py-1.5 bg-surface-container-low border-t border-outline-variant text-label-sm font-label-sm text-on-surface-variant shrink-0 select-none">
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1.5 text-primary font-medium">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle">check_circle</span>
+<span>Build Successful</span>
+</span>
+<span class="text-outline-variant">|</span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="folder">folder</span>
+<span>12 files · 184 KB</span>
+</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="code">code</span>
+<span>HTML5 / UTF-8</span>
+</span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="sync">sync</span>
+<span>Synced 2m ago</span>
+</span>
+</div>
+</footer>
+</main>
+</div>
+</body></html>
