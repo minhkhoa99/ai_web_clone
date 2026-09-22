@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>New Clone Configuration — CLONE//ARCH</title>
+<!-- Google Fonts: Space Grotesk, JetBrains Mono, Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with Forms and Container Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-variant": "#32353c",
+            "on-surface-variant": "#c7c4d7",
+            "surface-container-lowest": "#0b0e15",
+            "tertiary": "#ffb95f",
+            "surface-dim": "#10131a",
+            "surface-container-highest": "#32353c",
+            "on-primary-fixed": "#07006c",
+            "on-surface": "#e0e2ec",
+            "on-secondary-fixed-variant": "#005321",
+            "on-secondary-fixed": "#002109",
+            "on-background": "#e0e2ec",
+            "primary-fixed": "#e1e0ff",
+            "background": "#10131a",
+            "on-tertiary": "#472a00",
+            "inverse-primary": "#494bd6",
+            "secondary-container": "#00b954",
+            "tertiary-container": "#ca8100",
+            "surface": "#10131a",
+            "on-error-container": "#ffdad6",
+            "tertiary-fixed-dim": "#ffb95f",
+            "surface-bright": "#363941",
+            "outline-variant": "#464554",
+            "on-tertiary-fixed": "#2a1700",
+            "on-secondary": "#003915",
+            "secondary-fixed-dim": "#4ae176",
+            "on-tertiary-fixed-variant": "#653e00",
+            "on-secondary-container": "#004119",
+            "outline": "#908fa0",
+            "inverse-surface": "#e0e2ec",
+            "primary": "#c0c1ff",
+            "on-error": "#690005",
+            "surface-container-low": "#191c23",
+            "primary-container": "#8083ff",
+            "on-tertiary-container": "#3e2400",
+            "secondary-fixed": "#6bff8f",
+            "surface-tint": "#c0c1ff",
+            "tertiary-fixed": "#ffddb8",
+            "inverse-on-surface": "#2d3038",
+            "on-primary": "#1000a9",
+            "on-primary-container": "#0d0096",
+            "surface-container": "#1d2027",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "primary-fixed-dim": "#c0c1ff",
+            "surface-container-high": "#272a31",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "secondary": "#4ae176"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "margin": "1rem",
+            "gutter": "1rem",
+            "space-lg": "1rem",
+            "space-sm": "0.5rem",
+            "space-md": "0.75rem",
+            "space-xs": "0.25rem",
+            "space-xl": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Space Grotesk"],
+            "label-sm": ["JetBrains Mono"],
+            "headline-lg": ["Space Grotesk"],
+            "headline-sm": ["Space Grotesk"],
+            "label-md": ["JetBrains Mono"],
+            "body-lg": ["Inter"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    /* Technical scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0e15;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #272a31;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #32353c;
+    }
+
+    /* Slider accent styling */
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 14px;
+      width: 14px;
+      border-radius: 2px;
+      background: #c0c1ff;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(128, 131, 255, 0.4);
+      border: 1px solid #0d0096;
+    }
+    input[type=range]::-moz-range-thumb {
+      height: 14px;
+      width: 14px;
+      border-radius: 2px;
+      background: #c0c1ff;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(128, 131, 255, 0.4);
+      border: 1px solid #0d0096;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface antialiased font-body-md min-h-screen flex flex-col selection:bg-primary-container selection:text-on-primary-container overflow-x-hidden">
+<!-- ========================================================================= -->
+<!-- TOP APP BAR (Shared Components JSON Anchor: TopNavBar)                  -->
+<!-- ========================================================================= -->
+<header class="bg-surface-container-lowest flex justify-between items-center w-full px-margin h-14 border-b border-surface-variant sticky top-0 z-50">
+<!-- Left: Brand Logo & Workspace Anchor -->
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="deployed_code">deployed_code</span>
+<span class="font-headline-sm text-headline-sm tracking-tight font-semibold text-primary">CLONE//ARCH</span>
+</div>
+<div class="h-4 w-px bg-surface-variant hidden md:block"></div>
+<span class="font-label-sm text-label-sm text-on-surface-variant hidden lg:inline-flex items-center gap-1.5 px-space-sm py-0.5 rounded bg-surface-container border border-surface-variant">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+        CORE: v2.4.0-rc1
+      </span>
+</div>
+<!-- Center: Primary Nav Links -->
+<nav class="hidden md:flex items-center gap-space-lg">
+<!-- Active Link: 'Configure' matches the current view -->
+<a class="text-primary font-label-md text-label-md border-b-2 border-primary pb-2 flex items-center gap-1.5 transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="tune">tune</span>
+        Configure
+      </a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 flex items-center gap-1.5 hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="alt_route">alt_route</span>
+        Pipeline
+      </a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 flex items-center gap-1.5 hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="inventory_2">inventory_2</span>
+        Artifacts
+      </a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 flex items-center gap-1.5 hover:bg-surface-container-high transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="verified_user">verified_user</span>
+        Audit
+      </a>
+</nav>
+<!-- Right: Quick Actions & Utilities -->
+<div class="flex items-center gap-space-sm">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors" title="Integrated Terminal">
+<span class="material-symbols-outlined text-[18px]" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors" title="Environment Flags">
+<span class="material-symbols-outlined text-[18px]" data-icon="tune">tune</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-[18px]" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+</button>
+</div>
+<div class="h-4 w-px bg-surface-variant"></div>
+<button class="px-space-md py-1 border border-surface-variant text-on-surface font-label-md text-label-md rounded hover:bg-surface-container-high transition-colors">
+        Docs
+      </button>
+<button class="px-space-md py-1 bg-primary text-on-primary font-label-md text-label-md rounded font-semibold flex items-center gap-1.5 hover:bg-primary-fixed transition-colors active:scale-[0.98]">
+<span class="material-symbols-outlined text-[16px]" data-icon="rocket_launch">rocket_launch</span>
+        Deploy Clone
+      </button>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN WORKSPACE LAYOUT (SideNav Rail + Centered Form Canvas)               -->
+<!-- ========================================================================= -->
+<div class="flex flex-1 min-h-[calc(100vh-3.5rem)]">
+<!-- SIDEBAR RAIL (Shared Components JSON Anchor: SideNavBar) -->
+<aside class="bg-surface-dim border-r border-surface-variant w-60 hidden lg:flex flex-col justify-between p-space-sm shrink-0">
+<!-- Top Rail Cluster -->
+<div class="space-y-space-md">
+<!-- Project Context Card -->
+<div class="p-space-sm bg-surface-container-low rounded border border-surface-variant/60 flex items-center justify-between">
+<div class="flex items-center gap-space-sm overflow-hidden">
+<div class="w-7 h-7 rounded bg-surface-container flex items-center justify-center border border-surface-variant text-primary font-label-sm">
+<span class="material-symbols-outlined text-[16px]" data-icon="terminal">terminal</span>
+</div>
+<div class="min-w-0">
+<p class="font-label-md text-label-md font-semibold text-on-surface truncate leading-tight">Project Alpha</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant truncate">v2.4.0-rc1</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline text-[16px]" data-icon="unfold_more">unfold_more</span>
+</div>
+<!-- Primary Rail Nav Tabs -->
+<nav class="space-y-0.5">
+<!-- Item 1: Overview (Active in sidebar navigation ecosystem) -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-primary bg-surface-container border-l-2 border-primary font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="dashboard">dashboard</span>
+<span>Overview</span>
+</a>
+<!-- Item 2: Engines -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="memory">memory</span>
+<span>Engines</span>
+</a>
+<!-- Item 3: DOM Rules -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="code">code</span>
+<span>DOM Rules</span>
+</a>
+<!-- Item 4: Tokens & Budget -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span>Tokens &amp; Budget</span>
+</a>
+<!-- Item 5: Telemetry -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="monitoring">monitoring</span>
+<span>Telemetry</span>
+</a>
+</nav>
+<!-- CTA Action in Rail -->
+<div class="pt-space-xs">
+<button class="w-full py-1.5 px-space-md bg-surface-container-high border border-surface-variant text-on-surface font-label-md text-label-md rounded flex items-center justify-center gap-2 hover:border-primary/50 transition-colors">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="play_arrow">play_arrow</span>
+            Run Test
+          </button>
+</div>
+</div>
+<!-- Rail Footer Navigation -->
+<div class="pt-space-md border-t border-surface-variant/80 space-y-0.5">
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="vpn_key">vpn_key</span>
+<span>Keyring &amp; Auth</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<!-- System Status Indicator -->
+<div class="mt-space-md px-space-md py-space-xs rounded bg-surface-container-lowest border border-surface-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-outline">Engine Pool</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface">ONLINE</span>
+</div>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- CENTRAL WORKSPACE CANVAS                                                  -->
+<!-- ========================================================================= -->
+<main class="flex-1 overflow-y-auto px-margin py-8 md:py-12 flex justify-center items-start">
+<!-- Center Card Form Shell (max-w-3xl) -->
+<div class="w-full max-w-3xl bg-surface-container-low border border-surface-variant rounded-lg p-6 sm:p-8 space-y-7 relative backdrop-blur-sm shadow-[0_4px_30px_rgba(0,0,0,0.35)]">
+<!-- Header Banner & Stepper Pill Info -->
+<div class="border-b border-surface-variant/70 pb-5">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<span class="font-label-sm text-label-sm text-primary uppercase tracking-wider px-2 py-0.5 rounded bg-surface-container border border-primary/20">TASK CONFIG 0x88F</span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-lowest px-2 py-0.5 rounded border border-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> READY
+              </span>
+</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant hidden sm:block">
+              DOM v3 Parser • Headless Chromium
+            </div>
+</div>
+<h1 class="font-headline-lg text-headline-lg font-bold text-on-surface tracking-tight">New Clone Configuration</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Set extraction targets, authentication parameters, and synthesis thresholds.</p>
+</div>
+<!-- FORM CONTAINER -->
+<form class="space-y-6" onsubmit="event.preventDefault();">
+<!-- 1. WEBSITE URL -->
+<div class="space-y-2">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-1.5" for="target-url">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="language">language</span>
+                Website URL
+              </label>
+<span class="font-label-sm text-label-sm text-outline">HTTP/HTTPS Target</span>
+</div>
+<div class="relative flex items-center">
+<span class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="public">public</span>
+</span>
+<input class="w-full bg-surface-container-lowest border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded pl-10 pr-24 py-2.5 font-label-md text-label-md text-on-surface placeholder:text-outline/60 outline-none transition-colors" id="target-url" placeholder="https://docs.acme.corp/guides/v2" type="url" value="https://docs.acme.corp/guides/v2"/>
+<div class="absolute right-2 flex items-center gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-outline hover:text-on-surface transition-colors" title="Copy endpoint" type="button">
+<span class="material-symbols-outlined text-[16px]" data-icon="content_copy">content_copy</span>
+</button>
+<button class="px-2 py-0.5 rounded bg-surface-container border border-surface-variant font-label-sm text-label-sm text-primary hover:bg-surface-container-high transition-colors" type="button">
+                  Ping
+                </button>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary" data-icon="check_circle">check_circle</span>
+              Robots.txt parsing enabled. DNS resolves to 142.250.190.46.
+            </p>
+</div>
+<!-- 2. CLONE MODE -->
+<div class="space-y-2 pt-1">
+<label class="font-label-md text-label-md text-on-surface block">Clone mode</label>
+<div class="grid grid-cols-2 gap-2 bg-surface-container-lowest p-1 rounded border border-surface-variant">
+<!-- Single Page Option -->
+<button class="py-2 px-space-md text-center rounded font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center gap-2" id="mode-single" onclick="setCloneMode('single')" type="button">
+<span class="material-symbols-outlined text-[16px]" data-icon="article">article</span>
+                Single page
+              </button>
+<!-- Crawl Site Option (Active by default) -->
+<button class="py-2 px-space-md text-center rounded font-label-md text-label-md bg-surface-container text-primary border border-primary/30 font-semibold shadow-sm transition-colors flex items-center justify-center gap-2" id="mode-crawl" onclick="setCloneMode('crawl')" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="hub">hub</span>
+                Crawl site
+              </button>
+</div>
+</div>
+<!-- 3. CRAWL PARAMETERS (Visible when Crawl is selected) -->
+<div class="p-4 bg-surface-container-lowest/70 border border-surface-variant rounded space-y-3" id="crawl-parameters-grid">
+<div class="flex items-center justify-between pb-1 border-b border-surface-variant/40">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-outline" data-icon="conversion_path">conversion_path</span>
+                Crawl Constraints
+              </span>
+<span class="font-label-sm text-label-sm text-outline">Polite rate limiting active</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+<!-- Max Pages -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between">
+<label class="font-label-sm text-label-sm text-on-surface" for="max-pages">Max pages</label>
+<span class="font-label-sm text-label-sm text-outline">limit</span>
+</div>
+<div class="relative">
+<input class="w-full bg-surface-container border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded px-3 py-1.5 font-label-md text-label-md text-on-surface text-center outline-none transition-colors" id="max-pages" max="1000" min="1" type="number" value="20"/>
+<span class="absolute right-2 top-2 text-outline text-[10px] uppercase font-label-sm pointer-events-none">pgs</span>
+</div>
+</div>
+<!-- Depth -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between">
+<label class="font-label-sm text-label-sm text-on-surface" for="crawl-depth">Depth</label>
+<span class="font-label-sm text-label-sm text-outline">hops</span>
+</div>
+<div class="relative">
+<input class="w-full bg-surface-container border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded px-3 py-1.5 font-label-md text-label-md text-on-surface text-center outline-none transition-colors" id="crawl-depth" max="10" min="1" type="number" value="2"/>
+<span class="absolute right-2 top-2 text-outline text-[10px] uppercase font-label-sm pointer-events-none">lvl</span>
+</div>
+</div>
+<!-- Concurrency -->
+<div class="space-y-1.5">
+<div class="flex items-center justify-between">
+<label class="font-label-sm text-label-sm text-on-surface" for="crawl-concurrency">Concurrency</label>
+<span class="font-label-sm text-label-sm text-outline">workers</span>
+</div>
+<div class="relative">
+<input class="w-full bg-surface-container border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded px-3 py-1.5 font-label-md text-label-md text-on-surface text-center outline-none transition-colors" id="crawl-concurrency" max="12" min="1" type="number" value="3"/>
+<span class="absolute right-2 top-2 text-outline text-[10px] uppercase font-label-sm pointer-events-none">thrd</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. AUTHENTICATION -->
+<div class="space-y-3 pt-1">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-1.5" for="auth-select">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="lock">lock</span>
+                Authentication
+              </label>
+<span class="font-label-sm text-label-sm text-outline">Session Cookie Vault</span>
+</div>
+<!-- Custom Select Simulation / Native Select with Developer Styling -->
+<div class="relative">
+<select class="w-full bg-surface-container-lowest border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded px-3 py-2.5 font-label-md text-label-md text-on-surface outline-none appearance-none cursor-pointer" id="auth-select" onchange="toggleAuthFields(this.value)">
+<option value="none">None</option>
+<option value="manual">Manual login (Browser handoff)</option>
+<option selected="" value="auto">Auto login (with account)</option>
+</select>
+<div class="absolute right-3 top-3 pointer-events-none text-outline">
+<span class="material-symbols-outlined text-[18px]" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Conditional Section for Auto Login -->
+<div class="p-4 bg-surface-container-lowest border border-surface-variant rounded space-y-4" id="auto-login-section">
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<!-- Username / Email -->
+<div class="space-y-1.5">
+<label class="font-label-sm text-label-sm text-on-surface" for="auth-user">Username / Email</label>
+<div class="relative">
+<input class="w-full bg-surface-container border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded px-3 py-1.5 font-label-md text-label-md text-on-surface outline-none" id="auth-user" type="text" value="dev-crawler@acme.corp"/>
+</div>
+</div>
+<!-- Password with eye toggle -->
+<div class="space-y-1.5">
+<label class="font-label-sm text-label-sm text-on-surface" for="auth-pass">Password</label>
+<div class="relative flex items-center">
+<input class="w-full bg-surface-container border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded pl-3 pr-9 py-1.5 font-label-md text-label-md text-on-surface outline-none" id="auth-pass" type="password" value="superSecretKey!2024"/>
+<button class="absolute right-2 text-outline hover:text-on-surface transition-colors p-1" onclick="togglePasswordVisibility('auth-pass', this)" title="Toggle password reveal" type="button">
+<span class="material-symbols-outlined text-[16px]" data-icon="visibility">visibility</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Optional Selectors (Advanced) expandable section -->
+<details class="group pt-2 border-t border-surface-variant/40">
+<summary class="font-label-sm text-label-sm text-primary cursor-pointer hover:underline flex items-center gap-1 select-none">
+<span class="material-symbols-outlined text-[16px] group-open:rotate-90 transition-transform" data-icon="chevron_right">chevron_right</span>
+                  Optional selectors (Advanced)
+                </summary>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-2">
+<div class="space-y-1">
+<label class="font-label-sm text-label-sm text-outline">User Input Selector</label>
+<input class="w-full bg-surface-container border border-surface-variant rounded px-2.5 py-1 font-label-sm text-label-sm text-on-surface outline-none focus:border-primary" type="text" value='input[name="user"]'/>
+</div>
+<div class="space-y-1">
+<label class="font-label-sm text-label-sm text-outline">Submit Button Selector</label>
+<input class="w-full bg-surface-container border border-surface-variant rounded px-2.5 py-1 font-label-sm text-label-sm text-on-surface outline-none focus:border-primary" type="text" value="#login-btn"/>
+</div>
+</div>
+</details>
+</div>
+</div>
+<!-- 5. QA THRESHOLD -->
+<div class="space-y-3 pt-1">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-1.5" for="qa-slider">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="flaky">flaky</span>
+                QA threshold
+              </label>
+<div class="flex items-center gap-2">
+<span class="font-label-sm text-label-sm px-2 py-0.5 rounded bg-secondary/15 text-secondary border border-secondary/30 font-semibold" id="qa-quality-badge">
+                  HIGH FIDELITY
+                </span>
+<span class="font-label-md text-label-md font-bold text-primary" id="qa-val-display">95%</span>
+</div>
+</div>
+<div class="p-3 bg-surface-container-lowest rounded border border-surface-variant space-y-2">
+<input class="w-full h-1.5 bg-surface-container-highest rounded-lg appearance-none cursor-pointer" id="qa-slider" max="100" min="70" oninput="updateQAValue(this.value)" step="1" type="range" value="95"/>
+<div class="flex justify-between font-label-sm text-label-sm text-outline px-0.5">
+<span>70% (Loose)</span>
+<span>85% (Balanced)</span>
+<span class="text-primary font-semibold">95% (Strict)</span>
+<span>100% (Pixel-Exact)</span>
+</div>
+</div>
+</div>
+<!-- 6. TOKEN BUDGET -->
+<div class="space-y-2 pt-1">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-1.5" for="token-budget">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="generating_tokens">generating_tokens</span>
+                Token budget
+              </label>
+<span class="font-label-sm text-label-sm text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="paid">paid</span>
+                Est. cost: ~$4.80 USD
+              </span>
+</div>
+<div class="relative flex items-center">
+<input class="w-full bg-surface-container-lowest border border-surface-variant focus:border-primary focus:ring-1 focus:ring-primary rounded pl-3 pr-28 py-2.5 font-label-md text-label-md text-on-surface outline-none" id="token-budget" type="text" value="2,000,000"/>
+<div class="absolute right-3 flex items-center gap-1.5 pointer-events-none">
+<span class="font-label-sm text-label-sm text-outline uppercase font-semibold">Tokens</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Allocated for AST layout synthesis, multi-pass stylesheet reconciliation, and icon vectorization.</p>
+</div>
+<!-- 7. OUTPUT FORMAT -->
+<div class="space-y-2 pt-1">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="output">output</span>
+                Output format
+              </label>
+<span class="font-label-sm text-label-sm text-outline">Target AST dialect</span>
+</div>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+<!-- HTML (Active / Selected) -->
+<div class="p-2.5 rounded bg-surface-container border-2 border-primary cursor-pointer flex flex-col justify-between h-18">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md font-bold text-primary">HTML</span>
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex items-center justify-between mt-2">
+<span class="text-[10px] text-on-surface-variant">Clean DOM</span>
+<span class="font-label-sm text-[10px] px-1 rounded bg-primary/20 text-primary border border-primary/40 font-mono">ACTIVE</span>
+</div>
+</div>
+<!-- React JSX (Disabled) -->
+<div class="p-2.5 rounded bg-surface-container-lowest border border-surface-variant/50 opacity-50 cursor-not-allowed flex flex-col justify-between h-18">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-outline">React JSX</span>
+<span class="font-label-sm text-[10px] px-1 rounded bg-surface-variant text-outline font-mono">SP2</span>
+</div>
+<span class="text-[10px] text-outline mt-2">Available in Phase 2</span>
+</div>
+<!-- Markdown (Disabled) -->
+<div class="p-2.5 rounded bg-surface-container-lowest border border-surface-variant/50 opacity-50 cursor-not-allowed flex flex-col justify-between h-18">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-outline">Markdown</span>
+<span class="font-label-sm text-[10px] px-1 rounded bg-surface-variant text-outline font-mono">SP2</span>
+</div>
+<span class="text-[10px] text-outline mt-2">Content extraction</span>
+</div>
+<!-- Figma Tokens (Disabled) -->
+<div class="p-2.5 rounded bg-surface-container-lowest border border-surface-variant/50 opacity-50 cursor-not-allowed flex flex-col justify-between h-18">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-outline">Figma Tokens</span>
+<span class="font-label-sm text-[10px] px-1 rounded bg-surface-variant text-outline font-mono">SP2</span>
+</div>
+<span class="text-[10px] text-outline mt-2">DTCG schema</span>
+</div>
+</div>
+</div>
+<!-- 8. ACTION BUTTONS & FOOTER -->
+<div class="pt-6 border-t border-surface-variant flex flex-col-reverse sm:flex-row items-center justify-between gap-3">
+<div class="flex items-center gap-2 w-full sm:w-auto">
+<button class="w-full sm:w-auto px-4 py-2 border border-surface-variant hover:bg-surface-container-high text-on-surface font-label-md text-label-md rounded transition-colors flex items-center justify-center gap-1.5" type="button">
+                Cancel
+              </button>
+<button class="w-full sm:w-auto px-4 py-2 border border-surface-variant hover:bg-surface-container-high text-on-surface font-label-md text-label-md rounded transition-colors flex items-center justify-center gap-1.5" type="button">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="bookmark_add">bookmark_add</span>
+                Save as preset
+              </button>
+</div>
+<!-- Big Primary Action Button -->
+<button class="w-full sm:w-auto px-6 py-2.5 bg-primary hover:bg-primary-fixed text-on-primary font-headline-sm text-headline-sm rounded font-semibold flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(192,193,255,0.2)] active:scale-[0.98] transition-all" type="submit">
+<span class="material-symbols-outlined text-[20px]" data-icon="radar">radar</span>
+              Preview sitemap
+              <span class="material-symbols-outlined text-[18px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</form>
+<!-- Technical Telemetry Footer Strip -->
+<div class="pt-3 border-t border-surface-variant/40 flex flex-wrap items-center justify-between gap-2 text-outline font-label-sm text-label-sm">
+<div class="flex items-center gap-3">
+<span>PIPELINE: SYNTH_CHROMIUM_V8</span>
+<span>•</span>
+<span>EST. TIME: ~38s</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="inline-block w-2 h-2 rounded-full bg-secondary"></span>
+<span>CLUSTER REGION: us-east-1a (0.4ms ping)</span>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Micro-interactions Script -->
+<script>
+    function setCloneMode(mode) {
+      const singleBtn = document.getElementById('mode-single');
+      const crawlBtn = document.getElementById('mode-crawl');
+      const crawlParams = document.getElementById('crawl-parameters-grid');
+
+      if (mode === 'crawl') {
+        crawlBtn.className = "py-2 px-space-md text-center rounded font-label-md text-label-md bg-surface-container text-primary border border-primary/30 font-semibold shadow-sm transition-colors flex items-center justify-center gap-2";
+        singleBtn.className = "py-2 px-space-md text-center rounded font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center gap-2";
+        crawlParams.style.display = 'block';
+      } else {
+        singleBtn.className = "py-2 px-space-md text-center rounded font-label-md text-label-md bg-surface-container text-primary border border-primary/30 font-semibold shadow-sm transition-colors flex items-center justify-center gap-2";
+        crawlBtn.className = "py-2 px-space-md text-center rounded font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center gap-2";
+        crawlParams.style.display = 'none';
+      }
+    }
+
+    function toggleAuthFields(mode) {
+      const authSec = document.getElementById('auto-login-section');
+      if (mode === 'auto') {
+        authSec.style.display = 'block';
+      } else {
+        authSec.style.display = 'none';
+      }
+    }
+
+    function togglePasswordVisibility(inputId, button) {
+      const input = document.getElementById(inputId);
+      const icon = button.querySelector('span');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.textContent = 'visibility_off';
+      } else {
+        input.type = 'password';
+        icon.textContent = 'visibility';
+      }
+    }
+
+    function updateQAValue(val) {
+      const display = document.getElementById('qa-val-display');
+      const badge = document.getElementById('qa-quality-badge');
+      display.textContent = val + '%';
+      
+      if (val >= 95) {
+        badge.textContent = 'STRICT EXACT';
+        badge.className = 'font-label-sm text-label-sm px-2 py-0.5 rounded bg-secondary/15 text-secondary border border-secondary/30 font-semibold';
+      } else if (val >= 85) {
+        badge.textContent = 'BALANCED';
+        badge.className = 'font-label-sm text-label-sm px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 font-semibold';
+      } else {
+        badge.textContent = 'LOOSE DRAFT';
+        badge.className = 'font-label-sm text-label-sm px-2 py-0.5 rounded bg-tertiary/15 text-tertiary border border-tertiary/30 font-semibold';
+      }
+    }
+  </script>
+</body></html>

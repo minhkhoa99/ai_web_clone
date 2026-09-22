@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>WebClone - Diff QA #8942 (stripe.com/pricing)</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-secondary-container": "#004119",
+            "on-surface": "#e0e2ec",
+            "surface-container-high": "#272a31",
+            "secondary-fixed": "#6bff8f",
+            "on-secondary": "#003915",
+            "error-container": "#93000a",
+            "tertiary-fixed": "#ffddb8",
+            "on-error-container": "#ffdad6",
+            "surface-container-low": "#191c23",
+            "on-error": "#690005",
+            "surface-dim": "#10131a",
+            "on-background": "#e0e2ec",
+            "secondary-fixed-dim": "#4ae176",
+            "surface-container-lowest": "#0b0e15",
+            "surface-container-highest": "#32353c",
+            "secondary-container": "#00b954",
+            "outline": "#908fa0",
+            "on-tertiary-fixed-variant": "#653e00",
+            "outline-variant": "#464554",
+            "inverse-surface": "#e0e2ec",
+            "tertiary-fixed-dim": "#ffb95f",
+            "on-tertiary-fixed": "#2a1700",
+            "surface-tint": "#c0c1ff",
+            "on-primary": "#1000a9",
+            "surface-variant": "#32353c",
+            "primary": "#c0c1ff",
+            "background": "#10131a",
+            "primary-fixed-dim": "#c0c1ff",
+            "surface": "#10131a",
+            "on-tertiary": "#472a00",
+            "on-primary-fixed": "#07006c",
+            "secondary": "#4ae176",
+            "tertiary-container": "#ca8100",
+            "inverse-primary": "#494bd6",
+            "tertiary": "#ffb95f",
+            "on-surface-variant": "#c7c4d7",
+            "error": "#ffb4ab",
+            "surface-container": "#1d2027",
+            "primary-fixed": "#e1e0ff",
+            "inverse-on-surface": "#2d3038",
+            "surface-bright": "#363941",
+            "primary-container": "#8083ff",
+            "on-tertiary-container": "#3e2400",
+            "on-secondary-fixed": "#002109",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "on-secondary-fixed-variant": "#005321",
+            "on-primary-container": "#0d0096"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "margin": "1rem",
+            "space-xs": "0.25rem",
+            "space-md": "0.75rem",
+            "space-lg": "1rem",
+            "space-xl": "1.5rem",
+            "space-sm": "0.5rem"
+          },
+          "fontFamily": {
+            "headline-lg": ["Space Grotesk"],
+            "body-sm": ["Inter"],
+            "headline-sm": ["Space Grotesk"],
+            "body-md": ["Inter"],
+            "label-sm": ["JetBrains Mono"],
+            "label-md": ["JetBrains Mono"],
+            "headline-md": ["Space Grotesk"],
+            "body-lg": ["Inter"]
+          },
+          "fontSize": {
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-surface text-on-surface font-body-md antialiased h-screen flex flex-col overflow-hidden select-none">
+<!-- TopNavBar (Shared Component Anchor) -->
+<header class="docked full-width top-0 z-50 h-14 border-b border-outline-variant bg-surface-container-lowest flex justify-between items-center w-full px-space-lg">
+<!-- Left Identity & Breadcrumb -->
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-space-sm">
+<span class="text-headline-sm font-headline-sm font-semibold tracking-tight text-on-surface">WebClone</span>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-container text-primary font-label-sm border border-outline-variant">CORE v2.4</span>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- Navigation Links from Anchor -->
+<nav class="flex items-center gap-space-xs">
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Projects</a>
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Pipelines</a>
+<a class="text-primary font-label-md border-b-2 border-primary py-4 px-space-sm flex items-center gap-1.5" href="#">
+<span>Diff QA</span>
+<span class="text-primary font-label-sm bg-primary/10 px-1 rounded">#8942</span>
+</a>
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Templates</a>
+</nav>
+<div class="hidden xl:flex items-center gap-space-sm pl-2">
+<span class="text-outline-variant">/</span>
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container-low border border-outline-variant">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm text-on-surface">stripe.com/pricing</span>
+<span class="material-symbols-outlined text-outline text-[14px]">open_in_new</span>
+</div>
+</div>
+</div>
+<!-- Right Actions -->
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="p-1.5 rounded hover:bg-surface-container hover:text-on-surface transition-colors" title="Terminal"><span class="material-symbols-outlined text-[18px]">terminal</span></button>
+<button class="p-1.5 rounded hover:bg-surface-container hover:text-on-surface transition-colors" title="Tune Diff Engine"><span class="material-symbols-outlined text-[18px]">tune</span></button>
+<button class="p-1.5 rounded hover:bg-surface-container hover:text-on-surface transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-[18px]">notifications</span>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-primary"></span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container hover:text-on-surface transition-colors" title="Settings"><span class="material-symbols-outlined text-[18px]">settings</span></button>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<button class="font-label-md px-3 py-1.5 rounded bg-surface-container-low border border-outline-variant text-on-surface hover:bg-surface-container transition-colors">Docs</button>
+<button class="font-label-md px-3.5 py-1.5 rounded bg-primary text-on-primary font-semibold hover:bg-primary-container transition-colors flex items-center gap-1.5 active:scale-[0.98]">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+<span>Approve &amp; Export</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center font-label-sm text-primary font-semibold" title="User developer avatar">
+        NX
+      </div>
+</div>
+</header>
+<!-- Secondary QA Control Toolbar -->
+<section class="h-11 bg-surface-container-lowest border-b border-outline-variant px-space-lg flex items-center justify-between z-40">
+<!-- Left Group: Breakpoint selector -->
+<div class="flex items-center gap-2">
+<span class="font-label-sm text-outline uppercase tracking-wider text-[10px]">Viewport</span>
+<div class="flex items-center bg-surface-container-low p-0.5 rounded border border-outline-variant">
+<button class="px-2 py-0.5 rounded font-label-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">smartphone</span>
+<span>375px</span>
+</button>
+<button class="px-2 py-0.5 rounded font-label-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">tablet</span>
+<span>768px</span>
+</button>
+<button class="px-2 py-0.5 rounded font-label-sm bg-surface-container-high text-primary border border-primary/30 flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">desktop_windows</span>
+<span>1440px</span>
+</button>
+</div>
+<span class="font-label-sm text-outline-variant">|</span>
+<span class="font-label-sm text-outline text-[11px]">DPR: 2.0x</span>
+</div>
+<!-- Center Group: View modes & Overlay tools -->
+<div class="flex items-center gap-4">
+<div class="flex items-center bg-surface-container-low p-0.5 rounded border border-outline-variant">
+<button class="px-2.5 py-0.5 rounded font-label-sm bg-surface-container-high text-on-surface font-medium flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[15px]">view_column</span>
+<span>Side-by-Side</span>
+</button>
+<button class="px-2.5 py-0.5 rounded font-label-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">layers</span>
+<span>Onion Skin</span>
+</button>
+<button class="px-2.5 py-0.5 rounded font-label-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">splitscreen</span>
+<span>Swipe Slider</span>
+</button>
+<button class="px-2.5 py-0.5 rounded font-label-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">code_blocks</span>
+<span>DOM Delta</span>
+</button>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- Heatmap Toggle & Opacity Slider -->
+<div class="flex items-center gap-3">
+<label class="flex items-center gap-1.5 cursor-pointer">
+<input checked="" class="rounded border-outline-variant bg-surface-container-low text-primary focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5" type="checkbox"/>
+<span class="font-label-sm text-on-surface flex items-center gap-1">
+<span>Heatmap</span>
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+</span>
+</label>
+<div class="flex items-center gap-2">
+<span class="font-label-sm text-outline text-[10px]">Blend</span>
+<input class="w-20 accent-primary h-1 bg-surface-container-high rounded cursor-pointer" max="100" min="0" type="range" value="65"/>
+<span class="font-label-sm text-primary w-6 text-right">65%</span>
+</div>
+</div>
+</div>
+<!-- Right Group: Fidelity Score Chip & Quick Fix -->
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-surface-container-low border border-outline-variant">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-outline text-[11px]">Match:</span>
+<span class="font-label-sm font-semibold text-secondary-fixed">96.2%</span>
+</div>
+<button class="p-1.5 rounded bg-surface-container-low border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Re-run Diff Pipeline">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+</button>
+<button class="px-2.5 py-1 rounded bg-primary-container/20 border border-primary/40 text-primary font-label-sm hover:bg-primary-container/30 transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">auto_fix_high</span>
+<span>Auto-Reconcile CSS</span>
+</button>
+</div>
+</section>
+<!-- Main Viewport Workspace: Side-by-Side + Right Inspector Sidebar -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Split Viewports Area -->
+<main class="flex-1 grid grid-cols-2 gap-2 p-2 bg-surface-dim overflow-hidden">
+<!-- PANEL 1: Original Reference -->
+<section class="flex flex-col rounded border border-outline-variant bg-surface-container-lowest overflow-hidden">
+<!-- Viewport Sub-header -->
+<div class="h-8 bg-surface-container-low border-b border-outline-variant px-3 flex items-center justify-between text-on-surface-variant">
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+</div>
+<span class="font-label-sm font-medium text-on-surface">Original (Live Reference)</span>
+<span class="text-[10px] font-label-sm px-1 rounded bg-surface-container text-outline">PUPPETEER HEADLESS</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-label-sm text-[11px] text-outline">1440 × 900</span>
+<span class="flex items-center gap-1 text-[11px] font-label-sm text-secondary">
+<span class="material-symbols-outlined text-[13px]">link</span>
+<span>Sync Scroll</span>
+</span>
+</div>
+</div>
+<!-- Rendered Live Page Mock Content -->
+<div class="flex-1 overflow-y-auto p-6 bg-[#0c1017] relative scroll-smooth font-body-sm text-on-surface select-text">
+<!-- Ambient grid graphic background -->
+<div class="absolute inset-0 bg-[radial-gradient(#1f2430_1px,transparent_1px)] [background-size:16px_16px] opacity-40 pointer-events-none"></div>
+<!-- Hero Content -->
+<div class="relative max-w-2xl mx-auto text-center pt-4 pb-8">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-container border border-outline-variant font-label-sm text-primary mb-3">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>Stripe Global Payments 2024 Engine</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight font-bold mb-2">
+              Flexible infrastructure for modern scale
+            </h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-lg mx-auto">
+              Modular billing architecture, unified payout rails, and automated compliance.
+            </p>
+<!-- Billing Toggle Switch Mock -->
+<div class="inline-flex items-center p-1 mt-6 rounded-full bg-surface-container-low border border-outline-variant font-label-sm">
+<span class="px-3 py-1 rounded-full text-on-surface-variant">Monthly</span>
+<span class="px-3 py-1 rounded-full bg-surface-bright text-on-surface font-semibold shadow">Annual (-20%)</span>
+</div>
+</div>
+<!-- Pricing Grid -->
+<div class="relative grid grid-cols-3 gap-3 max-w-3xl mx-auto pb-10">
+<!-- Tier: Starter -->
+<div class="rounded border border-outline-variant bg-surface-container-low p-4 flex flex-col justify-between">
+<div>
+<span class="font-label-sm text-outline uppercase tracking-wider text-[10px]">Tier 01</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Starter</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-on-surface font-bold">$29</span>
+<span class="font-label-sm text-outline">/mo</span>
+</div>
+<p class="font-body-sm text-outline mt-2 leading-tight">Essential orchestration for early pipelines.</p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 5,000 monthly API credits</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 2 concurrent AST runners</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Community Discord SLA</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-surface-container hover:bg-surface-bright border border-outline-variant text-on-surface transition-colors">Start Starter</button>
+</div>
+<!-- Tier: Pro (Popular) -->
+<div class="rounded border-2 border-primary/70 bg-surface-container p-4 flex flex-col justify-between relative shadow-lg">
+<div class="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-primary text-on-primary px-2 py-0.5 rounded font-label-sm text-[9px] font-bold uppercase tracking-wider">
+                MOST POPULAR
+              </div>
+<div>
+<span class="font-label-sm text-primary uppercase tracking-wider text-[10px]">Tier 02</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Pro Architecture</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-primary font-bold">$79</span>
+<span class="font-label-sm text-outline">/mo</span>
+</div>
+<p class="font-body-sm text-on-surface-variant mt-2 leading-tight" style="line-height: 1.15;">
+                  Deep visual diffing, automated layout synthesis, and self-hosted CSS reconcile.
+                </p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Unlimited AST snapshotting</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 16 parallel headless nodes</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 99.9% Pixel-diff guarantee</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Webhook CI/CD triggers</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-primary text-on-primary font-semibold hover:bg-primary-container transition-colors">Deploy Pro</button>
+</div>
+<!-- Tier: Enterprise -->
+<div class="rounded border border-outline-variant bg-surface-container-low p-4 flex flex-col justify-between">
+<div>
+<span class="font-label-sm text-outline uppercase tracking-wider text-[10px]">Tier 03</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Enterprise</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-on-surface font-bold">Custom</span>
+</div>
+<p class="font-body-sm text-outline mt-2 leading-tight">Private cluster deployment with full legal indemnification.</p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Dedicated VPC sandboxes</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Custom tokenizers &amp; parsers</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 15-min enterprise response SLA</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-surface-container hover:bg-surface-bright border border-outline-variant text-on-surface transition-colors">Contact Sales</button>
+</div>
+</div>
+</div>
+</section>
+<!-- PANEL 2: Clone AST Output (With Diff Highlighting) -->
+<section class="flex flex-col rounded border border-outline-variant bg-surface-container-lowest overflow-hidden relative">
+<!-- Viewport Sub-header -->
+<div class="h-8 bg-surface-container-low border-b border-outline-variant px-3 flex items-center justify-between text-on-surface-variant">
+<div class="flex items-center gap-2">
+<div class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+</div>
+<span class="font-label-sm font-medium text-primary">Clone (AST Output)</span>
+<span class="text-[10px] font-label-sm px-1 rounded bg-primary/10 text-primary border border-primary/20">VITE + TAILWIND JIT</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-label-sm text-[11px] text-outline">1440 × 900</span>
+<span class="flex items-center gap-1 text-[11px] font-label-sm text-error">
+<span class="w-1.5 h-1.5 rounded-full bg-error animate-ping"></span>
+<span>1 Box Diff Delta</span>
+</span>
+</div>
+</div>
+<!-- Rendered Cloned Page Mock Content with Visual Diff Overlay -->
+<div class="flex-1 overflow-y-auto p-6 bg-[#0c1017] relative scroll-smooth font-body-sm text-on-surface select-text">
+<div class="absolute inset-0 bg-[radial-gradient(#1f2430_1px,transparent_1px)] [background-size:16px_16px] opacity-40 pointer-events-none"></div>
+<!-- Hero Content (Clone) -->
+<div class="relative max-w-2xl mx-auto text-center pt-4 pb-8">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-container border border-outline-variant font-label-sm text-primary mb-3">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>Stripe Global Payments 2024 Engine</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight font-bold mb-2">
+              Flexible infrastructure for modern scale
+            </h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-lg mx-auto">
+              Modular billing architecture, unified payout rails, and automated compliance.
+            </p>
+<!-- Billing Toggle Switch Mock -->
+<div class="inline-flex items-center p-1 mt-6 rounded-full bg-surface-container-low border border-outline-variant font-label-sm">
+<span class="px-3 py-1 rounded-full text-on-surface-variant">Monthly</span>
+<span class="px-3 py-1 rounded-full bg-surface-bright text-on-surface font-semibold shadow">Annual (-20%)</span>
+</div>
+</div>
+<!-- Pricing Grid (Clone with Diff Box Overlay) -->
+<div class="relative grid grid-cols-3 gap-3 max-w-3xl mx-auto pb-10">
+<!-- Tier: Starter -->
+<div class="rounded border border-outline-variant bg-surface-container-low p-4 flex flex-col justify-between opacity-95">
+<div>
+<span class="font-label-sm text-outline uppercase tracking-wider text-[10px]">Tier 01</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Starter</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-on-surface font-bold">$29</span>
+<span class="font-label-sm text-outline">/mo</span>
+</div>
+<p class="font-body-sm text-outline mt-2 leading-tight">Essential orchestration for early pipelines.</p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 5,000 monthly API credits</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 2 concurrent AST runners</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Community Discord SLA</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-surface-container hover:bg-surface-bright border border-outline-variant text-on-surface transition-colors">Start Starter</button>
+</div>
+<!-- Tier: Pro (TARGET DISCREPANCY CARD) -->
+<div class="relative rounded border-2 border-error/90 bg-surface-container p-4 flex flex-col justify-between ring-2 ring-error/20">
+<!-- Floating Discrepancy Marker Tag -->
+<div class="absolute -top-7 right-0 bg-error text-on-error font-label-sm px-2 py-0.5 rounded shadow-lg flex items-center gap-1 z-30 font-semibold text-[10px]">
+<span class="material-symbols-outlined text-[12px]">warning</span>
+<span>Line-height diff 1.25 vs 1.15</span>
+</div>
+<!-- Shimmer Heatmap Canvas simulation -->
+<div class="absolute inset-0 bg-error/5 pointer-events-none rounded border border-error/40"></div>
+<div class="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-primary text-on-primary px-2 py-0.5 rounded font-label-sm text-[9px] font-bold uppercase tracking-wider">
+                MOST POPULAR
+              </div>
+<div>
+<span class="font-label-sm text-primary uppercase tracking-wider text-[10px]">Tier 02</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Pro Architecture</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-primary font-bold">$79</span>
+<span class="font-label-sm text-outline">/mo</span>
+</div>
+<!-- Synthesized slightly looser line-height bug representation -->
+<p class="font-body-sm text-on-surface-variant mt-2 bg-error/10 border-l-2 border-error pl-1.5 rounded-r" style="line-height: 1.25;">
+                  Deep visual diffing, automated layout synthesis, and self-hosted CSS reconcile.
+                </p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Unlimited AST snapshotting</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 16 parallel headless nodes</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 99.9% Pixel-diff guarantee</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Webhook CI/CD triggers</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-primary text-on-primary font-semibold hover:bg-primary-container transition-colors">Deploy Pro</button>
+</div>
+<!-- Tier: Enterprise -->
+<div class="rounded border border-outline-variant bg-surface-container-low p-4 flex flex-col justify-between opacity-95">
+<div>
+<span class="font-label-sm text-outline uppercase tracking-wider text-[10px]">Tier 03</span>
+<h3 class="font-headline-sm text-on-surface font-semibold mt-1">Enterprise</h3>
+<div class="mt-3 flex items-baseline gap-1">
+<span class="font-headline-lg text-on-surface font-bold">Custom</span>
+</div>
+<p class="font-body-sm text-outline mt-2 leading-tight">Private cluster deployment with full legal indemnification.</p>
+<ul class="mt-4 space-y-2 text-[11px] font-body-sm text-on-surface-variant">
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Dedicated VPC sandboxes</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> Custom tokenizers &amp; parsers</li>
+<li class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px] text-secondary">check</span> 15-min enterprise response SLA</li>
+</ul>
+</div>
+<button class="mt-6 w-full py-1.5 rounded font-label-sm bg-surface-container hover:bg-surface-bright border border-outline-variant text-on-surface transition-colors">Contact Sales</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Right Sidebar Inspector (IDE-density Drawer) -->
+<aside class="w-80 bg-surface-container-lowest border-l border-outline-variant flex flex-col justify-between h-full">
+<!-- Top Inspector Header Tabs -->
+<div class="flex flex-col border-b border-outline-variant bg-surface-container-lowest">
+<div class="flex items-center h-9 px-2 border-b border-outline-variant">
+<button class="flex-1 py-1 text-center font-label-sm text-primary border-b-2 border-primary font-medium flex items-center justify-center gap-1.5">
+<span>Sections</span>
+<span class="px-1 py-0.2 rounded bg-primary/10 text-primary text-[10px]">8</span>
+</button>
+<button class="flex-1 py-1 text-center font-label-sm text-on-surface-variant hover:text-on-surface flex items-center justify-center gap-1.5">
+<span>Coverage</span>
+<span class="px-1 py-0.2 rounded bg-surface-container text-outline text-[10px]">12</span>
+</button>
+</div>
+<!-- Section Metric Summary Pill -->
+<div class="p-2.5 bg-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-on-surface font-semibold text-[11px]">7 Passing</span>
+<span class="text-outline-variant">•</span>
+<span class="font-label-sm text-error font-semibold text-[11px]">1 Action Item</span>
+</div>
+<span class="font-label-sm text-primary font-bold text-[11px]">Total: 96.2%</span>
+</div>
+</div>
+<!-- Scrollable Inspector Content Pane -->
+<div class="flex-1 overflow-y-auto p-2 space-y-1">
+<!-- Passing Item 1 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">hero_pricing_v2</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">98.4%</span>
+</div>
+<!-- Passing Item 2 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">billing_toggle_annual</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">99.0%</span>
+</div>
+<!-- FAILED / ACTION ITEM (Expanded Card) -->
+<div class="rounded border border-error/50 bg-error-container/20 p-2.5 font-label-sm">
+<div class="flex items-center justify-between mb-1.5">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-error">error</span>
+<span class="font-semibold text-on-surface">tier_cards_grid</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-error/20 border border-error/40 text-error text-[10px] font-bold">94.2% FIX REQ</span>
+</div>
+<!-- Discrepancy Diagnostics -->
+<div class="bg-surface-container-lowest p-2 rounded border border-outline-variant text-[11px] font-label-sm space-y-1 text-on-surface-variant">
+<div class="text-outline text-[10px] uppercase">Box Metric Mismatch</div>
+<div class="flex justify-between">
+<span>Target:</span>
+<span class="text-on-surface font-mono">.pricing-desc (line-height)</span>
+</div>
+<div class="flex justify-between">
+<span>Original:</span>
+<span class="text-secondary font-mono">1.15 (18.4px)</span>
+</div>
+<div class="flex justify-between">
+<span>Clone AST:</span>
+<span class="text-error font-mono">1.25 (20.0px)</span>
+</div>
+<div class="pt-1 text-[10px] text-outline italic">Delta: +1.6px computed height drift in card #2</div>
+</div>
+<div class="mt-2 flex items-center gap-1.5">
+<button class="flex-1 py-1 rounded bg-primary text-on-primary font-semibold text-[11px] hover:bg-primary-container transition-colors flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[13px]">tune</span>
+<span>Inspect CSS Rule</span>
+</button>
+<button class="px-2 py-1 rounded bg-surface-container border border-outline-variant text-outline hover:text-on-surface text-[11px]">Ignore</button>
+</div>
+</div>
+<!-- Passing Item 3 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">feature_matrix_table</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">96.1%</span>
+</div>
+<!-- Passing Item 4 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">faq_accordion_group</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">95.5%</span>
+</div>
+<!-- Passing Item 5 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">enterprise_banner</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">99.4%</span>
+</div>
+<!-- Passing Item 6 -->
+<div class="p-2 rounded hover:bg-surface-container-low border border-transparent hover:border-outline-variant transition-colors flex items-center justify-between font-label-sm">
+<div class="flex items-center gap-2 truncate">
+<span class="material-symbols-outlined text-[15px] text-secondary">check_circle</span>
+<span class="text-on-surface truncate">footer_navigation</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-semibold">97.8%</span>
+</div>
+<!-- Synthesis Coverage Mini Section -->
+<div class="pt-3 pb-1 border-t border-outline-variant/60 mt-3">
+<div class="text-[10px] uppercase font-label-sm text-outline px-1 mb-2 font-semibold tracking-wider">Synthesis Coverage Checklist</div>
+<div class="space-y-1.5 font-label-sm text-[11px]">
+<div class="flex items-center justify-between px-1 text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-secondary">done</span>
+<span>Hover States (Button elevation &amp; glow)</span>
+</span>
+<span class="text-[10px] text-secondary">verified</span>
+</div>
+<div class="flex items-center justify-between px-1 text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-secondary">done</span>
+<span>Currency / Billing Toggle Switch</span>
+</span>
+<span class="text-[10px] text-secondary">verified</span>
+</div>
+<div class="flex items-center justify-between px-1 text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-secondary">done</span>
+<span>Navigation Dropdown Menu</span>
+</span>
+<span class="text-[10px] text-secondary">verified</span>
+</div>
+<div class="flex items-center justify-between px-1 text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-secondary">done</span>
+<span>FAQ Accordion Expand/Collapse</span>
+</span>
+<span class="text-[10px] text-secondary">verified</span>
+</div>
+<div class="flex items-center justify-between px-1 text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-secondary">done</span>
+<span>Mobile Responsive Drawer</span>
+</span>
+<span class="text-[10px] text-secondary">verified</span>
+</div>
+<div class="flex items-center justify-between px-1 text-error">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">close</span>
+<span>Enterprise Modal Dialog</span>
+</span>
+<span class="text-[10px] text-error/80">untriggered</span>
+</div>
+<div class="flex items-center justify-between px-1 text-outline">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">remove</span>
+<span>Cookie Consent Banner</span>
+</span>
+<span class="text-[10px]">skipped</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Inspector Action Dock -->
+<div class="p-2 border-t border-outline-variant bg-surface-container-low space-y-2">
+<div class="flex items-center gap-2">
+<button class="flex-1 py-1.5 rounded bg-primary text-on-primary font-label-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-[15px]">auto_fix_high</span>
+<span>Auto-reconcile CSS</span>
+<span class="text-[10px] opacity-75 font-mono">⌘K</span>
+</button>
+<button class="px-2.5 py-1.5 rounded bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high transition-colors font-label-sm flex items-center gap-1" title="Next Discrepancy">
+<span>Next</span>
+<span class="text-[10px] text-outline font-mono">[N]</span>
+</button>
+</div>
+<!-- Micro Telemetry Footer -->
+<div class="pt-1 border-t border-outline-variant/40 flex items-center justify-between text-[10px] font-label-sm text-outline">
+<span>Worker: ast-node-04</span>
+<span>DOM: 1,482</span>
+<span>CSS: 348 rules</span>
+<span>Font: Space Grotesk</span>
+</div>
+</div>
+</aside>
+</div>
+</body></html>

@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>WebClone - Clone Progress (#8942-PRICING)</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed": "#ffddb8",
+            "on-tertiary-container": "#3e2400",
+            "surface-container-highest": "#32353c",
+            "error": "#ffb4ab",
+            "surface-container": "#1d2027",
+            "on-tertiary": "#472a00",
+            "outline-variant": "#464554",
+            "primary-fixed": "#e1e0ff",
+            "primary-container": "#8083ff",
+            "surface": "#10131a",
+            "on-primary-container": "#0d0096",
+            "primary-fixed-dim": "#c0c1ff",
+            "on-background": "#e0e2ec",
+            "secondary-fixed-dim": "#4ae176",
+            "on-primary-fixed": "#07006c",
+            "outline": "#908fa0",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "surface-container-lowest": "#0b0e15",
+            "secondary-container": "#00b954",
+            "surface-variant": "#32353c",
+            "tertiary-container": "#ca8100",
+            "surface-tint": "#c0c1ff",
+            "on-secondary-fixed-variant": "#005321",
+            "tertiary-fixed-dim": "#ffb95f",
+            "surface-dim": "#10131a",
+            "surface-bright": "#363941",
+            "background": "#10131a",
+            "primary": "#c0c1ff",
+            "on-tertiary-fixed": "#2a1700",
+            "surface-container-low": "#191c23",
+            "on-secondary": "#003915",
+            "on-secondary-fixed": "#002109",
+            "on-surface-variant": "#c7c4d7",
+            "inverse-on-surface": "#2d3038",
+            "surface-container-high": "#272a31",
+            "on-primary": "#1000a9",
+            "on-error": "#690005",
+            "tertiary": "#ffb95f",
+            "secondary-fixed": "#6bff8f",
+            "on-surface": "#e0e2ec",
+            "on-secondary-container": "#004119",
+            "inverse-primary": "#494bd6",
+            "secondary": "#4ae176",
+            "on-error-container": "#ffdad6",
+            "inverse-surface": "#e0e2ec",
+            "error-container": "#93000a",
+            "on-tertiary-fixed-variant": "#653e00"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "space-xl": "1.5rem",
+            "space-lg": "1rem",
+            "margin": "1rem",
+            "space-md": "0.75rem"
+          },
+          "fontFamily": {
+            "headline-lg": ["Space Grotesk"],
+            "label-md": ["JetBrains Mono"],
+            "body-lg": ["Inter"],
+            "label-sm": ["JetBrains Mono"],
+            "headline-sm": ["Space Grotesk"],
+            "headline-md": ["Space Grotesk"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 1.125rem;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    /* Custom scrollbar for dense developer logs */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0e15;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #272a31;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #464554;
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface antialiased font-body-md h-screen flex flex-col overflow-hidden select-none">
+<!-- TOP SHELL / HEADER (Shared Component: TopNavBar with Pipelines active) -->
+<header class="docked full-width top-0 z-50 h-14 border-b border-outline-variant flex justify-between items-center w-full px-space-lg bg-surface-container-lowest flex-shrink-0">
+<!-- Brand + Breadcrumbs -->
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary" data-icon="schema">schema</span>
+<span class="text-headline-sm font-headline-sm font-semibold tracking-tight text-on-surface">WebClone</span>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- Navigation links matching Shared Components JSON -->
+<nav class="flex items-center gap-space-xs">
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Projects</a>
+<a class="text-primary font-label-md border-b-2 border-primary py-4 px-space-sm" href="#">Pipelines</a>
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Diff QA</a>
+<a class="text-on-surface-variant font-label-md py-4 px-space-sm hover:text-on-surface transition-colors duration-150" href="#">Templates</a>
+</nav>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- Live Context Breadcrumb -->
+<div class="flex items-center gap-space-xs text-label-sm font-label-sm">
+<span class="text-on-surface-variant">Task</span>
+<span class="text-outline">/</span>
+<span class="text-on-surface bg-surface-container-high px-1.5 py-0.5 rounded border border-outline-variant">#8942-PRICING</span>
+<span class="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded bg-surface-container border border-outline-variant text-secondary text-label-sm font-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+          online
+        </span>
+</div>
+</div>
+<!-- Top Right Actions & Controls -->
+<div class="flex items-center gap-space-md">
+<button class="px-space-md py-1 bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-container-high text-label-sm font-label-sm rounded transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="terminal">terminal</span>
+        Terminal CLI
+      </button>
+<a class="text-on-surface-variant hover:text-on-surface text-label-sm font-label-sm px-2 py-1" href="#">Docs</a>
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="p-1.5 hover:bg-surface-container rounded text-on-surface-variant hover:text-on-surface" title="Tune Settings">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+<button class="p-1.5 hover:bg-surface-container rounded text-on-surface-variant hover:text-on-surface relative" title="Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 bg-tertiary rounded-full"></span>
+</button>
+<button class="p-1.5 hover:bg-surface-container rounded text-on-surface-variant hover:text-on-surface" title="Settings">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- New Clone Button -->
+<button class="bg-primary text-on-primary font-label-md text-label-md px-space-md py-1.5 rounded font-semibold hover:bg-primary-fixed-dim transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+        New Clone
+      </button>
+</div>
+</header>
+<!-- BODY CONTENT AREA (Split Layout with Fixed Stepper & Banner) -->
+<div class="flex-1 flex flex-col min-h-0 bg-background">
+<!-- SUBHEADER / TARGET METRICS BAR -->
+<div class="px-space-lg py-space-sm bg-surface-container-low border-b border-outline-variant flex flex-wrap items-center justify-between gap-space-md flex-shrink-0">
+<div class="flex items-center gap-space-md">
+<span class="text-body-sm font-body-sm text-on-surface-variant">Target Origin:</span>
+<div class="flex items-center gap-1.5 bg-surface-container-lowest border border-outline-variant px-space-sm py-1 rounded text-primary font-label-md text-label-md">
+<span class="text-on-surface font-semibold">https://stripe.com/pricing</span>
+<a class="text-outline hover:text-primary transition-colors flex items-center" href="https://stripe.com/pricing" target="_blank" title="Open external URL">
+<span class="material-symbols-outlined text-[14px]" data-icon="open_in_new">open_in_new</span>
+</a>
+</div>
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-primary text-primary bg-surface-container text-label-sm font-label-sm">
+<span class="w-2 h-2 rounded-full bg-primary animate-ping"></span>
+          ● running
+        </span>
+<span class="text-label-sm font-label-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="schedule">schedule</span>
+          00:04:12 elapsed
+        </span>
+</div>
+<!-- Operational Badges -->
+<div class="flex items-center gap-space-sm">
+<div class="bg-surface-container border border-outline-variant px-2.5 py-1 rounded text-label-sm font-label-sm flex items-center gap-2">
+<span class="text-on-surface-variant">DOM nodes:</span>
+<span class="text-on-surface font-semibold font-label-sm">4,812</span>
+</div>
+<div class="bg-surface-container border border-outline-variant px-2.5 py-1 rounded text-label-sm font-label-sm flex items-center gap-2">
+<span class="text-on-surface-variant">Asset queue:</span>
+<span class="text-secondary font-semibold font-label-sm">38/60</span>
+</div>
+<div class="bg-surface-container border border-outline-variant px-2.5 py-1 rounded text-label-sm font-label-sm flex items-center gap-2">
+<span class="text-on-surface-variant">Tokens:</span>
+<span class="text-tertiary font-semibold font-label-sm">142k</span>
+<span class="text-outline">/</span>
+<span class="text-on-surface-variant font-label-sm">$0.34</span>
+</div>
+</div>
+</div>
+<!-- HORIZONTAL PHASE STEPPER -->
+<div class="px-space-lg py-2.5 bg-surface-container-lowest border-b border-outline-variant flex-shrink-0">
+<div class="flex items-center justify-between w-full relative">
+<!-- Connecting Line Background -->
+<div class="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-[2px] bg-surface-container-highest z-0"></div>
+<!-- Progress Active Line -->
+<div class="absolute left-4 top-1/2 -translate-y-1/2 h-[2px] bg-primary z-0" style="width: 12.5%;"></div>
+<!-- 1. discover (Done) -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-secondary-container text-on-secondary-container">
+<span class="material-symbols-outlined text-[14px]" data-icon="check" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<span class="text-label-sm font-label-sm text-secondary font-semibold">discover</span>
+</div>
+<!-- 2. capture (Active) -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2.5 py-0.5 rounded border border-primary ring-2 ring-primary/20">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-primary text-on-primary animate-pulse">
+<span class="material-symbols-outlined text-[14px]" data-icon="sync">sync</span>
+</div>
+<span class="text-label-sm font-label-sm text-primary font-bold">capture</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+</div>
+<!-- 3. assets -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="image">image</span>
+</div>
+<span class="text-label-sm font-label-sm">assets</span>
+</div>
+<!-- 4. ir -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="account_tree">account_tree</span>
+</div>
+<span class="text-label-sm font-label-sm">ir</span>
+</div>
+<!-- 5. name -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="badge">badge</span>
+</div>
+<span class="text-label-sm font-label-sm">name</span>
+</div>
+<!-- 6. emit -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="code">code</span>
+</div>
+<span class="text-label-sm font-label-sm">emit</span>
+</div>
+<!-- 7. qa -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="difference">difference</span>
+</div>
+<span class="text-label-sm font-label-sm">qa</span>
+</div>
+<!-- 8. fix -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="auto_fix_high">auto_fix_high</span>
+</div>
+<span class="text-label-sm font-label-sm">fix</span>
+</div>
+<!-- 9. done -->
+<div class="relative z-10 flex items-center gap-1.5 bg-surface-container-lowest px-2 py-0.5 rounded text-outline">
+<div class="w-5 h-5 rounded flex items-center justify-center bg-surface-container-high border border-outline-variant text-outline">
+<span class="material-symbols-outlined text-[13px]" data-icon="task_alt">task_alt</span>
+</div>
+<span class="text-label-sm font-label-sm">done</span>
+</div>
+</div>
+</div>
+<!-- ATTENTION / INTERVENTION ALERT (Amber Banner) -->
+<div class="px-space-lg py-2.5 bg-surface-container-low border-b border-tertiary/40 flex-shrink-0">
+<div class="flex items-center justify-between gap-space-lg bg-surface-container px-space-md py-2 rounded border border-tertiary/60">
+<div class="flex items-center gap-space-md min-w-0">
+<div class="w-7 h-7 rounded bg-tertiary/20 text-tertiary flex items-center justify-center flex-shrink-0 border border-tertiary/40">
+<span class="material-symbols-outlined" data-icon="warning" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="min-w-0">
+<div class="text-body-sm font-body-sm text-on-surface font-medium flex items-center gap-2">
+<span class="text-tertiary font-semibold font-label-sm text-label-sm">Action Required:</span>
+<span>Page <code class="font-label-sm text-label-sm bg-surface-container-highest px-1.5 py-0.5 rounded text-on-surface border border-outline-variant">/account</code> needs login (Session gate / Cloudflare Turnstile detected).</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant text-[12px] truncate">
+              Worker thread #04 paused. Auth cookies or headless browser clearance required.
+            </p>
+</div>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<button class="px-space-md py-1 border border-outline-variant bg-surface-container-highest text-on-surface hover:bg-surface-bright rounded text-label-sm font-label-sm flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[14px]" data-icon="open_in_new">open_in_new</span>
+            Open Window
+          </button>
+<button class="px-space-md py-1 bg-tertiary text-on-tertiary-container font-semibold rounded text-label-sm font-label-sm hover:bg-tertiary-fixed-dim transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="play_arrow" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+            Continue
+          </button>
+</div>
+</div>
+</div>
+<!-- MAIN CONTENT GRID (2-Column Dense Split) -->
+<main class="flex-1 flex min-h-0 divide-x divide-outline-variant overflow-hidden">
+<!-- LEFT COLUMN (~35% Width): Per-page task list -->
+<section class="w-[36%] flex flex-col min-h-0 bg-surface-container-lowest">
+<!-- Sub-panel Header & Filter -->
+<div class="p-space-sm border-b border-outline-variant bg-surface-container-low flex items-center justify-between gap-space-sm">
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-outline text-[16px]" data-icon="search">search</span>
+<input class="w-full pl-7 pr-space-sm py-1 bg-surface-container-lowest border border-outline-variant rounded text-label-sm font-label-sm text-on-surface placeholder:text-outline focus:outline-none focus:border-primary" placeholder="Filter 18 crawled routes..." type="text"/>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 hover:bg-surface-container text-on-surface-variant hover:text-on-surface rounded" title="Refresh routes">
+<span class="material-symbols-outlined text-[16px]" data-icon="refresh">refresh</span>
+</button>
+<button class="p-1 hover:bg-surface-container text-on-surface-variant hover:text-on-surface rounded" title="Filter options">
+<span class="material-symbols-outlined text-[16px]" data-icon="filter_list">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Route Items Scrollable List -->
+<div class="flex-1 overflow-y-auto divide-y divide-outline-variant/40">
+<!-- Route 1: / -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full bg-secondary flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm font-semibold text-on-surface group-hover:text-primary">/</span>
+<span class="text-body-sm font-body-sm text-outline ml-1.5">(Home)</span>
+</div>
+</div>
+<div class="flex items-center gap-3 text-label-sm font-label-sm flex-shrink-0">
+<span class="text-outline">1.2s</span>
+<span class="text-secondary bg-surface-container px-1.5 py-0.2 rounded border border-outline-variant">200 OK</span>
+</div>
+</div>
+<!-- Route 2: /pricing (Active Capturing) -->
+<div class="px-space-md py-2 flex items-center justify-between bg-surface-container/60 border-l-2 border-primary hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm font-semibold text-primary">/pricing</span>
+<span class="text-body-sm font-body-sm text-primary ml-1.5">(Active Capturing)</span>
+</div>
+</div>
+<div class="flex items-center gap-3 text-label-sm font-label-sm flex-shrink-0">
+<span class="text-primary font-semibold">45%</span>
+<span class="text-secondary bg-surface-container px-1.5 py-0.2 rounded border border-outline-variant">200 OK</span>
+</div>
+</div>
+<!-- Route 3: /pricing/enterprise (Paused) -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full bg-tertiary flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm font-semibold text-on-surface group-hover:text-primary">/pricing/enterprise</span>
+</div>
+</div>
+<div class="flex items-center gap-2 text-label-sm font-label-sm flex-shrink-0">
+<span class="text-tertiary bg-surface-container px-1.5 py-0.5 rounded border border-tertiary/40">Pending auth</span>
+</div>
+</div>
+<!-- Route 4: /account (Needs Login) -->
+<div class="px-space-md py-2 flex items-center justify-between bg-surface-container-high/40 hover:bg-surface-container-high transition-colors cursor-pointer group border-l-2 border-tertiary">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm font-semibold text-tertiary">/account</span>
+<span class="text-body-sm font-body-sm text-outline ml-1.5">(Needs Login)</span>
+</div>
+</div>
+<div class="flex items-center gap-2 text-label-sm font-label-sm flex-shrink-0">
+<span class="text-tertiary bg-tertiary/20 text-tertiary px-1.5 py-0.5 rounded font-semibold border border-tertiary/40">Action Required</span>
+</div>
+</div>
+<!-- Route 5: /checkout/session (Queued) -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full border border-outline flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm text-on-surface-variant group-hover:text-on-surface">/checkout/session</span>
+</div>
+</div>
+<div class="flex items-center text-label-sm font-label-sm flex-shrink-0">
+<span class="text-outline">Queued</span>
+</div>
+</div>
+<!-- Route 6: /docs/api (Queued) -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full border border-outline flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm text-on-surface-variant group-hover:text-on-surface">/docs/api</span>
+</div>
+</div>
+<div class="flex items-center text-label-sm font-label-sm flex-shrink-0">
+<span class="text-outline">Queued</span>
+</div>
+</div>
+<!-- Route 7: /features/billing (Queued) -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full border border-outline flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm text-on-surface-variant group-hover:text-on-surface">/features/billing</span>
+</div>
+</div>
+<div class="flex items-center text-label-sm font-label-sm flex-shrink-0">
+<span class="text-outline">Queued</span>
+</div>
+</div>
+<!-- Route 8: /legal/terms (Cached 200 OK) -->
+<div class="px-space-md py-2 flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="flex items-center gap-2 min-w-0">
+<span class="w-2 h-2 rounded-full bg-secondary flex-shrink-0"></span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm font-semibold text-on-surface group-hover:text-primary">/legal/terms</span>
+</div>
+</div>
+<div class="flex items-center gap-3 text-label-sm font-label-sm flex-shrink-0">
+<span class="text-outline">Cached</span>
+<span class="text-secondary bg-surface-container px-1.5 py-0.2 rounded border border-outline-variant">200 OK</span>
+</div>
+</div>
+</div>
+<!-- Left Column Footer Status -->
+<div class="p-space-sm bg-surface-container border-t border-outline-variant text-label-sm font-label-sm text-on-surface-variant flex items-center justify-between">
+<span>8 completed • 1 active • 1 blocked • 8 queued</span>
+<span class="text-outline">18 total</span>
+</div>
+</section>
+<!-- RIGHT COLUMN (~65% Width): Live Log Stream Terminal -->
+<section class="flex-1 flex flex-col min-h-0 bg-surface-container-lowest">
+<!-- Terminal Title Bar -->
+<div class="h-9 px-space-md bg-surface-container-low border-b border-outline-variant flex items-center justify-between flex-shrink-0">
+<div class="flex items-center gap-space-md">
+<!-- IDE Tab indicator -->
+<div class="flex items-center gap-2 text-on-surface text-label-sm font-label-sm">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="terminal">terminal</span>
+<span class="font-semibold">stdout &amp; ast-worker.log</span>
+</div>
+<span class="text-outline text-label-sm font-label-sm">PID 4921</span>
+</div>
+<!-- Terminal Filter Controls -->
+<div class="flex items-center gap-space-sm text-label-sm font-label-sm">
+<!-- Toggles -->
+<label class="flex items-center gap-1 text-on-surface-variant cursor-pointer hover:text-on-surface">
+<input checked="" class="rounded bg-surface-container border-outline-variant text-primary focus:ring-0 focus:ring-offset-0 w-3 h-3" type="checkbox"/>
+<span>Auto-scroll</span>
+</label>
+<label class="flex items-center gap-1 text-on-surface-variant cursor-pointer hover:text-on-surface">
+<input checked="" class="rounded bg-surface-container border-outline-variant text-primary focus:ring-0 focus:ring-offset-0 w-3 h-3" type="checkbox"/>
+<span>Wrap lines</span>
+</label>
+<div class="h-3 w-px bg-outline-variant"></div>
+<!-- Severity Pills -->
+<div class="flex items-center bg-surface-container border border-outline-variant rounded p-0.5">
+<button class="px-2 py-0.5 rounded bg-surface-container-high text-on-surface text-[11px] font-semibold">All</button>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface text-[11px]">Info</button>
+<button class="px-2 py-0.5 rounded text-tertiary hover:bg-surface-container-high text-[11px]">Warn (2)</button>
+<button class="px-2 py-0.5 rounded text-error hover:bg-surface-container-high text-[11px]">Error (0)</button>
+</div>
+<button class="p-1 hover:bg-surface-container text-on-surface-variant hover:text-on-surface rounded" title="Clear logs">
+<span class="material-symbols-outlined text-[16px]" data-icon="block">block</span>
+</button>
+</div>
+</div>
+<!-- Terminal Output Stream Body -->
+<div class="flex-1 p-space-md font-label-sm text-label-sm overflow-y-auto space-y-1.5 leading-relaxed bg-[#0b0e15] font-mono">
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:01.104]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#01]</span>
+<span class="text-secondary font-semibold flex-shrink-0 select-none">[INFO]</span>
+<span class="text-on-surface">Headless Chrome initialized (<span class="text-on-surface-variant">Chromium 124.0, viewport 1440x900</span>)</span>
+</div>
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:02.430]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#01]</span>
+<span class="text-secondary font-semibold flex-shrink-0 select-none">[INFO]</span>
+<span class="text-on-surface">Target DOM tree reconciled. Extracted 42 stylesheet links and 18 inline styles.</span>
+</div>
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:03.112]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#02]</span>
+<span class="text-primary font-semibold flex-shrink-0 select-none">[ASSET]</span>
+<span class="text-on-surface">Fetched 18/60 SVG vector assets (<span class="text-on-surface-variant">Stripe brand glyphs, icons</span>).</span>
+</div>
+<!-- Warning lines -->
+<div class="flex items-start gap-2 bg-tertiary/10 border-l-2 border-tertiary px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:04.890]</span>
+<span class="text-tertiary bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#04]</span>
+<span class="text-tertiary font-bold flex-shrink-0 select-none">[WARN]</span>
+<span class="text-tertiary-fixed">Intercepted 302 redirect from /account to /login?return_to=%2Faccount</span>
+</div>
+<div class="flex items-start gap-2 bg-tertiary/10 border-l-2 border-tertiary px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:05.002]</span>
+<span class="text-tertiary bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#04]</span>
+<span class="text-tertiary font-bold flex-shrink-0 select-none">[WARN]</span>
+<span class="text-tertiary-fixed">Cloudflare Turnstile bot checkpoint detected on route /account. Triggering human-in-the-loop auth.</span>
+</div>
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:05.210]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#01]</span>
+<span class="text-secondary font-semibold flex-shrink-0 select-none">[INFO]</span>
+<span class="text-on-surface">Synthesizing Tailwind layout tree for component <span class="text-primary">PricingTierCardGroup</span>...</span>
+</div>
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:06.012]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#01]</span>
+<span class="text-secondary font-semibold flex-shrink-0 select-none">[INFO]</span>
+<span class="text-on-surface">Captured CSS variables: <span class="text-secondary">184 tokens</span> mapped into design system tokens.</span>
+</div>
+<!-- Live active log line -->
+<div class="flex items-start gap-2 hover:bg-surface-container/30 px-1 py-0.5 rounded">
+<span class="text-outline flex-shrink-0 select-none">[14:22:06.845]</span>
+<span class="text-primary-fixed-dim bg-surface-container px-1 rounded flex-shrink-0 select-none">[worker#03]</span>
+<span class="text-secondary font-semibold flex-shrink-0 select-none">[INFO]</span>
+<span class="text-on-surface">Executing font-face subsetting &amp; WOFF2 packaging for 'Söhne'...</span>
+</div>
+</div>
+<!-- Terminal Prompt Line at Bottom -->
+<div class="px-space-md py-1.5 bg-surface-container-low border-t border-outline-variant flex items-center gap-2 text-label-sm font-label-sm text-outline flex-shrink-0">
+<span class="text-primary font-bold">ast-daemon &gt;</span>
+<span class="text-on-surface-variant">listening on socket :9422...</span>
+<span class="w-2 h-4 bg-primary inline-block animate-pulse"></span>
+</div>
+</section>
+</main>
+<!-- BOTTOM ACTION BAR (Docked / Sticky at Bottom) -->
+<footer class="h-12 px-space-lg bg-surface-container-lowest border-t border-outline-variant flex items-center justify-between flex-shrink-0 z-40">
+<!-- Left: Cluster Status Summary -->
+<div class="flex items-center gap-space-lg text-label-sm font-label-sm">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-on-surface font-semibold">Workers: 4 active</span>
+</div>
+<div class="h-3 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<span>Mem: <strong class="text-on-surface font-normal">482MB</strong></span>
+<span>CPU: <strong class="text-on-surface font-normal">24%</strong></span>
+<span>Network: <strong class="text-on-surface font-normal">3.4 MB/s</strong></span>
+</div>
+</div>
+<!-- Right: Operational Actions -->
+<div class="flex items-center gap-space-sm">
+<button class="px-space-md py-1.5 bg-surface-container border border-outline-variant hover:bg-surface-container-high text-on-surface text-label-sm font-label-sm rounded transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]" data-icon="preview">preview</span>
+          Inspect DOM Snapshot
+        </button>
+<button class="px-space-md py-1.5 bg-surface-container border border-outline-variant hover:bg-surface-container-high text-on-surface text-label-sm font-label-sm rounded transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]" data-icon="pause">pause</span>
+          Pause
+        </button>
+<button class="px-space-md py-1.5 bg-surface-container-low border border-outline-variant/40 text-outline cursor-not-allowed text-label-sm font-label-sm rounded flex items-center gap-1.5" disabled="">
+<span class="material-symbols-outlined text-[15px]" data-icon="play_arrow">play_arrow</span>
+          Resume
+        </button>
+<div class="h-4 w-px bg-outline-variant"></div>
+<button class="px-space-md py-1.5 hover:bg-error-container/30 border border-error/30 text-error hover:border-error text-label-sm font-label-sm rounded transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]" data-icon="cancel">cancel</span>
+          Abort Clone
+        </button>
+</div>
+</footer>
+</div>
+</body></html>

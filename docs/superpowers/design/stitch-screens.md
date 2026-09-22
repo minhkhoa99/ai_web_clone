@@ -3,7 +3,7 @@
 Stitch project: **AI Web Clone Tool** (`projects/5886124613364668099`)
 Design system: `assets/12550457517034224226` — dark, Space Grotesk headline, Inter body, JetBrains Mono for URLs/code/scores, indigo #6366F1 primary, green/amber/red status. Đây là nguồn token khởi tạo cho `css/styles.css` của UI (SP1 Task 24).
 
-Screenshot URL do Google host, có thể hết hạn — mở lại bằng `get_screen` với id bên dưới khi cần.
+Bản tải về (HTML + PNG 2560px) ở `docs/superpowers/design/stitch/`: settings-ai, history (+alt1-3), new-clone, sitemap, progress, qa-preview (+alt). Mở `.html` trực tiếp trong trình duyệt (dùng Tailwind CDN, cần mạng).
 
 | Route (spec §10) | Màn Stitch | Screen ID |
 |---|---|---|

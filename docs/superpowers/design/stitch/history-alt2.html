@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CLONE//ARCH - Project History</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-primary-container": "#0d0096",
+            "tertiary-container": "#ca8100",
+            "on-tertiary-container": "#3e2400",
+            "surface-container-lowest": "#0b0e15",
+            "secondary-container": "#00b954",
+            "outline-variant": "#464554",
+            "on-tertiary": "#472a00",
+            "on-secondary-fixed-variant": "#005321",
+            "surface-container": "#1d2027",
+            "surface-container-highest": "#32353c",
+            "on-secondary-fixed": "#002109",
+            "tertiary": "#ffb95f",
+            "on-error-container": "#ffdad6",
+            "surface-container-low": "#191c23",
+            "background": "#10131a",
+            "on-surface-variant": "#c7c4d7",
+            "inverse-primary": "#494bd6",
+            "secondary-fixed-dim": "#4ae176",
+            "surface-dim": "#10131a",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "outline": "#908fa0",
+            "surface-container-high": "#272a31",
+            "on-secondary-container": "#004119",
+            "inverse-surface": "#e0e2ec",
+            "error-container": "#93000a",
+            "primary-fixed": "#e1e0ff",
+            "on-tertiary-fixed-variant": "#653e00",
+            "secondary-fixed": "#6bff8f",
+            "tertiary-fixed": "#ffddb8",
+            "secondary": "#4ae176",
+            "primary": "#c0c1ff",
+            "tertiary-fixed-dim": "#ffb95f",
+            "surface-tint": "#c0c1ff",
+            "surface": "#10131a",
+            "on-surface": "#e0e2ec",
+            "on-primary": "#1000a9",
+            "on-primary-fixed": "#07006c",
+            "surface-bright": "#363941",
+            "primary-container": "#8083ff",
+            "on-error": "#690005",
+            "surface-variant": "#32353c",
+            "on-background": "#e0e2ec",
+            "on-secondary": "#003915",
+            "error": "#ffb4ab",
+            "primary-fixed-dim": "#c0c1ff",
+            "on-tertiary-fixed": "#2a1700",
+            "inverse-on-surface": "#2d3038"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-lg": "1rem",
+            "margin": "1rem",
+            "gutter": "1rem",
+            "space-md": "0.75rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "space-xl": "1.5rem"
+          },
+          "fontFamily": {
+            "label-sm": ["JetBrains Mono"],
+            "body-md": ["Inter"],
+            "headline-lg": ["Space Grotesk"],
+            "label-md": ["JetBrains Mono"],
+            "body-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-sm": ["Space Grotesk"],
+            "headline-md": ["Space Grotesk"]
+          },
+          "fontSize": {
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 1.125rem;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0e15;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #32353c;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface antialiased flex flex-col h-screen overflow-hidden select-none">
+<!-- TOP APP BAR -->
+<header class="bg-surface-container-lowest flex justify-between items-center w-full px-margin h-14 border-b border-surface-variant shrink-0 z-30">
+<!-- Brand & Cluster Tag -->
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-space-sm">
+<span class="inline-block w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-headline-sm text-headline-sm tracking-tight font-semibold text-primary">CLONE//ARCH</span>
+</div>
+<span class="border border-surface-variant bg-surface-container-low text-outline font-label-sm text-label-sm px-space-xs py-0.5 rounded-lg">v2.4.0-rc1</span>
+<!-- Top Navigation Links from JSON -->
+<nav class="hidden md:flex items-center gap-space-lg ml-space-xl">
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 border-b-2 border-transparent hover:border-surface-variant transition-colors" href="#">Configure</a>
+<a class="text-primary font-label-md text-label-md border-b-2 border-primary pb-2 pt-2 transition-colors" href="#">Pipeline</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 border-b-2 border-transparent hover:border-surface-variant transition-colors" href="#">Artifacts</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 border-b-2 border-transparent hover:border-surface-variant transition-colors" href="#">Audit</a>
+</nav>
+</div>
+<!-- Top Right Actions -->
+<div class="flex items-center gap-space-sm">
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface px-space-sm py-space-xs" href="#">Docs</a>
+<div class="flex items-center gap-1 border-l border-r border-surface-variant px-space-xs">
+<button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded transition-colors" title="CLI Terminal">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded transition-colors" title="Engine Fine Tuning">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+<button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 bg-tertiary rounded-full"></span>
+</button>
+</div>
+<button class="flex items-center gap-space-xs bg-primary text-on-primary font-label-md text-label-md font-semibold px-space-md py-space-xs rounded hover:bg-opacity-90 active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+<span>+ New Clone</span>
+</button>
+</div>
+</header>
+<!-- WORKSPACE BODY (SideNav + Content) -->
+<div class="flex flex-1 overflow-hidden">
+<!-- SIDE NAV RAIL (From JSON & Prompt) -->
+<aside class="w-60 bg-surface-dim border-r border-surface-variant flex flex-col justify-between p-space-sm shrink-0">
+<div class="flex flex-col gap-space-sm">
+<!-- Project Context Header -->
+<div class="p-space-sm border border-surface-variant bg-surface-container-low rounded">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">Project Alpha</span>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="unfold_more">unfold_more</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline mt-0.5">v2.4.0-rc1 • Local Node</p>
+</div>
+<!-- Rail Action CTA -->
+<button class="w-full flex items-center justify-center gap-space-xs bg-surface-container border border-outline-variant hover:border-primary text-on-surface font-label-md text-label-md py-space-xs px-space-sm rounded transition-all active:scale-[0.99]">
+<span class="material-symbols-outlined text-secondary" data-icon="play_arrow">play_arrow</span>
+<span>Run Test</span>
+</button>
+<!-- Main Workspace Tabs -->
+<nav class="flex flex-col gap-0.5 mt-space-xs">
+<span class="font-label-sm text-label-sm text-outline px-space-sm py-space-xs uppercase tracking-wider">Pipelines</span>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-primary bg-surface-container border-l-2 border-primary font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-primary" data-icon="dashboard">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="memory">memory</span>
+<span>Engines</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="code">code</span>
+<span>DOM Rules</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span>Tokens &amp; Budget</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+<span>Telemetry</span>
+</a>
+</nav>
+</div>
+<!-- Rail Footer Section -->
+<div class="flex flex-col gap-space-xs border-t border-surface-variant pt-space-sm">
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md rounded transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="vpn_key">vpn_key</span>
+<span>Keyring &amp; Auth</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-label-md text-label-md rounded transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<div class="mt-space-xs p-space-xs bg-surface-container-lowest border border-surface-variant rounded flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-label-sm text-outline">Daemon :4421</span>
+</div>
+<span class="font-label-sm text-label-sm text-secondary font-mono">IDLE</span>
+</div>
+</div>
+</aside>
+<!-- MAIN CONTENT VIEW -->
+<main class="flex-1 flex flex-col bg-background overflow-hidden">
+<!-- Top Title Bar -->
+<div class="px-margin py-space-md border-b border-surface-variant bg-surface-container-lowest flex flex-col md:flex-row md:items-center justify-between gap-space-sm shrink-0">
+<div>
+<div class="flex items-center gap-space-sm">
+<h1 class="font-headline-md text-headline-md text-on-surface tracking-tight">Target Deployments &amp; Scrapes</h1>
+<span class="bg-surface-container border border-surface-variant text-primary font-label-sm text-label-sm px-2 py-0.5 rounded">24 recorded</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline mt-0.5">Active crawling pipeline history, headless AST compilation traces, and visual hydration snapshots.</p>
+</div>
+<div class="flex items-center gap-space-xs">
+<div class="px-space-sm py-1 bg-surface-container-low border border-surface-variant rounded flex items-center gap-2">
+<span class="font-label-sm text-label-sm text-outline">Cluster:</span>
+<span class="font-label-sm text-label-sm text-on-surface font-mono">us-east-core</span>
+</div>
+<div class="px-space-sm py-1 bg-surface-container-low border border-surface-variant rounded flex items-center gap-2">
+<span class="font-label-sm text-label-sm text-outline">Concurrency:</span>
+<span class="font-label-sm text-label-sm text-primary font-mono">8 jobs</span>
+</div>
+</div>
+</div>
+<!-- Filter / Search Toolbar -->
+<div class="px-margin py-space-sm bg-surface-container-low border-b border-surface-variant flex flex-wrap items-center justify-between gap-space-sm shrink-0">
+<!-- Filter Tabs -->
+<div class="flex items-center gap-1 bg-surface-container-lowest p-0.5 rounded border border-surface-variant">
+<button class="px-space-sm py-1 font-label-sm text-label-sm text-on-surface bg-surface-container border border-outline-variant rounded flex items-center gap-1.5">
+<span>In progress</span>
+<span class="px-1 py-0.2 bg-primary-container text-on-primary-container rounded font-bold">4</span>
+</button>
+<button class="px-space-sm py-1 font-label-sm text-label-sm text-outline hover:text-on-surface rounded flex items-center gap-1.5 transition-colors">
+<span>Completed</span>
+<span class="px-1 py-0.2 bg-surface-container text-outline rounded">18</span>
+</button>
+<button class="px-space-sm py-1 font-label-sm text-label-sm text-outline hover:text-on-surface rounded flex items-center gap-1.5 transition-colors">
+<span>Failed</span>
+<span class="px-1 py-0.2 bg-error-container text-on-error-container rounded">2</span>
+</button>
+</div>
+<!-- Search & Control Cluster -->
+<div class="flex items-center gap-space-sm flex-1 max-w-xl justify-end">
+<div class="relative flex-1 max-w-md">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-outline text-body-md" data-icon="search">search</span>
+<input class="w-full pl-8 pr-space-sm py-1 bg-surface-container-lowest border border-surface-variant text-on-surface font-label-sm text-label-sm rounded placeholder-outline focus:outline-none focus:border-primary focus:ring-0" placeholder="search by URL or regex..." type="text"/>
+</div>
+<div class="relative">
+<select class="bg-surface-container-lowest border border-surface-variant text-on-surface font-label-sm text-label-sm py-1 pl-space-sm pr-7 rounded appearance-none focus:outline-none focus:border-primary">
+<option>All Engines</option>
+<option>Chromium Headless</option>
+<option>Playwright Spider</option>
+<option>Wasm Synthesizer</option>
+</select>
+<span class="material-symbols-outlined pointer-events-none absolute right-1.5 top-1.5 text-outline text-body-sm" data-icon="arrow_drop_down">arrow_drop_down</span>
+</div>
+<button class="p-1 border border-surface-variant bg-surface-container-lowest hover:bg-surface-container text-outline hover:text-on-surface rounded transition-colors" title="Force Refresh Pipeline">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+</button>
+</div>
+</div>
+<!-- DENSE TABLE LIST (6 Project Rows) -->
+<div class="flex-1 overflow-y-auto">
+<div class="divide-y divide-surface-variant border-b border-surface-variant">
+<!-- ROW 1: RUNNING (Stripe Pricing) -->
+<div class="px-margin py-space-sm bg-surface-container-lowest hover:bg-surface-container-low transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<!-- Col 1: Target Source & Preview -->
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-surface-variant bg-surface-container rounded overflow-hidden flex flex-col shrink-0 justify-between p-1 relative">
+<div class="flex gap-0.5">
+<div class="w-1 h-1 rounded-full bg-outline-variant"></div>
+<div class="w-1 h-1 rounded-full bg-outline-variant"></div>
+</div>
+<div class="w-full h-1.5 bg-surface-container-high rounded-xs"></div>
+<div class="w-2/3 h-1.5 bg-primary/40 rounded-xs"></div>
+<span class="absolute right-0.5 bottom-0.5 font-label-sm text-[0.55rem] text-primary">DOM</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-primary hover:underline truncate" href="https://stripe.com/pricing" target="_blank">
+                    https://stripe.com/pricing
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: DOM + CSS Assets • 42 pages queued • Started 2m ago
+                </p>
+</div>
+</div>
+<!-- Col 2: Status Pill & Notes -->
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary w-fit">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+<span class="font-label-sm text-label-sm font-semibold">● running</span>
+</div>
+<span class="font-body-sm text-body-sm text-outline mt-1 truncate">Thread #04 (AST parse)</span>
+</div>
+<!-- Col 3: Execution Phase & Progress -->
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-on-surface font-mono">capture 13/20 assets</span>
+<span class="text-primary font-bold">65%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 65%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated 12s ago</span>
+</div>
+<!-- Col 4: Actions -->
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Pause Task">
+<span class="material-symbols-outlined" data-icon="pause">pause</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Inspect Inspector">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Retry Stage">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Abort &amp; Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 2: NEEDS_AUTH (Clerk Dashboard) -->
+<div class="px-margin py-space-sm bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-surface-variant bg-surface-container-lowest rounded overflow-hidden flex flex-col shrink-0 justify-center items-center p-1">
+<span class="material-symbols-outlined text-tertiary" data-icon="lock">lock</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-on-surface hover:underline truncate" href="https://dashboard.clerk.com/sign-in" target="_blank">
+                    https://dashboard.clerk.com/sign-in
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: Protected Application Route • Depth: 3 levels
+                </p>
+</div>
+</div>
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-tertiary/40 bg-tertiary/10 text-tertiary w-fit">
+<span class="material-symbols-outlined text-xs" data-icon="warning">warning</span>
+<span class="font-label-sm text-label-sm font-semibold">needs_auth</span>
+</div>
+<span class="font-body-sm text-body-sm text-tertiary-fixed mt-1 truncate">Session cookies required / Cloudflare Turnstile</span>
+</div>
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-tertiary font-mono">waiting on auth inject</span>
+<span class="text-tertiary font-bold">15%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary" style="width: 15%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated 24m ago</span>
+</div>
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="px-space-xs py-0.5 bg-tertiary/20 text-tertiary border border-tertiary/50 hover:bg-tertiary/30 rounded flex items-center gap-1 font-label-sm text-label-sm font-bold" title="Inject Auth Credentials">
+<span class="material-symbols-outlined text-sm" data-icon="vpn_key">vpn_key</span>
+<span>Inject</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Open Stream">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Retry">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 3: INTERRUPTED (Linear Features) -->
+<div class="px-margin py-space-sm bg-surface-container-lowest hover:bg-surface-container-low transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-surface-variant bg-surface-container rounded overflow-hidden flex flex-col shrink-0 justify-between p-1">
+<div class="w-full h-1 bg-surface-bright rounded-xs"></div>
+<div class="w-1/2 h-1 bg-surface-bright rounded-xs"></div>
+<div class="w-3/4 h-1 bg-outline-variant rounded-xs"></div>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-on-surface hover:underline truncate" href="https://linear.app/features" target="_blank">
+                    https://linear.app/features
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: Full SPA Snapshot • 18 WebGL Shaders
+                </p>
+</div>
+</div>
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-tertiary-container/50 bg-tertiary-container/10 text-tertiary-fixed w-fit">
+<span class="material-symbols-outlined text-xs" data-icon="pause_circle">pause_circle</span>
+<span class="font-label-sm text-label-sm font-semibold">⏸ interrupted</span>
+</div>
+<span class="font-body-sm text-body-sm text-outline mt-1 truncate">User paused worker pool</span>
+</div>
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-outline font-mono">timeout chunk_04.js</span>
+<span class="text-tertiary-fixed font-bold">42%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary-container" style="width: 42%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated 8m ago</span>
+</div>
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="p-1 text-secondary hover:text-on-surface hover:bg-surface-container rounded" title="Resume Execution">
+<span class="material-symbols-outlined" data-icon="play_arrow">play_arrow</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Inspect">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Retry">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 4: COMPLETED (Raycast) -->
+<div class="px-margin py-space-sm bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-surface-variant bg-surface-container-lowest rounded overflow-hidden flex flex-col shrink-0 p-1 justify-center items-center">
+<span class="material-symbols-outlined text-secondary text-sm" data-icon="check_circle">check_circle</span>
+<span class="font-label-sm text-[0.5rem] text-secondary font-mono">AST_OK</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-on-surface hover:underline truncate" href="https://raycast.com" target="_blank">
+                    https://raycast.com
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: Landing + Manual CSS Variable Mapping
+                </p>
+</div>
+</div>
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-secondary/40 bg-secondary/10 text-secondary w-fit">
+<span class="material-symbols-outlined text-xs" data-icon="check">check</span>
+<span class="font-label-sm text-label-sm font-semibold">✔ completed</span>
+</div>
+<span class="font-body-sm text-body-sm text-secondary mt-1 truncate">Zero diff errors</span>
+</div>
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-outline font-mono">ready • bundle exported</span>
+<span class="text-secondary font-bold">100%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 100%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated Yesterday</span>
+</div>
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="View In Sandbox">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Download ZIP Bundle">
+<span class="material-symbols-outlined" data-icon="download">download</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Clone Again">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 5: COMPLETED (Supabase Docs) -->
+<div class="px-margin py-space-sm bg-surface-container-lowest hover:bg-surface-container-low transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-surface-variant bg-surface-container rounded overflow-hidden flex flex-col shrink-0 p-1 justify-center items-center">
+<span class="material-symbols-outlined text-secondary text-sm" data-icon="check_circle">check_circle</span>
+<span class="font-label-sm text-[0.5rem] text-outline font-mono">DOC_TREE</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-on-surface hover:underline truncate" href="https://supabase.com/docs" target="_blank">
+                    https://supabase.com/docs
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: Full Recursive Crawl • 138 articles compiled
+                </p>
+</div>
+</div>
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-secondary/40 bg-secondary/10 text-secondary w-fit">
+<span class="material-symbols-outlined text-xs" data-icon="check">check</span>
+<span class="font-label-sm text-label-sm font-semibold">✔ completed</span>
+</div>
+<span class="font-body-sm text-body-sm text-outline mt-1 truncate">synthesized v3 DOM tree</span>
+</div>
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-outline font-mono">synthesized v3 DOM tree</span>
+<span class="text-secondary font-bold">100%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 100%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated 2d ago</span>
+</div>
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="View In Sandbox">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Download ZIP Bundle">
+<span class="material-symbols-outlined" data-icon="download">download</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Clone Again">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 6: FAILED (Vercel Analytics) -->
+<div class="px-margin py-space-sm bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start gap-space-md w-full lg:w-4/12">
+<div class="w-12 h-10 border border-error/30 bg-error/5 rounded overflow-hidden flex flex-col shrink-0 p-1 justify-center items-center">
+<span class="material-symbols-outlined text-error text-sm" data-icon="error">error</span>
+<span class="font-label-sm text-[0.5rem] text-error font-mono">403_ERR</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<a class="font-label-md text-label-md font-semibold text-error hover:underline truncate" href="https://vercel.com/analytics" target="_blank">
+                    https://vercel.com/analytics
+                  </a>
+<span class="material-symbols-outlined text-outline text-body-sm" data-icon="open_in_new">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">
+                  Target: Telemetry Dashboard &amp; Highcharts SVG
+                </p>
+</div>
+</div>
+<div class="w-full lg:w-2/12 flex flex-col">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-error/40 bg-error/10 text-error w-fit">
+<span class="material-symbols-outlined text-xs" data-icon="close">close</span>
+<span class="font-label-sm text-label-sm font-semibold">✖ failed</span>
+</div>
+<span class="font-body-sm text-body-sm text-error mt-1 truncate">Exit code: E_CORS_BLOCKED • 403 Forbidden</span>
+</div>
+<div class="w-full lg:w-4/12 flex flex-col justify-center">
+<div class="flex items-center justify-between font-label-sm text-label-sm mb-1">
+<span class="text-error font-mono">blocked at handshake</span>
+<span class="text-error font-bold">8%</span>
+</div>
+<div class="w-full h-1 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-error" style="width: 8%;"></div>
+</div>
+<span class="font-label-sm text-label-sm text-outline mt-1">Updated 3h ago</span>
+</div>
+<div class="flex items-center justify-end gap-1 w-full lg:w-2/12">
+<button class="px-space-xs py-0.5 bg-error/10 text-error border border-error/30 hover:bg-error/20 rounded flex items-center gap-1 font-label-sm text-label-sm font-semibold" title="View Error Traces">
+<span class="material-symbols-outlined text-sm" data-icon="bug_report">bug_report</span>
+<span>Trace</span>
+</button>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded" title="Re-run">
+<span class="material-symbols-outlined" data-icon="replay">replay</span>
+</button>
+<button class="p-1 text-outline hover:text-error hover:bg-surface-container rounded" title="Delete">
+<span class="material-symbols-outlined" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- FOOTER PAGINATION & SYSTEM STATUS -->
+<div class="px-margin py-space-xs bg-surface-container-lowest border-t border-surface-variant flex flex-col sm:flex-row items-center justify-between gap-space-sm shrink-0">
+<!-- Left System Status -->
+<div class="flex items-center gap-space-sm font-label-sm text-label-sm text-outline">
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span>CLI daemon idle: 2 workers active</span>
+</span>
+<span>•</span>
+<span>Showing 1–6 of 24 projects</span>
+</div>
+<!-- Right Pagination Controls -->
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-1 font-label-sm text-label-sm text-outline">
+<span>Rows:</span>
+<select class="bg-surface-container-low border border-surface-variant text-on-surface font-label-sm text-label-sm py-0.5 px-1.5 rounded focus:outline-none">
+<option>20 per page</option>
+<option>50 per page</option>
+<option>100 per page</option>
+</select>
+</div>
+<div class="flex items-center gap-1 font-label-sm text-label-sm">
+<button class="px-2 py-0.5 bg-surface-container border border-outline-variant text-primary font-bold rounded">1</button>
+<button class="px-2 py-0.5 bg-surface-container-lowest hover:bg-surface-container text-outline rounded transition-colors">2</button>
+<button class="px-1.5 py-0.5 bg-surface-container-lowest hover:bg-surface-container text-outline rounded transition-colors flex items-center">
+<span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

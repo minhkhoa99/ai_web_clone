@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CLONE//ARCH — Project History</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Space Grotesk, Inter, JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "background": "#10131a",
+            "tertiary": "#ffb95f",
+            "surface-container-high": "#272a31",
+            "tertiary-container": "#ca8100",
+            "primary-fixed-dim": "#c0c1ff",
+            "on-primary": "#1000a9",
+            "surface-container-lowest": "#0b0e15",
+            "inverse-surface": "#e0e2ec",
+            "on-tertiary-container": "#3e2400",
+            "on-error": "#690005",
+            "inverse-on-surface": "#2d3038",
+            "on-background": "#e0e2ec",
+            "on-tertiary": "#472a00",
+            "outline-variant": "#464554",
+            "surface-tint": "#c0c1ff",
+            "surface-container": "#1d2027",
+            "outline": "#908fa0",
+            "on-secondary-fixed-variant": "#005321",
+            "inverse-primary": "#494bd6",
+            "surface-variant": "#32353c",
+            "primary-fixed": "#e1e0ff",
+            "on-tertiary-fixed-variant": "#653e00",
+            "surface-container-low": "#191c23",
+            "tertiary-fixed-dim": "#ffb95f",
+            "on-error-container": "#ffdad6",
+            "on-tertiary-fixed": "#2a1700",
+            "on-surface-variant": "#c7c4d7",
+            "surface": "#10131a",
+            "primary": "#c0c1ff",
+            "tertiary-fixed": "#ffddb8",
+            "on-surface": "#e0e2ec",
+            "secondary-container": "#00b954",
+            "on-primary-container": "#0d0096",
+            "surface-bright": "#363941",
+            "secondary-fixed-dim": "#4ae176",
+            "secondary": "#4ae176",
+            "primary-container": "#8083ff",
+            "on-primary-fixed": "#07006c",
+            "on-secondary-container": "#004119",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "surface-container-highest": "#32353c",
+            "on-secondary-fixed": "#002109",
+            "secondary-fixed": "#6bff8f",
+            "on-secondary": "#003915",
+            "surface-dim": "#10131a"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem",
+            "space-xl": "1.5rem",
+            "space-md": "0.75rem",
+            "space-lg": "1rem",
+            "margin": "1rem",
+            "gutter": "1rem"
+          },
+          "fontFamily": {
+            "label-sm": ["JetBrains Mono"],
+            "body-sm": ["Inter"],
+            "headline-md": ["Space Grotesk"],
+            "body-md": ["Inter"],
+            "headline-lg": ["Space Grotesk"],
+            "headline-sm": ["Space Grotesk"],
+            "label-md": ["JetBrains Mono"],
+            "body-lg": ["Inter"]
+          },
+          "fontSize": {
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "500" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1rem", "fontWeight": "400" }],
+            "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "fontWeight": "600" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.25rem", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "fontWeight": "600" }],
+            "headline-sm": ["1.125rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 1.125rem;
+      line-height: 1;
+      display: inline-block;
+      text-transform: none;
+      letter-spacing: normal;
+      word-wrap: normal;
+      white-space: nowrap;
+      direction: ltr;
+      vertical-align: middle;
+    }
+    /* Custom scrollbar for developer console feel */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0e15;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #272a31;
+      border-radius: 2px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #32353c;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background antialiased flex flex-col h-screen overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TOP APP BAR -->
+<header class="flex justify-between items-center w-full px-margin h-14 border-b border-surface-variant bg-surface-container-lowest shrink-0 z-20">
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-sm text-headline-sm tracking-tight font-semibold text-primary">CLONE//ARCH</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high border border-outline-variant font-label-sm text-label-sm text-on-surface-variant">v2.4.0-rc1</span>
+</div>
+<!-- Nav Links -->
+<nav class="hidden md:flex items-center gap-space-lg ml-space-md">
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 transition-colors duration-150" href="#">Configure</a>
+<a class="text-primary font-label-md text-label-md border-b-2 border-primary pb-2 pt-2" href="#">Pipeline</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 transition-colors duration-150" href="#">Artifacts</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:text-on-surface pb-2 pt-2 transition-colors duration-150" href="#">Audit</a>
+</nav>
+</div>
+<!-- Trailing Actions Cluster -->
+<div class="flex items-center gap-space-md">
+<a class="hidden sm:inline-block font-label-md text-label-md text-on-surface-variant hover:text-on-surface px-space-sm py-space-xs transition-colors duration-150" href="#">Docs</a>
+<div class="flex items-center gap-1 text-on-surface-variant border-r border-surface-variant pr-space-md">
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" title="Terminal Shell">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" title="Runtime Engine Settings">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 relative active:scale-[0.98]" title="Alerts &amp; Feeds">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-secondary"></span>
+</button>
+</div>
+<button class="flex items-center gap-space-xs bg-primary hover:bg-primary-fixed-dim text-on-primary font-label-md text-label-md px-space-md py-1.5 rounded transition-transform active:scale-[0.98] font-semibold">
+<span class="material-symbols-outlined text-[1rem]" data-icon="add">add</span>
+<span>Deploy Clone</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SIDE NAV RAIL -->
+<aside class="hidden md:flex flex-col justify-between h-[calc(100vh-3.5rem)] w-60 border-r border-surface-variant bg-surface-dim shrink-0 p-space-sm z-10">
+<div class="flex flex-col gap-space-sm">
+<!-- Project Switcher Box -->
+<div class="p-space-sm rounded bg-surface-container-low border border-surface-variant">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs truncate">
+<span class="w-2 h-2 rounded-full bg-secondary-container"></span>
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface truncate">Project Alpha</span>
+</div>
+<span class="material-symbols-outlined text-outline cursor-pointer" data-icon="unfold_more">unfold_more</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline mt-0.5">v2.4.0-rc1 • Local Node</p>
+</div>
+<!-- Rail CTA -->
+<button class="w-full mt-1 flex items-center justify-center gap-space-xs bg-surface-container-high hover:bg-surface-bright text-primary border border-surface-variant py-1.5 px-space-sm rounded font-label-md text-label-md transition-colors active:scale-[0.99]">
+<span class="material-symbols-outlined text-[1rem]" data-icon="play_arrow">play_arrow</span>
+<span>Run Test</span>
+</button>
+<!-- Main Navigation Items -->
+<nav class="flex flex-col gap-0.5 mt-space-sm">
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Overview</span>
+</a>
+<!-- Pipeline (active contextually) -->
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-primary bg-surface-container border-l-2 border-primary font-label-md text-label-md rounded-r transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="memory">memory</span>
+<span>Engines</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="code">code</span>
+<span>DOM Rules</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span>Tokens &amp; Budget</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+<span>Telemetry</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Footer -->
+<div class="flex flex-col gap-0.5 border-t border-surface-variant pt-space-sm">
+<div class="px-space-md py-1 mb-1 flex items-center justify-between text-outline">
+<span class="font-label-sm text-label-sm uppercase tracking-wider">Daemon Status</span>
+<span class="font-label-sm text-label-sm text-secondary flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+            ACTIVE
+          </span>
+</div>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="vpn_key">vpn_key</span>
+<span>Keyring &amp; Auth</span>
+</a>
+<a class="flex items-center gap-space-sm px-space-md py-space-xs text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-label-md text-label-md rounded transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+</div>
+</aside>
+<!-- MAIN VIEW CONTAINER -->
+<main class="flex-1 flex flex-col h-full bg-background overflow-hidden">
+<!-- SUBHEADER / PAGE META -->
+<div class="p-space-lg border-b border-surface-variant bg-surface-container-lowest shrink-0">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-md">
+<div>
+<div class="flex items-center gap-space-sm">
+<h1 class="font-headline-md text-headline-md tracking-tight text-on-surface">Project History</h1>
+<span class="px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant font-label-sm text-label-sm text-on-surface-variant">24 recorded</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline mt-0.5">Target Deployments &amp; Scrapes snapshot across parallel execution nodes</p>
+</div>
+</div>
+<!-- Metadata Cluster Info -->
+<div class="flex items-center gap-space-md font-label-sm text-label-sm bg-surface-container-low px-space-md py-1.5 rounded border border-surface-variant self-start md:self-auto">
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-[1rem] text-outline" data-icon="cloud">cloud</span>
+<span>Cluster: <span class="text-on-surface font-medium">us-east-core</span></span>
+</div>
+<span class="text-surface-variant">|</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-[1rem] text-outline" data-icon="sync">sync</span>
+<span>Concurrency: <span class="text-on-surface font-medium">8 jobs</span></span>
+</div>
+</div>
+</div>
+<!-- FILTER BAR -->
+<div class="mt-space-md pt-space-md border-t border-surface-container-high flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-sm">
+<!-- Segmented Pill / Tabs -->
+<div class="flex items-center bg-surface-container-low p-0.5 rounded border border-surface-variant">
+<button class="px-space-md py-1 rounded bg-surface-container-high text-primary font-label-sm text-label-sm font-semibold transition-colors">
+                In progress (4)
+              </button>
+<button class="px-space-md py-1 rounded text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors">
+                Completed (20)
+              </button>
+</div>
+<!-- Engine Dropdown Filter -->
+<div class="relative">
+<select class="bg-surface-container-low border border-surface-variant text-on-surface-variant text-label-sm font-label-sm rounded py-1 px-space-md pr-8 appearance-none focus:outline-none focus:border-primary cursor-pointer">
+<option>All Engines</option>
+<option>Playwright DOM</option>
+<option>Puppeteer Headless</option>
+<option>Static Wget AST</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1.5 text-outline pointer-events-none text-[1rem]" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Search Input & Refresh -->
+<div class="flex items-center gap-space-xs">
+<div class="relative flex-1 sm:w-80">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-outline text-[1.125rem]" data-icon="search">search</span>
+<input class="w-full bg-surface-container-low border border-surface-variant text-on-surface text-label-sm font-label-sm rounded pl-8 pr-3 py-1.5 placeholder-outline focus:outline-none focus:border-primary" placeholder="search by URL or regex (e.g. ^https://.*)" type="text"/>
+</div>
+<button class="p-1.5 rounded bg-surface-container-low border border-surface-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors active:scale-[0.98]" title="Force Refresh">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+</button>
+</div>
+</div>
+</div>
+<!-- DENSE TABLE LIST OF 6 ROWS -->
+<div class="flex-1 overflow-y-auto px-margin py-space-sm">
+<div class="border border-surface-variant rounded bg-surface-container-lowest overflow-hidden">
+<!-- Column Headers -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-2 border-b border-surface-variant bg-surface-container-low text-outline font-label-sm text-label-sm select-none">
+<div class="col-span-5 flex items-center gap-space-sm">TARGET DOMAIN &amp; SCOPE</div>
+<div class="col-span-2">EXECUTION STATUS</div>
+<div class="col-span-3">PHASE &amp; METRICS</div>
+<div class="col-span-2 text-right">ACTIONS</div>
+</div>
+<!-- ROW 1: running -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md border-b border-surface-variant hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[1.25rem]" data-icon="web">web</span>
+<span class="font-label-sm text-[0.55rem] text-primary leading-tight mt-0.5">DOM</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://stripe.com/pricing</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: DOM + CSS Assets • 42 pages queued</p>
+</div>
+</div>
+<!-- Status Pill (running) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container-high text-primary border border-primary/40 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span>running</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-on-surface-variant truncate">capture 3/20 assets</span>
+<span class="text-primary font-semibold">65%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 65%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated 12s ago</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Pause Run">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="pause">pause</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Inspect Inspector">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Restart">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="replay">replay</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Abort">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 2: needs_auth -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md border-b border-surface-variant hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[1.25rem]" data-icon="shield">shield</span>
+<span class="font-label-sm text-[0.55rem] text-tertiary leading-tight mt-0.5">AUTH</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://dashboard.clerk.com/sign-in</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: Protected Dashboard SPA • Session gate detected</p>
+</div>
+</div>
+<!-- Status Pill (needs_auth) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-tertiary-container/30 text-tertiary border border-tertiary/40 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>needs_auth</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-tertiary truncate">waiting on auth inject</span>
+<span class="text-tertiary font-semibold">15%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full rounded-full" style="width: 15%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated 24m ago</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1.5">
+<button class="flex items-center gap-1 px-2 py-1 rounded bg-tertiary-container/40 hover:bg-tertiary-container/70 text-tertiary border border-tertiary/50 font-label-sm text-label-sm transition-colors active:scale-[0.98]">
+<span class="material-symbols-outlined text-[0.875rem]" data-icon="key">key</span>
+<span>Inject Auth</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Inspect">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Delete">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 3: paused / interrupted -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md border-b border-surface-variant hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-outline text-[1.25rem]" data-icon="layers">layers</span>
+<span class="font-label-sm text-[0.55rem] text-outline leading-tight mt-0.5">SPA</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://linear.app/features</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: Canvas WebGL + Hydrated state tree</p>
+</div>
+</div>
+<!-- Status Pill (paused) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant border border-outline/30 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+<span>paused</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-on-surface-variant truncate">timeout chunk_04.js</span>
+<span class="text-on-surface-variant font-semibold">42%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-outline h-full rounded-full" style="width: 42%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated 2h ago</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-primary hover:text-primary-fixed-dim transition-colors" title="Resume Job">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="play_arrow">play_arrow</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="View Source">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="visibility">visibility</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Restart">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="replay">replay</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Delete">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 4: completed -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md border-b border-surface-variant hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[1.25rem]" data-icon="check_circle">check_circle</span>
+<span class="font-label-sm text-[0.55rem] text-secondary leading-tight mt-0.5">DOM</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://raycast.com</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: Static Landing + Tailwind Extract • 18 SVGs</p>
+</div>
+</div>
+<!-- Status Pill (completed) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container-high text-secondary border border-secondary/40 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>completed</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-secondary truncate">ready • bundle exported</span>
+<span class="text-secondary font-semibold">100%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-secondary h-full rounded-full" style="width: 100%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated Yesterday</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-secondary transition-colors" title="Download Bundle">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="download">download</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Visual Diff QA">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="difference">difference</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Re-run">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="replay">replay</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Delete">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 5: completed -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md border-b border-surface-variant hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[1.25rem]" data-icon="dataset">dataset</span>
+<span class="font-label-sm text-[0.55rem] text-secondary leading-tight mt-0.5">API</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://supabase.com/docs</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: Markdown AST + OpenAPI Schema spec</p>
+</div>
+</div>
+<!-- Status Pill (completed) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container-high text-secondary border border-secondary/40 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>completed</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-secondary truncate">synthesized v3 DOM tree</span>
+<span class="text-secondary font-semibold">100%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-secondary h-full rounded-full" style="width: 100%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated 2d ago</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-secondary transition-colors" title="Download Schema">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="download">download</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Visual Diff">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="difference">difference</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Re-run">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="replay">replay</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Delete">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+<!-- ROW 6: failed -->
+<div class="grid grid-cols-12 gap-space-md px-space-md py-space-md hover:bg-surface-container-low transition-colors duration-150 items-center">
+<!-- URL & Preview -->
+<div class="col-span-5 flex items-center gap-space-md">
+<div class="w-10 h-10 rounded border border-surface-variant bg-surface-container flex flex-col items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-error text-[1.25rem]" data-icon="error">error</span>
+<span class="font-label-sm text-[0.55rem] text-error leading-tight mt-0.5">SPA</span>
+</div>
+<div class="truncate">
+<div class="flex items-center gap-1.5">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate hover:underline cursor-pointer">https://vercel.com/analytics</span>
+<a class="text-outline hover:text-primary" href="#"><span class="material-symbols-outlined text-[0.875rem]" data-icon="open_in_new">open_in_new</span></a>
+</div>
+<p class="font-body-sm text-body-sm text-outline truncate mt-0.5">Target: Cloudflare Bot Management Challenge #1020</p>
+</div>
+</div>
+<!-- Status Pill (failed) -->
+<div class="col-span-2 flex items-center">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-error-container/30 text-error border border-error/40 font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+<span>failed</span>
+</span>
+</div>
+<!-- Phase & Progress -->
+<div class="col-span-3">
+<div class="flex justify-between items-center text-outline font-label-sm text-label-sm mb-1">
+<span class="text-error truncate">blocked at handshake</span>
+<span class="text-error font-semibold">8%</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-error h-full rounded-full" style="width: 8%"></div>
+</div>
+<p class="font-body-sm text-[0.6875rem] text-outline mt-1">Updated 3d ago</p>
+</div>
+<!-- Actions -->
+<div class="col-span-2 flex items-center justify-end gap-1.5">
+<button class="flex items-center gap-1 px-2 py-1 rounded bg-surface-container-high hover:bg-surface-bright text-error border border-error/30 font-label-sm text-label-sm transition-colors active:scale-[0.98]">
+<span class="material-symbols-outlined text-[0.875rem]" data-icon="bug_report">bug_report</span>
+<span>Trace</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Retry with Stealth Proxy">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="replay">replay</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-error transition-colors" title="Purge Record">
+<span class="material-symbols-outlined text-[1.125rem]" data-icon="delete">delete</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- PAGINATION FOOTER -->
+<footer class="h-12 border-t border-surface-variant bg-surface-container-lowest px-margin flex items-center justify-between shrink-0 font-label-sm text-label-sm text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span>CLI daemon idle: <span class="text-on-surface">2 workers active</span></span>
+<span class="text-surface-variant mx-1">•</span>
+<span>Showing <span class="text-on-surface">1–6</span> of 24 projects</span>
+</div>
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-xs">
+<span class="text-outline">Rows:</span>
+<select class="bg-surface-container-low border border-surface-variant text-on-surface py-0.5 px-2 rounded appearance-none focus:outline-none focus:border-primary cursor-pointer text-label-sm">
+<option>6 per page</option>
+<option selected="">20 per page</option>
+<option>50 per page</option>
+</select>
+</div>
+<!-- Pagination Controls -->
+<div class="flex items-center gap-1 font-label-sm text-label-sm">
+<button class="w-7 h-7 flex items-center justify-center rounded border border-surface-variant bg-surface-container-low hover:bg-surface-container-high text-outline hover:text-on-surface transition-colors" disabled="" title="Previous Page">
+<span class="material-symbols-outlined text-[1rem]" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-7 h-7 flex items-center justify-center rounded border border-primary bg-surface-container-high text-primary font-semibold">
+              1
+            </button>
+<button class="w-7 h-7 flex items-center justify-center rounded border border-surface-variant bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors">
+              2
+            </button>
+<button class="w-7 h-7 flex items-center justify-center rounded border border-surface-variant bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors">
+              3
+            </button>
+<button class="w-7 h-7 flex items-center justify-center rounded border border-surface-variant bg-surface-container-low hover:bg-surface-container-high text-outline hover:text-on-surface transition-colors" title="Next Page">
+<span class="material-symbols-outlined text-[1rem]" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</footer>
+</main>
+</div>
+</body></html>
