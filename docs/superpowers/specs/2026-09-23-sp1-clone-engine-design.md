@@ -32,7 +32,7 @@ Nền tảng tham khảo: `JCodesMore/ai-website-cloner-template` (MIT) — pipe
 
 ## 1. Kiến trúc tổng thể
 
-Một process **Next.js (App Router)** chạy local: UI + API routes + pipeline. Lưu trữ: **SQLite** (`better-sqlite3`) + thư mục `workspace/<projectId>/`. Tiến độ đẩy về UI qua **SSE**.
+Một process **Next.js (App Router)** chạy local: UI + API routes + pipeline. Lưu trữ: **SQLite** qua `node:sqlite` built-in (Node 24+, synchronous API, không cần native dependency) + thư mục `workspace/<projectId>/`. Tiến độ đẩy về UI qua **SSE**.
 
 ```
 src/
