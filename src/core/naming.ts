@@ -57,11 +57,22 @@ function toKebabCase(raw: string): string {
 
 const entrySchema = z.object({ name: z.string(), role: z.string() });
 
-function fallbackNames(ir: IR, sectionIds: string[]): SectionNames {
+// section-N = the section's 1-based position on the page that owns it (a shared layout's owner is its first
+// page), the same N ir.ts assigned. Keyed by section so naming page B never renumbers page A's shared layout.
+function positionName(ir: IR, section: Section | undefined, fallbackIndex: number): string {
+  const owner = section && ir.pages.find((p) => p.id === section.pageId);
+  const pos = owner ? owner.sectionIds.indexOf(section.id) : -1;
+  return `section-${(pos >= 0 ? pos : fallbackIndex) + 1}`;
+}
+
+// Only sections this page owns: a shared layout owned by another page keeps its name (maybe an AI one).
+function fallbackNames(ir: IR, pageId: string, sectionIds: string[]): SectionNames {
   const byId = new Map(ir.sections.map((s) => [s.id, s] as const));
   const names: SectionNames = {};
   sectionIds.forEach((id, i) => {
-    names[id] = { name: `section-${i + 1}`, role: byId.get(id)?.role ?? "section" };
+    const section = byId.get(id);
+    if (section && section.pageId !== pageId) return;
+    names[id] = { name: positionName(ir, section, i), role: section?.role ?? "section" };
   });
   return names;
 }
@@ -101,27 +112,26 @@ export async function nameSections(
     });
     text = result.text;
   } catch (e) {
-    return { names: fallbackNames(ir, sectionIds), error: e instanceof AppError ? e.code : "AI_BAD_RESPONSE" };
+    return { names: fallbackNames(ir, pageId, sectionIds), error: e instanceof AppError ? e.code : "AI_BAD_RESPONSE" };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { names: fallbackNames(ir, sectionIds), error: "AI_BAD_RESPONSE" };
+    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE" };
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return { names: fallbackNames(ir, sectionIds), error: "AI_BAD_RESPONSE" };
+    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE" };
   }
 
-  const byId = new Map(ir.sections.map((s) => [s.id, s] as const));
   const raw = parsed as Record<string, unknown>;
   const names: SectionNames = {};
-  sectionIds.forEach((id, i) => {
+  const fallback = fallbackNames(ir, pageId, sectionIds);
+  for (const id of sectionIds) {
     const candidate = entrySchema.safeParse(raw[id]);
-    names[id] = candidate.success
-      ? { name: toKebabCase(candidate.data.name), role: candidate.data.role.trim().slice(0, MAX_ROLE_CHARS) || "section" }
-      : { name: `section-${i + 1}`, role: byId.get(id)?.role ?? "section" };
-  });
+    if (candidate.success) names[id] = { name: toKebabCase(candidate.data.name), role: candidate.data.role.trim().slice(0, MAX_ROLE_CHARS) || "section" };
+    else if (fallback[id]) names[id] = fallback[id];
+  }
   return { names };
 }

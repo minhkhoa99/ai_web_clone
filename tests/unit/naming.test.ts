@@ -154,3 +154,23 @@ test("applySectionNames is pure/immutable and only touches name/role", () => {
   expect(next.sections[0]).toEqual({ ...s1, name: "top-nav", role: "navigation" });
   expect(next).not.toBe(ir);
 });
+
+test("fallback names use the position on the owning page: a shared layout is never renumbered by another page", async () => {
+  // p1 owns [a, shared, b]; p2 = [shared, c, d] reuses p1's layout section at a different position
+  const a = section("a", "hero", node("section"));
+  const shared = section("shared", "nav", node("nav"));
+  const b = section("b", "body", node("main"));
+  const c = { ...section("c", "body", node("main")), pageId: "p2" };
+  const d = { ...section("d", "footer", node("footer")), pageId: "p2" };
+  const ir = makeIr([a, shared, b, c, d], ["a", "shared", "b"]);
+  ir.pages.push({ id: "p2", path: "/2", title: "t", meta: {}, sectionIds: ["shared", "c", "d"], shell: node("html") });
+  generateMock.mockRejectedValue(new AppError("AI_RATE_LIMIT", "rate limited", {}));
+
+  const p1 = await nameSections({} as never, "proj1", ir, "p1");
+  const p2 = await nameSections({} as never, "proj1", ir, "p2");
+  const merged = { ...p1.names, ...p2.names };
+
+  expect(p1.names.shared).toEqual({ name: "section-2", role: "nav" });
+  expect(p2.names).toEqual({ c: { name: "section-2", role: "body" }, d: { name: "section-3", role: "footer" } }); // shared left to its owner
+  expect(new Set(["a", "shared", "b"].map((id) => merged[id]!.name)).size).toBe(3);
+});

@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
 import { config } from "@/core/config";
 import { AppError, type Code } from "@/core/errors";
+import { isLoopbackHost } from "./loopback";
 
 export type IdCtx = { params: Promise<{ id: string }> };
 
@@ -36,14 +37,11 @@ export function errorResponse(e: unknown): Response {
   return Response.json({ code: "INTERNAL", message: "internal error" }, { status: 500 });
 }
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
-
-// Every request: the Host must be loopback (any port). Blocks DNS rebinding, where evil.test resolves to
-// 127.0.0.1 and the page's own requests arrive with Host/Origin evil.test — same-origin as far as the browser knows.
+// Every request: the Host must be loopback (any port). src/proxy.ts checks the same for pages; this keeps
+// the API safe when a handler is called without the proxy (tests, a misconfigured matcher).
 function hostOf(req: Request): string {
   const host = req.headers.get("host") ?? new URL(req.url).host;
-  const url = URL.parse(`http://${host}`);
-  if (!url || !LOOPBACK_HOSTS.has(url.hostname)) throw new ApiError(403, "FORBIDDEN", "requests must target a loopback host");
+  if (!isLoopbackHost(host)) throw new ApiError(403, "FORBIDDEN", "requests must target a loopback host");
   return host;
 }
 
@@ -80,7 +78,7 @@ export function requireProject(db: DatabaseSync, id: string): ProjectRow {
 export const workspaceOf = (projectId: string) => join(config.workspaceRoot, projectId);
 
 // The page behind the auth wall: a login task's key is its URL, a capture task's key is a pageId (pages.json).
-export async function authUrl(db: DatabaseSync, project: ProjectRow): Promise<string> {
+export async function authUrl(db: DatabaseSync, project: Pick<ProjectRow, "id" | "url">): Promise<string> {
   const task = db.prepare("SELECT phase,key FROM tasks WHERE project_id=? AND status='needs_auth' ORDER BY rowid LIMIT 1").get(project.id) as
     | { phase: string; key: string }
     | undefined;

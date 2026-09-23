@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { notFound } from "next/navigation";
 import { getDb } from "@/app/_server/db";
-import { workspaceOf, type ProjectRow } from "@/app/_server/http";
+import { workspaceOf } from "@/app/_server/http";
 
-export type ProjectView = ProjectRow & { progress: number; config_json: string };
+// No auth_enc: the screens never need the (encrypted) credentials.
+export type ProjectView = { id: string; url: string; status: string; progress: number; config_json: string };
 
 export function loadProject(id: string): ProjectView {
-  const row = getDb().prepare("SELECT id,url,status,auth_enc,progress,config_json FROM projects WHERE id=?").get(id) as ProjectView | undefined;
+  const row = getDb().prepare("SELECT id,url,status,progress,config_json FROM projects WHERE id=?").get(id) as ProjectView | undefined;
   if (!row) notFound();
   return row;
 }

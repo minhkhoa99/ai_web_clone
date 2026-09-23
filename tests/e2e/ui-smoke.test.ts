@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { request } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,6 +58,22 @@ afterAll(async () => {
   await site?.close();
   server?.kill();
   if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+// node:http, because fetch won't let a caller set Host
+const statusWithHost = (path: string, host: string) =>
+  new Promise<number>((resolve, reject) => {
+    const req = request(`${base}${path}`, { headers: { host } }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on("error", reject).end();
+  });
+
+test("proxy: every path answers 403 to a non-loopback Host (DNS rebinding), loopback is served", async () => {
+  for (const path of ["/", "/new", "/settings/ai", "/p/x/sitemap", "/api/providers"]) expect(await statusWithHost(path, "evil.test")).toBe(403);
+  expect(await statusWithHost("/", "evil.test:80")).toBe(403);
+  expect(await statusWithHost("/new", "localhost")).toBe(200);
 });
 
 test("settings/ai: add a provider, it is listed with a masked key", async () => {

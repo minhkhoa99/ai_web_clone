@@ -64,9 +64,10 @@ function setStatus(db: DatabaseSync, projectId: string, status: ProjectStatus, r
   emit(projectId, reason ? { type: "status", status, reason } : { type: "status", status });
 }
 
+// discover is the sitemap step before the page selection: a draft (only discover done) is 0%, not 100%.
 function updateProgress(db: DatabaseSync, projectId: string): number {
   const { total, done } = db
-    .prepare("SELECT COUNT(*) total, COALESCE(SUM(status='done'),0) done FROM tasks WHERE project_id=?")
+    .prepare("SELECT COUNT(*) total, COALESCE(SUM(status='done'),0) done FROM tasks WHERE project_id=? AND phase<>'discover'")
     .get(projectId) as { total: number; done: number };
   const progress = total ? Math.round((done * 100) / total) : 0;
   db.prepare("UPDATE projects SET progress=?,updated_at=unixepoch() WHERE id=?").run(progress, projectId);

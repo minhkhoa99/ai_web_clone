@@ -54,9 +54,8 @@ export default async function CodePage({ params, searchParams }: { params: Promi
         <div className="code-layout" style={{ marginTop: 16 }}>
           <nav className="card files" aria-label="Cây file">
             {files.map((f) => (
-              <Link key={f} href={`?file=${encodeURIComponent(f)}`} aria-current={f === current ? "page" : undefined} style={{ paddingLeft: (f.split("/").length - 1) * 14 }}>
-                {f.split("/").pop()}
-                {f.includes("/") && <span className="muted"> ({f.slice(0, f.lastIndexOf("/"))})</span>}
+              <Link key={f} href={`?file=${encodeURIComponent(f)}`} aria-current={f === current ? "page" : undefined}>
+                {f}
               </Link>
             ))}
           </nav>

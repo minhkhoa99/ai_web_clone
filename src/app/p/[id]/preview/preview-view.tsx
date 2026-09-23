@@ -25,6 +25,7 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
   const [heat, setHeat] = useState(false);
   const [tab, setTab] = useState<"sections" | "checklist">("sections");
   const [frameH, setFrameH] = useState(1000);
+  const [origH, setOrigH] = useState(0); // the original shot's natural height (it is bp px wide)
   const frameRef = useRef<HTMLIFrameElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -51,7 +52,7 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
     if (!frame || !doc) return;
     frame.style.height = "0px"; // measure the content, not the previous frame height
     const h = Math.min(MAX_FRAME_H, Math.max(doc.documentElement.scrollHeight, 200));
-    frame.style.height = `${h}px`; // React skips the style write when h equals the previous state
+    frame.style.height = `${Math.max(h, origH)}px`; // React skips the style write when the height is unchanged
     setFrameH(h);
   };
 
@@ -69,8 +70,9 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
   if (!data) return <p className="muted">Đang tải…</p>;
   if (!page) return <p className="muted">Chưa có output — chạy clone trước.</p>;
 
+  const paneH = Math.max(frameH, origH); // the clone is at least as tall as the original shot (its viewport)
   const cloneFrame = (
-    <div className="frame" style={{ width: bp * scale, height: frameH * scale }}>
+    <div className="frame" style={{ width: bp * scale, height: paneH * scale }}>
       {page.file && (
         <iframe
           key={`${page.file}-${bp}`}
@@ -78,12 +80,19 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
           title="Bản clone"
           src={fileUrl(`out/${page.file}`)}
           onLoad={measure}
-          style={{ width: bp, height: frameH, transform: `scale(${scale})` }}
+          style={{ width: bp, height: paneH, transform: `scale(${scale})` }}
         />
       )}
     </div>
   );
-  const original = <img alt="Bản gốc" src={fileUrl(`pages/${pageId}/shots/${bp}.png`)} style={{ width: bp * scale, display: "block" }} />;
+  const original = (
+    <img
+      alt="Bản gốc"
+      src={fileUrl(`pages/${pageId}/shots/${bp}.png`)}
+      onLoad={(e) => setOrigH(e.currentTarget.naturalHeight)}
+      style={{ width: bp * scale, display: "block" }}
+    />
+  );
 
   return (
     <div className="stack">
@@ -219,11 +228,11 @@ function Checklist({ data, pageId }: { data: Data; pageId: string }) {
       {rows.length === 0 && <p className="muted">Không có tương tác nào.</p>}
       <ul className="plain">
         {rows.map((i) => (
-          <li key={i.id} className="row spread">
+          <li key={i.id} className="checklist-row">
+            <span className={i.status === "captured" ? "score pass" : i.status === "failed" ? "score fail" : "score muted"}>{i.status}</span>
             <span className="mono">
               {i.kind} · {i.trigger}
             </span>
-            <span className={i.status === "captured" ? "score pass" : i.status === "failed" ? "score fail" : "score muted"}>{i.status}</span>
           </li>
         ))}
       </ul>

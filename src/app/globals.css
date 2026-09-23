@@ -108,6 +108,7 @@ th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-al
 .score { font-family: var(--font-mono); }
 .score.fail { color: var(--bad); }
 .score.pass { color: var(--ok); }
+.checklist-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; padding: 4px 0; overflow-wrap: anywhere; }
 .heat { max-width: 100%; display: block; margin-top: 6px; border: 1px solid var(--border); }
 
 /* code viewer */
