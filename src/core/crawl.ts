@@ -2,6 +2,7 @@ import type { BrowserHandle } from "./browser";
 import { withPage } from "./browser";
 import { normalizeUrl, sameOrigin, isHtmlLike } from "./url";
 import { AppError, Codes } from "./errors";
+import { detectNeedsAuth } from "./auth";
 
 export type CrawlPage = { url: string; needsAuth: boolean };
 
@@ -45,18 +46,21 @@ function parseSitemapLocs(xml: string): string[] {
   return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1] as string);
 }
 
-async function extractLinks(handle: BrowserHandle, pageUrl: string): Promise<string[]> {
+async function loadPage(handle: BrowserHandle, pageUrl: string): Promise<{ links: string[]; needsAuth: boolean }> {
   return withPage(handle, async (page) => {
-    await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+    const response = await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+    const authState = await detectNeedsAuth(page, { status: response?.status(), requestedUrl: pageUrl });
     // `any`: $$eval runs in the browser context, not Node — no DOM lib types here.
-    return page.$$eval("a[href]", (anchors: any[]) => anchors.map((a) => a.getAttribute("href") ?? ""));
+    const links = await page.$$eval("a[href]", (anchors: any[]) => anchors.map((a) => a.getAttribute("href") ?? ""));
+    return { links, needsAuth: authState !== "none" };
   });
 }
 
 /**
  * Bounded, same-origin BFS crawl: seeds from sitemap.xml (depth 1) + <a href>
  * links found on each visited page, respecting robots.txt. Stops at depth or
- * maxPages. needsAuth is always false here — Task 8 wires detectNeedsAuth in.
+ * maxPages. needsAuth comes from detectNeedsAuth (password field, login
+ * redirect, 401/403, or captcha) run on each visited page.
  */
 // ponytail: sequential BFS, not mapLimit-parallel — single origin + a
 // per-origin politeness delay make concurrent fetches pointless here.
@@ -104,9 +108,9 @@ export async function crawl(handle: BrowserHandle, opts: CrawlOpts): Promise<Cra
     if (!item) break;
     await politeDelay();
 
-    let links: string[];
+    let page: { links: string[]; needsAuth: boolean };
     try {
-      links = await extractLinks(handle, item.url);
+      page = await loadPage(handle, item.url);
     } catch (err) {
       if (item.url === start) {
         throw new AppError(Codes.NAV_TIMEOUT, "failed to load start URL", { url: start, cause: err });
@@ -114,10 +118,10 @@ export async function crawl(handle: BrowserHandle, opts: CrawlOpts): Promise<Cra
       continue; // skip this page, keep crawling the rest of the queue
     }
 
-    results.push({ url: item.url, needsAuth: false });
+    results.push({ url: item.url, needsAuth: page.needsAuth });
     if (results.length >= maxPages || item.depth >= depth) continue;
 
-    for (const href of links) {
+    for (const href of page.links) {
       const normalized = normalizeUrl(href, item.url);
       if (!normalized || !sameOrigin(normalized, start) || !isHtmlLike(normalized)) continue;
       if (visited.has(normalized) || !isAllowed(normalized)) continue;

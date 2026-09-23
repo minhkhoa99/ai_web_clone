@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Login</title></head>
+<body>
+<h1>Sign in</h1>
+<form id="login-form">
+  <label>Email <input type="email" name="email" /></label>
+  <label>Password <input type="password" name="password" /></label>
+  <button type="submit">Sign in</button>
+  <p id="error" style="display:none;color:red;">Invalid email or password</p>
+</form>
+<script>
+document.getElementById("login-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var email = document.querySelector('input[name="email"]').value;
+  var password = document.querySelector('input[name="password"]').value;
+  if (email === "demo@example.com" && password === "pass123") {
+    window.location.href = "dashboard.html";
+  } else {
+    document.getElementById("error").style.display = "block";
+  }
+});
+</script>
+</body>
+</html>
