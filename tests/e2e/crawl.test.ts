@@ -62,6 +62,18 @@ test("caps at maxPages", async () => {
   expect(results.length).toBe(2);
 });
 
+test("rejects with ROBOTS_DISALLOWED when the start URL itself is disallowed", async () => {
+  await expect(
+    crawl(handle, {
+      start: `${site.url}/private.html`,
+      depth: 1,
+      maxPages: 20,
+      sameOriginOnly: true,
+      delayMs: 5,
+    }),
+  ).rejects.toMatchObject({ code: "ROBOTS_DISALLOWED" });
+});
+
 test("depth 0 returns only the start page", async () => {
   const results = await crawl(handle, {
     start: `${site.url}/index.html`,

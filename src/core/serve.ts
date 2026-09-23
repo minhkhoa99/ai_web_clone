@@ -23,7 +23,13 @@ export async function serveDir(dir: string): Promise<{ url: string; close(): Pro
 
   const server = createServer((req, res) => {
     void (async () => {
-      const reqPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+      let reqPath: string;
+      try {
+        reqPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+      } catch {
+        res.writeHead(400).end(); // malformed %-escape in the request path
+        return;
+      }
       const rel = reqPath === "/" ? "/index.html" : reqPath;
       const filePath = resolve(join(root, rel));
       if (filePath !== root && !filePath.startsWith(root + sep)) {
