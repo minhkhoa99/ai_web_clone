@@ -20,6 +20,10 @@
     .slide { flex: 0 0 300px; height: 120px; scroll-snap-align: start; }
     .field:focus { outline: 3px solid rgb(0, 200, 0); }
     .spacer { height: 1500px; }
+    .dropdown-vis { visibility: hidden; }
+    .dropdown-vis.open { visibility: visible; }
+    .dropdown-fade { opacity: 0; }
+    .dropdown-fade.open { opacity: 1; }
   </style>
 </head>
 <body>
@@ -28,6 +32,13 @@
     <button id="menu-btn" aria-expanded="false" aria-controls="main-nav">Menu</button>
     <nav id="main-nav" class="main-nav"><a href="#tabs">Tabs</a> <a href="#faq">FAQ</a></nav>
   </header>
+
+  <section id="dropdowns">
+    <button id="vis-btn" aria-expanded="false" data-target="vis-menu">Account</button>
+    <ul id="vis-menu" class="dropdown-vis"><li>Profile</li></ul>
+    <button id="fade-btn" aria-expanded="false" data-target="fade-menu">Help</button>
+    <ul id="fade-menu" class="dropdown-fade"><li>Docs</li></ul>
+  </section>
 
   <section id="tabs">
     <div role="tablist">
@@ -71,6 +82,11 @@
       const open = nav.classList.toggle("open");
       menuBtn.setAttribute("aria-expanded", String(open));
     });
+
+    document.querySelectorAll("[data-target]").forEach((btn) => btn.addEventListener("click", () => {
+      const open = document.getElementById(btn.dataset.target).classList.toggle("open");
+      btn.setAttribute("aria-expanded", String(open));
+    }));
 
     const tabs = document.querySelectorAll("[role=tab]");
     tabs.forEach((tab) => tab.addEventListener("click", () => {

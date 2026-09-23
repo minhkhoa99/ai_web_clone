@@ -26,7 +26,8 @@ export function findCandidatesInPage(arg: { stateSelectors: string[]; maxWalk: n
     }
     return parts.join(" > ");
   };
-  const isVisible = (el: Element) => el.checkVisibility() && el.getBoundingClientRect().width > 0;
+  const isVisible = (el: Element) =>
+    el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && el.getBoundingClientRect().width > 0;
   const qsa = (selector: string) => Array.from(document.querySelectorAll(selector)).filter(isVisible);
 
   const found: Record<InteractionKind, Candidate[]> = {
@@ -118,7 +119,9 @@ export function readStyleInPage(selector: string): Record<string, string> {
 // is the window cast for these private slots.
 export function markHiddenInPage(maxAdded: number): void {
   const w = window as any;
-  w.__ixHidden = Array.from(document.querySelectorAll("body *")).filter((el) => !el.checkVisibility());
+  w.__ixHidden = Array.from(document.querySelectorAll("body *")).filter(
+    (el) => !el.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
+  );
   w.__ixAdded = [];
   w.__ixObserver?.disconnect();
   w.__ixObserver = new MutationObserver((records) => {
@@ -132,29 +135,32 @@ export function markHiddenInPage(maxAdded: number): void {
 }
 
 // Topmost elements that were hidden (or added) since markHiddenInPage and
-// are visible now; remembered for the restore check. Returns their
-// outerHTML without <script>, or the fallback panel's when nothing was revealed.
-export function collectRevealedInPage(panelSelector: string | null): string {
+// are visible now; remembered for the restore check. `html` is their
+// outerHTML without <script>, or the fallback panel's when nothing was
+// revealed; `revealed` says whether anything actually became visible.
+export function collectRevealedInPage(panelSelector: string | null): { html: string; revealed: boolean } {
   const w = window as any;
+  const visible = (el: Element) => el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
   w.__ixObserver?.disconnect();
   const pool: Element[] = [...(w.__ixHidden ?? []), ...(w.__ixAdded ?? [])];
-  const shown = new Set(pool.filter((el) => el.isConnected && el.checkVisibility()));
+  const shown = new Set(pool.filter((el) => el.isConnected && visible(el)));
   const roots = [...shown].filter((el) => !el.parentElement || !shown.has(el.parentElement));
   w.__ixRevealed = roots;
   w.__ixHidden = w.__ixAdded = null;
 
   const panel = panelSelector ? document.querySelector(panelSelector) : null;
-  const subtree = roots.length ? roots : panel?.checkVisibility() ? [panel] : [];
-  return subtree
+  const subtree = roots.length ? roots : panel && visible(panel) ? [panel] : [];
+  const html = subtree
     .map((el) => {
       const copy = el.cloneNode(true) as Element;
       for (const script of Array.from(copy.querySelectorAll("script"))) script.remove();
       return copy.outerHTML;
     })
     .join("\n");
+  return { html, revealed: roots.length > 0 };
 }
 
 export function revealedHiddenInPage(): boolean {
   const roots: Element[] = (window as any).__ixRevealed ?? [];
-  return roots.every((el) => !el.checkVisibility());
+  return roots.every((el) => !el.checkVisibility({ visibilityProperty: true, opacityProperty: true }));
 }

@@ -29,36 +29,49 @@ export const INTERACTION_LIMITS = { max: 300, perInteractionMs: 5_000, totalMs: 
 const MAX_WALK = 20_000; // same bound as the DOM snapshot node cap
 const MAX_ADDED_NODES = 1_000;
 const ACTION_TIMEOUT_MS = 2_000;
+const NAV_TIMEOUT_MS = 30_000; // spec §1 navigation timeout
 const SETTLE_MS = 150;
 const STICKY_SCROLL_Y = 600;
 const CAROUSEL_MAX_STEPS = 10;
+const FAILED: ScanResult = { status: "failed" };
 
-const settle = (page: Page) => page.waitForTimeout(SETTLE_MS);
-const readStyle = (page: Page, selector: string) => page.evaluate(readStyleInPage, selector);
+// One scan's handle on the page. Every page access goes through pageOf(),
+// so once the scan times out (`cancelled`) its next step throws instead of
+// touching the page under the following scan.
+type Scan = { page: Page; cancelled: boolean };
+
+function pageOf(s: Scan): Page {
+  if (s.cancelled) throw new Error("interaction cancelled after timeout");
+  return s.page;
+}
+
+const settle = (s: Scan) => pageOf(s).waitForTimeout(SETTLE_MS);
+const readStyle = (s: Scan, selector: string) => pageOf(s).evaluate(readStyleInPage, selector);
+const reload = (s: Scan) => pageOf(s).reload({ waitUntil: "load", timeout: NAV_TIMEOUT_MS });
 
 function styleDiff(before: Record<string, string>, after: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(after).filter(([prop, value]) => before[prop] !== value));
 }
 
-async function scrollAndSettle(page: Page, y: number): Promise<void> {
-  await page.evaluate((top) => window.scrollTo(0, top), y);
-  await settle(page);
+async function scrollAndSettle(s: Scan, y: number): Promise<void> {
+  await pageOf(s).evaluate((top) => window.scrollTo(0, top), y);
+  await settle(s);
 }
 
-async function scanHover(page: Page, c: Candidate): Promise<ScanResult> {
-  const before = await readStyle(page, c.trigger);
-  await page.hover(c.trigger, { timeout: ACTION_TIMEOUT_MS });
-  const after = await readStyle(page, c.trigger);
-  await page.mouse.move(0, 0);
+async function scanHover(s: Scan, c: Candidate): Promise<ScanResult> {
+  const before = await readStyle(s, c.trigger);
+  await pageOf(s).hover(c.trigger, { timeout: ACTION_TIMEOUT_MS });
+  const after = await readStyle(s, c.trigger);
+  await pageOf(s).mouse.move(0, 0);
   return { status: "captured", styleDelta: styleDiff(before, after) };
 }
 
 // Focus delta; subtreeHtml keeps the field's outerHTML so placeholder etc. are noted.
-async function scanFocus(page: Page, c: Candidate): Promise<ScanResult> {
-  const before = await readStyle(page, c.trigger);
-  await page.focus(c.trigger, { timeout: ACTION_TIMEOUT_MS });
-  const after = await readStyle(page, c.trigger);
-  const html = await page.evaluate((selector) => {
+async function scanFocus(s: Scan, c: Candidate): Promise<ScanResult> {
+  const before = await readStyle(s, c.trigger);
+  await pageOf(s).focus(c.trigger, { timeout: ACTION_TIMEOUT_MS });
+  const after = await readStyle(s, c.trigger);
+  const html = await pageOf(s).evaluate((selector) => {
     const el = document.querySelector<HTMLElement>(selector)!;
     el.blur();
     return el.outerHTML;
@@ -66,44 +79,50 @@ async function scanFocus(page: Page, c: Candidate): Promise<ScanResult> {
   return { status: "captured", styleDelta: styleDiff(before, after), subtreeHtml: html };
 }
 
-async function scanSticky(page: Page, c: Candidate): Promise<ScanResult> {
-  await scrollAndSettle(page, 0);
-  const before = await readStyle(page, c.trigger);
-  await scrollAndSettle(page, STICKY_SCROLL_Y);
-  const after = await readStyle(page, c.trigger);
-  await scrollAndSettle(page, 0);
+async function scanSticky(s: Scan, c: Candidate): Promise<ScanResult> {
+  await scrollAndSettle(s, 0);
+  const before = await readStyle(s, c.trigger);
+  await scrollAndSettle(s, STICKY_SCROLL_Y);
+  const after = await readStyle(s, c.trigger);
+  await scrollAndSettle(s, 0);
   return { status: "captured", styleDelta: styleDiff(before, after) };
 }
 
-// Revert order: Escape → click the undo trigger → reload as last resort,
-// stopping as soon as the revealed subtree is hidden again.
-async function restore(page: Page, undo: string): Promise<void> {
-  const isRestored = () => page.evaluate(revealedHiddenInPage);
-  const steps = [() => page.keyboard.press("Escape"), () => page.click(undo, { timeout: ACTION_TIMEOUT_MS })];
+// Revert order: Escape → click the undo trigger → reload as last resort.
+// With a revealed subtree, stops as soon as it is hidden again. With nothing
+// revealed there is nothing to verify, so both steps always run (no reload).
+async function restore(s: Scan, undo: string, revealed: boolean): Promise<void> {
+  const isRestored = async () => revealed && (await pageOf(s).evaluate(revealedHiddenInPage));
+  const steps = [
+    () => pageOf(s).keyboard.press("Escape"),
+    () => pageOf(s).click(undo, { timeout: ACTION_TIMEOUT_MS }),
+  ];
   for (const step of steps) {
     if (await isRestored()) return;
-    await step().catch(() => undefined); // a failed step just falls through to the next one
-    await settle(page);
+    await step().catch((err) => {
+      if (s.cancelled) throw err; // a failed step just falls through to the next one
+    });
+    await settle(s);
   }
-  if (await isRestored()) return;
-  await page.reload({ waitUntil: "load" });
+  if (!revealed || (await isRestored())) return;
+  await reload(s);
 }
 
 // menu / tab / accordion / modal: click, capture the newly visible subtree, restore.
-async function scanReveal(page: Page, c: Candidate): Promise<ScanResult> {
-  await page.evaluate(markHiddenInPage, MAX_ADDED_NODES);
-  await page.click(c.trigger, { timeout: ACTION_TIMEOUT_MS });
-  await settle(page);
-  const html = await page.evaluate(collectRevealedInPage, c.panel ?? null);
-  if (!html) return { status: "failed" };
-  await restore(page, c.undo ?? c.trigger);
-  return { status: "captured", subtreeHtml: html };
+async function scanReveal(s: Scan, c: Candidate): Promise<ScanResult> {
+  await pageOf(s).evaluate(markHiddenInPage, MAX_ADDED_NODES);
+  await pageOf(s).click(c.trigger, { timeout: ACTION_TIMEOUT_MS });
+  await settle(s);
+  const { html, revealed } = await pageOf(s).evaluate(collectRevealedInPage, c.panel ?? null);
+  await restore(s, c.undo ?? c.trigger, revealed);
+  return html ? { status: "captured", subtreeHtml: html } : FAILED;
 }
 
-async function scanCarousel(page: Page, c: Candidate): Promise<ScanResult> {
-  if (!c.next) return { status: "skipped" }; // no next control to drive it
+async function scanCarousel(s: Scan, c: Candidate): Promise<ScanResult> {
+  if (!c.next) return FAILED; // no next control to drive it
+  const next = c.next;
   const position = () =>
-    page.evaluate((selector) => {
+    pageOf(s).evaluate((selector) => {
       const el = document.querySelector(selector)!;
       return { scrollLeft: el.scrollLeft, key: `${el.scrollLeft}|${el.firstElementChild?.getBoundingClientRect().left}` };
     }, c.trigger);
@@ -112,23 +131,23 @@ async function scanCarousel(page: Page, c: Candidate): Promise<ScanResult> {
   let last = start.key;
   let advanced = 0;
   for (let i = 0; i < CAROUSEL_MAX_STEPS; i++) {
-    await page.click(c.next, { timeout: ACTION_TIMEOUT_MS });
-    await settle(page);
+    await pageOf(s).click(next, { timeout: ACTION_TIMEOUT_MS });
+    await settle(s);
     const { key } = await position();
     if (key === last) break;
     last = key;
     advanced++;
   }
 
-  await page.evaluate(
+  await pageOf(s).evaluate(
     ({ selector, left }) => document.querySelector(selector)!.scrollTo({ left, behavior: "instant" }),
     { selector: c.trigger, left: start.scrollLeft },
   );
-  if ((await position()).key !== start.key) await page.reload({ waitUntil: "load" });
-  return { status: advanced > 0 ? "captured" : "failed" };
+  if ((await position()).key !== start.key) await reload(s);
+  return advanced > 0 ? { status: "captured" } : FAILED;
 }
 
-const SCANNERS: Record<InteractionKind, (page: Page, c: Candidate) => Promise<ScanResult>> = {
+const SCANNERS: Record<InteractionKind, (s: Scan, c: Candidate) => Promise<ScanResult>> = {
   hover: scanHover,
   form: scanFocus,
   sticky: scanSticky,
@@ -139,15 +158,26 @@ const SCANNERS: Record<InteractionKind, (page: Page, c: Candidate) => Promise<Sc
   modal: scanReveal,
 };
 
-function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+// Runs one scanner under a timeout. On timeout the scan is cancelled, then
+// awaited so it never overlaps the next one — it stops at its next pageOf()
+// check, so the wait is bounded by the in-flight action's own timeout — and
+// the page is reloaded so the next scan starts clean.
+async function runScanner(page: Page, c: Candidate, timeoutMs: number): Promise<ScanResult> {
+  const s: Scan = { page, cancelled: false };
+  const work = SCANNERS[c.kind](s, c);
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`interaction timed out after ${ms}ms`)), ms);
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
-  // ponytail: a timed-out action keeps running in the background until its own
-  // Playwright timeout; cancel via AbortSignal if overlap ever corrupts scans.
-  work.catch(() => undefined);
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  const outcome = await Promise.race([work, timeout])
+    .catch((): ScanResult => FAILED)
+    .finally(() => clearTimeout(timer));
+  if (outcome !== "timeout") return outcome;
+
+  s.cancelled = true;
+  await work.catch(() => undefined);
+  await page.reload({ waitUntil: "load", timeout: NAV_TIMEOUT_MS }).catch(() => undefined); // next scan still runs; its own steps fail if the page is gone
+  return FAILED;
 }
 
 const stripHash = (url: string) => url.split("#")[0];
@@ -201,9 +231,7 @@ export async function scanInteractions(
         results.push({ ...base, status: "skipped" });
         continue;
       }
-      const result = await withTimeout(SCANNERS[c.kind](page, c), limits.perInteractionMs).catch(
-        (): ScanResult => ({ status: "failed" }),
-      );
+      const result = await runScanner(page, c, limits.perInteractionMs);
       results.push({ ...base, ...result });
     }
     return results;
