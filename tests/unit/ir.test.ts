@@ -68,7 +68,8 @@ test("two pages with the same header -> one layout, header stored once, both pag
   const layout = ir.layouts[0]!;
   expect(layout.pageIds).toEqual(["p1", "p2"]);
   expect(layout.sectionId).toBe("p1-s1");
-  expect(layout.id).toBe(`layout-${layout.hash}`);
+  expect(layout.id).toMatch(/^layout-[0-9a-f]{6}$/);
+  expect(layout.hash).toBe(ir.sections[0]!.hash);
   expect(ir.sections.filter((s) => s.role === "header")).toHaveLength(1);
   expect(ir.sections.find((s) => s.id === "p1-s1")?.layoutId).toBe(layout.id);
   expect(ir.pages.map((p) => p.sectionIds)).toEqual([
@@ -233,4 +234,70 @@ test("applyPatch unknown id -> IR_PATCH_INVALID with context", () => {
   }
   expect(caught).toBeInstanceOf(AppError);
   expect(caught).toMatchObject({ code: "IR_PATCH_INVALID", context: { op: "setText", id: "nope" } });
+});
+
+test("same structure but different content on two pages -> separate sections, no layout", () => {
+  const block = (t: string) => el("section", {}, [el("h2", {}, [txt(t)])]);
+  const ir = buildIR([
+    capture("p1", "https://x.test/", doc([header(), block("One")])),
+    capture("p2", "https://x.test/b", doc([header(), block("Two")])),
+  ]);
+
+  expect(ir.sections[1]!.hash).toBe(ir.sections[2]!.hash);
+  expect(ir.layouts).toHaveLength(1); // the identical header only
+  expect(ir.pages.map((p) => p.sectionIds)).toEqual([
+    ["p1-s1", "p1-s2"],
+    ["p1-s1", "p2-s2"],
+  ]);
+});
+
+test("page shell: html > body > wrapper keeps styles, sections become placeholders in order", () => {
+  const dom = el("html", {}, [
+    el("head", {}, [el("title", {}, [txt("t")])]),
+    el("body", {}, [el("div", { id: "app" }, [header(), txt("between"), el("main", {}, [el("section", {}, [txt("a")])])], { style: { display: "grid" } })], {
+      style: { margin: "0px" },
+    }),
+  ]);
+  const ir = buildIR([capture("p1", "https://x.test/", dom), capture("p2", "https://x.test/2", doc([header(), el("footer")]))]);
+
+  const shell = ir.pages[0]!.shell;
+  expect(shell.tag).toBe("html");
+  expect(shell.children.map((c) => c.tag)).toEqual(["body"]);
+  const body = shell.children[0]!;
+  expect(ir.classes[body.cls[0]!]).toEqual({ base: { margin: "0px" } });
+  const app = body.children[0]!;
+  expect(ir.classes[app.cls[0]!]).toEqual({ base: { display: "grid" } });
+  expect(app.children.map((c) => [c.tag, c.attrs["data-section"] ?? c.text])).toEqual([
+    ["#section", "p1-s1"],
+    ["#text", "between"],
+    ["main", undefined],
+  ]);
+  expect(app.children[2]!.children).toEqual([{ id: "p1-s2", tag: "#section", attrs: { "data-section": "p1-s2" }, cls: [], children: [] }]);
+  // p2's shared header slot points at the layout section.
+  expect(ir.pages[1]!.shell.children[0]!.children.map((c) => c.attrs["data-section"])).toEqual(["p1-s1", "p2-s2"]);
+});
+
+test("applyPatch setStyle merges into the existing class, keeping other props, media and pseudo", () => {
+  const styled = (size: string) =>
+    doc([el("div", {}, [txt("x")], { style: { color: "red", "font-size": size }, pseudo: { after: { content: '"!"' } } }), el("footer")]);
+  const ir = buildIR([capture("p1", "https://x.test/", styled("16px"), { dom768: styled("14px") })]);
+
+  const next = applyPatch(ir, [{ op: "setStyle", id: "p1:0.1.0", style: { color: "green" } }]);
+
+  expect(next.classes[next.sections[0]!.root.cls[0]!]).toEqual({
+    base: { color: "green", "font-size": "16px" },
+    after: { content: '"!"' },
+    media: { "768": { "font-size": "14px" } },
+  });
+  expect(ir.classes[ir.sections[0]!.root.cls[0]!]!.base.color).toBe("red");
+});
+
+test("nth-of-type trigger counts same-tag siblings only", () => {
+  const interactions: Interaction[] = [
+    { id: "i1", kind: "menu", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > div:nth-of-type(2)", status: "captured" },
+  ];
+  const ir = buildIR([capture("p1", "https://x.test/", doc([el("p"), el("div"), el("p"), el("div")]), { interactions })]);
+
+  expect(find(ir, "p1:0.1.3")?.behavior).toBe("i1");
+  expect(find(ir, "p1:0.1.2")?.behavior).toBeUndefined();
 });
