@@ -66,6 +66,11 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
 
     const insertNode = db.prepare("INSERT INTO nodes(id,project_id,type,key,data_json) VALUES(?,?,?,?,?)");
     const insertEdge = db.prepare("INSERT INTO edges(project_id,src,dst,type) VALUES(?,?,?,?)");
+    // Content-deduped assets map several URLs to one file: the first URL keeps the node.
+    const insertNodeOnce = db.prepare("INSERT OR IGNORE INTO nodes(id,project_id,type,key,data_json) VALUES(?,?,?,?,?)");
+    // Interaction ids hash (kind, trigger), so a shared header repeats them on every page: keep the first.
+    const seen = new Set<string>();
+    const interactions = ir.interactions.filter((it) => !seen.has(it.id) && seen.add(it.id));
 
     for (const page of ir.pages) insertNode.run(page.id, projectId, "Page", page.path, JSON.stringify(page));
     const sectionIndex = new Map(ir.sections.map((s) => [s.id, indexSubtree(s.root)]));
@@ -76,8 +81,8 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
     for (const layout of ir.layouts) insertNode.run(layout.id, projectId, "Layout", layout.hash, JSON.stringify(layout));
     for (const component of ir.components) insertNode.run(component.id, projectId, "Component", component.hash, JSON.stringify(component));
     for (const [name, value] of Object.entries(ir.tokens)) insertNode.run(`token:${name}`, projectId, "Token", name, JSON.stringify(value));
-    for (const [url, relPath] of Object.entries(assets)) insertNode.run(`asset:${relPath}`, projectId, "Asset", url, JSON.stringify({ url, relPath }));
-    for (const interaction of ir.interactions) insertNode.run(interaction.id, projectId, "Interaction", interaction.trigger, JSON.stringify(interaction));
+    for (const [url, relPath] of Object.entries(assets)) insertNodeOnce.run(`asset:${relPath}`, projectId, "Asset", url, JSON.stringify({ url, relPath }));
+    for (const interaction of interactions) insertNode.run(interaction.id, projectId, "Interaction", interaction.trigger, JSON.stringify(interaction));
 
     for (const page of ir.pages) for (const sectionId of page.sectionIds) insertEdge.run(projectId, page.id, sectionId, "HAS_SECTION");
     for (const layout of ir.layouts) for (const pageId of layout.pageIds) insertEdge.run(projectId, pageId, layout.id, "USES_LAYOUT");
@@ -97,14 +102,14 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
         const used = idx.attrValues.includes(url) || declVals.some((v) => v.includes(url));
         if (used) insertEdge.run(projectId, section.id, `asset:${relPath}`, "USES_ASSET");
       }
-      for (const interaction of ir.interactions) {
+      for (const interaction of interactions) {
         if (idx.behaviors.has(interaction.id)) {
           insertEdge.run(projectId, section.id, interaction.id, "TRIGGERS");
           linkedInteractions.add(interaction.id);
         }
       }
     }
-    for (const interaction of ir.interactions) {
+    for (const interaction of interactions) {
       if (!linkedInteractions.has(interaction.id)) insertEdge.run(projectId, interaction.pageId, interaction.id, "TRIGGERS");
     }
   });

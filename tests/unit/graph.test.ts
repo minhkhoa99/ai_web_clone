@@ -244,3 +244,16 @@ test("sharedLayouts: returns the shared layout", () => {
   const layouts = sharedLayouts(d, "proj1");
   expect(layouts).toEqual(ir.layouts);
 });
+
+test("writeGraph: an interaction id repeated across pages (shared header) and two URLs of one asset file store one node each", () => {
+  const interactions: Interaction[] = [{ id: "i1", kind: "menu", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > nav:nth-of-type(1)", status: "captured" }];
+  const ir = buildIR([
+    capture("p1", "https://x.test/", doc([el("nav", {})]), { interactions }),
+    capture("p2", "https://x.test/about", doc([el("nav", {})]), { interactions }),
+  ]);
+  const d = db();
+  writeGraph(d, "proj1", ir, { "https://x.test/a.png": "assets/aa.png", "https://x.test/a.png?v=2": "assets/aa.png" });
+  const count = (type: string) => (d.prepare("SELECT COUNT(*) n FROM nodes WHERE project_id='proj1' AND type=?").get(type) as { n: number }).n;
+  expect(count("Interaction")).toBe(1);
+  expect(count("Asset")).toBe(1);
+});

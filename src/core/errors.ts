@@ -16,6 +16,8 @@ export const Codes = {
   IR_PATCH_INVALID: "IR_PATCH_INVALID",
   GRAPH_NOT_FOUND: "GRAPH_NOT_FOUND",
   INSPECTOR_OP_FAILED: "INSPECTOR_OP_FAILED",
+  AI_CIRCUIT_OPEN: "AI_CIRCUIT_OPEN",
+  QUEUE_FULL: "QUEUE_FULL",
 } as const;
 
 export type Code = keyof typeof Codes;
