@@ -5,8 +5,8 @@ import { handle, requireProject, type IdCtx } from "@/app/_server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(_req: Request, { params }: IdCtx) {
-  return handle(async () => {
+export function GET(req: Request, { params }: IdCtx) {
+  return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     requireProject(db, id);

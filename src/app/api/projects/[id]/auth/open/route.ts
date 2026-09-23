@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, requireStatus, workspaceOf, type IdCtx, type ProjectRow } from "@/app/_server/http";
-import { openAuthWindow } from "@/app/_server/session";
+import { assertIdle, openAuthWindow } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,12 +20,13 @@ async function authUrl(db: DatabaseSync, project: ProjectRow): Promise<string> {
 }
 
 // Manual login (spec §3 option 1): a real headed window; the user logs in / solves the CAPTCHA, then calls auth/continue.
-export function POST(_req: Request, { params }: IdCtx) {
-  return handle(async () => {
+export function POST(req: Request, { params }: IdCtx) {
+  return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     const project = requireProject(db, id);
     requireStatus(project, ["needs_auth"], "open a login window for");
+    assertIdle(id, { ignoreAuthWindow: true }); // re-opening is idempotent
     const url = await authUrl(db, project);
     await openAuthWindow(db, id, url);
     return Response.json({ ok: true, url });

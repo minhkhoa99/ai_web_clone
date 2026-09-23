@@ -11,9 +11,13 @@ export const dynamic = "force-dynamic";
 
 // Only the clone output, the capture screenshots and the QA crops/heatmaps are servable.
 const ALLOWED = /^(out|qa)\/.+|^pages\/[^/]+\/shots\/.+/;
+// Cloned pages run on the app origin: no foreign/inline scripts, no forms, no plugins, framable only by the app.
+const CSP =
+  "default-src 'self' data: blob: http: https:; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
-export function GET(_req: Request, { params }: { params: Promise<{ id: string; path: string[] }> }) {
-  return handle(async () => {
+// Security headers go on every response, errors included.
+export async function GET(req: Request, { params }: { params: Promise<{ id: string; path: string[] }> }) {
+  const res = await handle(req, async () => {
     const { id, path } = await params;
     requireProject(getDb(), id);
     const ws = resolve(workspaceOf(id));
@@ -28,8 +32,10 @@ export function GET(_req: Request, { params }: { params: Promise<{ id: string; p
       headers: {
         "content-type": MIME[extname(abs).toLowerCase()] ?? "application/octet-stream",
         "content-length": String(info.size),
-        "x-content-type-options": "nosniff",
       },
     });
   });
+  res.headers.set("x-content-type-options", "nosniff");
+  res.headers.set("content-security-policy", CSP);
+  return res;
 }

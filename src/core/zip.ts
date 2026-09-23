@@ -9,12 +9,17 @@ const MAX_OFFSET = 0xffffffff;
 const DOS_DATE_1980_01_01 = 0x21; // zip has no "no date"; a fixed date keeps output deterministic
 const UTF8_FLAG = 0x0800;
 
-export async function* zipDir(dir: string): AsyncGenerator<Uint8Array> {
+// Lists and checks dir up front (so a too-big export fails before any byte is streamed), then yields the zip.
+export async function zipDir(dir: string): Promise<AsyncGenerator<Uint8Array>> {
   const names = (await readdir(dir, { recursive: true, withFileTypes: true }))
     .filter((d) => d.isFile())
     .map((d) => relative(dir, join(d.parentPath, d.name)).split(sep).join("/"))
     .sort();
   if (names.length > MAX_ENTRIES) throw new RangeError(`zip: ${names.length} files exceed ${MAX_ENTRIES}`);
+  return zipFiles(dir, names);
+}
+
+async function* zipFiles(dir: string, names: string[]): AsyncGenerator<Uint8Array> {
   const central: Buffer[] = [];
   let offset = 0;
   for (const name of names) {

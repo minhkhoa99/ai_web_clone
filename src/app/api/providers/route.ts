@@ -21,14 +21,14 @@ const providerSchema = z
   .strict();
 
 export function POST(req: Request) {
-  return handle(async () => {
+  return handle(req, async () => {
     const input = providerSchema.parse(await req.json());
     return Response.json({ id: saveProvider(getDb(), input) }, { status: 201 });
   });
 }
 
-export function GET() {
-  return handle(() => {
+export function GET(req: Request) {
+  return handle(req, () => {
     const rows = getDb().prepare("SELECT id,name,kind,base_url,api_key_enc,roles_json FROM providers ORDER BY rowid LIMIT ?").all(MAX_PROVIDERS) as {
       id: string;
       name: string;

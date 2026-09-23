@@ -20,7 +20,7 @@ const bodySchema = z.union([
 ]);
 
 export function POST(req: Request) {
-  return handle(async () => {
+  return handle(req, async () => {
     const body = bodySchema.parse(await req.json());
     const p = "providerId" in body ? storedProvider(getDb(), body.providerId) : body;
     return Response.json({ models: await fetchModels(p.kind, p.baseUrl, p.apiKey) });

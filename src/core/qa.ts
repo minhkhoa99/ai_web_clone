@@ -189,9 +189,9 @@ export async function scoreSections(handle: BrowserHandle, opts: ScoreOpts): Pro
           const masks = node ? dynamicBoxes(node).map(([x, y, w, h]): Bbox => [x - node.bbox[0], y - node.bbox[1], w, h]) : [];
           const diff = origCrop && cloneCrop ? diffCrops(origCrop, cloneCrop, masks) : { score: 0, heat: origCrop };
           await Promise.all([
-            origCrop && writePng(join(workspaceDir, paths.origPath!), origCrop),
-            diff.heat && writePng(join(workspaceDir, paths.heatPath!), diff.heat),
-            cloneCrop && writePng(join(workspaceDir, paths.clonePath!), cloneCrop),
+            origCrop && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.origPath!), origCrop),
+            diff.heat && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.heatPath!), diff.heat),
+            cloneCrop && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.clonePath!), cloneCrop),
           ]);
           const bboxDelta = node && cloneBox ? Math.max(...node.bbox.map((v, k) => Math.abs(v - cloneBox[k]!))) : 0;
           results.push({ pageId, sectionId, bp, score: diff.score, ...paths, bboxDelta });

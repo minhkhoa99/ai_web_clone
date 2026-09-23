@@ -10,7 +10,7 @@ const MAX_BUFFERED = 1_000; // a client this far behind is gone or stuck: close 
 
 // SSE: the current status first (a late subscriber starts in sync), then every job event, plus a heartbeat comment.
 export function GET(req: Request, { params }: IdCtx) {
-  return handle(async () => {
+  return handle(req, async () => {
     const { id } = await params;
     const { status } = requireProject(getDb(), id);
     const enc = new TextEncoder();

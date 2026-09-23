@@ -19,7 +19,7 @@ const listSchema = z.object({
 });
 
 export function POST(req: Request) {
-  return handle(async () => {
+  return handle(req, async () => {
     const { credentials, ...input } = bodySchema.parse(await req.json());
     const db = getDb();
     const id = createProject(db, input);
@@ -30,7 +30,7 @@ export function POST(req: Request) {
 
 // History list: 20 per page, newest update first, `q` = URL substring, `phase` = first unfinished task's phase.
 export function GET(req: Request) {
-  return handle(() => {
+  return handle(req, () => {
     const { group, q, page } = listSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
     const where = [
       group === "completed" ? "status='completed'" : group === "incomplete" ? "status<>'completed'" : "1",

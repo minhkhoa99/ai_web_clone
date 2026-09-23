@@ -1,21 +1,40 @@
 // Process-wide auth state (on globalThis so dev HMR keeps it): login credentials held in RAM for a
 // project's runs (spec §3; "remember" additionally stores them encrypted), and the headed browser
-// windows opened for manual login / CAPTCHA, each auto-closed after 10 minutes (spec §1).
+// windows opened for manual login / CAPTCHA, each auto-closed after 10 minutes (spec §1), and the
+// projects with an exclusive route operation in flight (crawl, enqueue+start, delete, folder export).
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { decrypt, encrypt } from "@/core/crypto";
 import { Codes } from "@/core/errors";
+import { isQueuedOrActive } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
-import { workspaceOf, type ProjectRow } from "./http";
+import { ApiError, workspaceOf, type ProjectRow } from "./http";
 
 type Creds = { user: string; pass: string };
 type AuthWindow = { handle: BrowserHandle; timer: NodeJS.Timeout };
 
 const AUTH_WAIT_MS = 10 * 60_000;
-const g = globalThis as { __sp1Session?: { creds: Map<string, Creds>; windows: Map<string, Promise<AuthWindow>> } };
-const state = (g.__sp1Session ??= { creds: new Map(), windows: new Map() });
+const g = globalThis as { __sp1Session?: { creds: Map<string, Creds>; windows: Map<string, Promise<AuthWindow>>; inflight: Set<string> } };
+const state = (g.__sp1Session ??= { creds: new Map(), windows: new Map(), inflight: new Set() });
+
+// Busy = a queued/active job, an exclusive op in flight, or an open auth window (unless the caller handles it).
+export function assertIdle(projectId: string, opts: { ignoreAuthWindow?: boolean } = {}): void {
+  const busy = isQueuedOrActive(projectId) || state.inflight.has(projectId) || (!opts.ignoreAuthWindow && state.windows.has(projectId));
+  if (busy) throw new ApiError(409, "PROJECT_BUSY", `project ${projectId} is busy (job, crawl or login window in progress)`);
+}
+
+// Runs fn with the project marked busy; the check and the mark happen in the same tick (no race).
+export async function exclusive<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+  assertIdle(projectId);
+  state.inflight.add(projectId);
+  try {
+    return await fn();
+  } finally {
+    state.inflight.delete(projectId);
+  }
+}
 
 export const credentialsSchema = z
   .object({ user: z.string().min(1).max(256), pass: z.string().min(1).max(1024), remember: z.boolean().optional() })

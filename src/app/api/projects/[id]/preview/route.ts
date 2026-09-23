@@ -21,8 +21,8 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
 }
 
 // Pages (each with its out/ file, servable via /files/out/<file>), QA scores (qa.json) and interaction coverage.
-export function GET(_req: Request, { params }: IdCtx) {
-  return handle(async () => {
+export function GET(req: Request, { params }: IdCtx) {
+  return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     requireProject(db, id);

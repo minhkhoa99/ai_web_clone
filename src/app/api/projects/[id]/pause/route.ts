@@ -6,8 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Running: in-flight tasks finish, then the status becomes paused (see /events). Queued: paused now. Else a no-op.
-export function POST(_req: Request, { params }: IdCtx) {
-  return handle(async () => {
+export function POST(req: Request, { params }: IdCtx) {
+  return handle(req, async () => {
     const { id } = await params;
     requireProject(getDb(), id);
     pauseProject(id);

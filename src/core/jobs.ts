@@ -513,6 +513,8 @@ export function startProject(db: DatabaseSync, projectId: string, opts: RunOpts 
   drain();
 }
 
+export const isQueuedOrActive = (projectId: string): boolean => queued.has(projectId);
+
 function drain(): void {
   if (active) return;
   const job = waiting.shift();

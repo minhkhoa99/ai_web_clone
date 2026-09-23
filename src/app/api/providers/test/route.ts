@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // One short request (GET /models) proves base URL + key; failures map to AI_* -> 502.
 export function POST(req: Request) {
-  return handle(async () => {
+  return handle(req, async () => {
     const { providerId } = providerIdSchema.parse(await req.json());
     const p = storedProvider(getDb(), providerId);
     const models = await fetchModels(p.kind, p.baseUrl, p.apiKey);

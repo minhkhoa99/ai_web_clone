@@ -6,6 +6,7 @@ import { config } from "@/core/config";
 import { zipDir } from "@/core/zip";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
+import { exclusive } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,14 +18,14 @@ const bodySchema = z.discriminatedUnion("mode", [
 
 // out/ as a streamed ZIP, or copied into an absolute folder outside the workspace root (never overwriting a file there).
 export function POST(req: Request, { params }: IdCtx) {
-  return handle(async () => {
+  return handle(req, async () => {
     const { id } = await params;
     const body = bodySchema.parse(await req.json());
     requireProject(getDb(), id);
     const out = join(workspaceOf(id), "out");
     if (!(await stat(out).catch(() => null))?.isDirectory()) throw new ApiError(404, "NOT_FOUND", "nothing emitted yet (no out/)");
     if (body.mode === "zip") {
-      return new Response(Readable.toWeb(Readable.from(zipDir(out))) as ReadableStream<Uint8Array>, {
+      return new Response(Readable.toWeb(Readable.from(await zipDir(out))) as ReadableStream<Uint8Array>, {
         headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${id}.zip"` },
       });
     }
@@ -33,7 +34,7 @@ export function POST(req: Request, { params }: IdCtx) {
     const dest = resolve(body.dest);
     if (dest === root || dest.startsWith(root + sep)) throw new ApiError(400, "VALIDATION", "dest must be outside the workspace root");
     try {
-      await cp(out, dest, { recursive: true, force: false, errorOnExist: true });
+      await exclusive(id, () => cp(out, dest, { recursive: true, force: false, errorOnExist: true }));
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ERR_FS_CP_EEXIST") throw new ApiError(409, "DEST_EXISTS", "dest already has a file with the same path");
       throw e;
