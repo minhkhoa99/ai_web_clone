@@ -8,8 +8,9 @@ import { tx } from "./db";
 import type { IR, IRNode, Layout, Section } from "./ir";
 import type { Interaction } from "./interactions";
 
-// Bounded result sizes for the per-section context queries (spec §1: 300 interactions/page is
-// the tightest related cap) and for listing layouts — a query never returns an unbounded list.
+// Bounded result sizes for the per-section context queries and for listing layouts — a query
+// never returns an unbounded list. `interactions` mirrors spec §1's 300/page cap; `tokens` and
+// `assets` have no spec-given cap, so these are generous, arbitrary-but-bounded ceilings.
 const CONTEXT_LIMITS = { tokens: 500, assets: 500, interactions: 300 } as const;
 const MAX_LAYOUTS = 1000;
 
@@ -35,6 +36,9 @@ function indexSubtree(root: IRNode): SectionIndex {
   const walk = (n: IRNode): void => {
     nodeIds.add(n.id);
     for (const c of n.cls) classes.add(c);
+    if (n.states?.hover) classes.add(n.states.hover);
+    if (n.states?.focus) classes.add(n.states.focus);
+    if (n.states?.active) classes.add(n.states.active);
     for (const v of Object.values(n.attrs)) attrValues.push(v);
     if (n.behavior) behaviors.add(n.behavior);
     for (const child of n.children) walk(child);

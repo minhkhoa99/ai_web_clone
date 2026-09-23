@@ -110,6 +110,36 @@ test("contextForFix: returns the requested section's subtree, tokens and interac
   expect(headerCtx.tokens).toEqual({ "--color-1": "red" });
 });
 
+test("writeGraph: a hover-state class (not in node.cls) still counts for USES_TOKEN, and contextForFix returns it", () => {
+  const interactions: Interaction[] = [{ id: "i1", kind: "hover", trigger: "#b\\31 ", styleDelta: { color: "red", "font-weight": "bold" }, status: "captured" }];
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        header(),
+        el("div", {}, [], { style: { color: "red" } }),
+        el("div", {}, [], { style: { color: "red" } }),
+        el("div", {}, [el("button", { id: "b1" }, [txt("go")])]),
+      ]),
+      { interactions },
+    ),
+  ]);
+  expect(ir.tokens["--color-1"]).toBe("red");
+  const buttonSection = ir.sections.find((s) => s.root.children.some((c) => c.tag === "button"))!;
+  const buttonNode = buttonSection.root.children.find((c) => c.tag === "button")!;
+  const hoverClass = buttonNode.states!.hover!;
+
+  const d = db();
+  writeGraph(d, "proj1", ir, {});
+
+  const edge = d.prepare("SELECT * FROM edges WHERE project_id=? AND type='USES_TOKEN' AND src=? AND dst='token:--color-1'").get("proj1", buttonSection.id);
+  expect(edge).toBeTruthy();
+
+  const ctx = contextForFix(d, "proj1", buttonSection.id, 100_000);
+  expect(ctx.classes[hoverClass]).toEqual({ base: { color: "red", "font-weight": "bold" } });
+});
+
 test("writeGraph is idempotent: writing the same IR twice does not duplicate rows", () => {
   const ir = tokenIr();
   const d = db();
