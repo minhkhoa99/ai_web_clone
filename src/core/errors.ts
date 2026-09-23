@@ -13,6 +13,7 @@ export const Codes = {
   AI_BAD_CONFIG: "AI_BAD_CONFIG",
   AI_BAD_RESPONSE: "AI_BAD_RESPONSE",
   BUDGET_EXCEEDED: "BUDGET_EXCEEDED",
+  IR_PATCH_INVALID: "IR_PATCH_INVALID",
 } as const;
 
 export type Code = keyof typeof Codes;
