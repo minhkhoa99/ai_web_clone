@@ -15,6 +15,7 @@ export const Codes = {
   BUDGET_EXCEEDED: "BUDGET_EXCEEDED",
   IR_PATCH_INVALID: "IR_PATCH_INVALID",
   GRAPH_NOT_FOUND: "GRAPH_NOT_FOUND",
+  INSPECTOR_OP_FAILED: "INSPECTOR_OP_FAILED",
 } as const;
 
 export type Code = keyof typeof Codes;
