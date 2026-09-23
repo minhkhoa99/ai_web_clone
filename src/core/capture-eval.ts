@@ -14,11 +14,9 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
   const sandbox = document.createElement("iframe");
   sandbox.setAttribute("style", "position:fixed;left:0;top:0;width:0;height:0;border:0;visibility:hidden");
   document.documentElement.appendChild(sandbox);
-  const sandboxDoc = sandbox.contentDocument!;
-  sandboxDoc.open();
-  sandboxDoc.write("<!DOCTYPE html><html><head></head><body></body></html>");
-  sandboxDoc.close();
-  const sandboxWin = sandboxDoc.defaultView!;
+  // Assigned inside the try below so `finally` always removes the sandbox.
+  let sandboxDoc: Document;
+  let sandboxWin: Window;
 
   const toRecord = (cs: CSSStyleDeclaration) => {
     const out: Record<string, string> = {};
@@ -99,7 +97,8 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
       const frameOffset: [number, number] = [rect.left + node.clientLeft + offset[0], rect.top + node.clientTop + offset[1]];
       const child = visit(frameDoc.documentElement, frameOffset, false);
       if (child) result.children.push(child);
-    } else {
+    } else if (tag !== "iframe") {
+      // Cross-origin iframes keep tag + attrs only (fallback content skipped).
       // Open shadow root content first, then light children.
       const sources: any[] = node.shadowRoot ? [...node.shadowRoot.childNodes, ...node.childNodes] : [...node.childNodes];
       for (const source of sources) {
@@ -127,6 +126,14 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
   };
 
   try {
+    sandboxDoc = sandbox.contentDocument!;
+    try {
+      sandboxDoc.write("<!DOCTYPE html><html><head></head><body></body></html>");
+      sandboxDoc.close();
+    } catch {
+      // Trusted Types forbids write(): keep the initial about:blank document (quirks mode, near-identical UA defaults).
+    }
+    sandboxWin = sandboxDoc.defaultView!;
     const root = visit(document.documentElement, [window.scrollX, window.scrollY], false);
     return limitExceeded ? { limitExceeded: true } : { root: root! };
   } finally {

@@ -85,7 +85,7 @@ test("open shadow DOM content is flattened into the host", () => {
 });
 
 test("same-origin iframe content is inlined", () => {
-  const iframe = find(root, (n) => n.tag === "iframe")!;
+  const iframe = find(root, (n) => n.tag === "iframe" && n.attrs.src === "frame.html")!;
   expect(iframe.children).toHaveLength(1);
   expect(iframe.children[0]!.tag).toBe("html");
   expect(hasText(iframe, "Frame content")).toBe(true);
@@ -100,4 +100,28 @@ test("throws NODE_LIMIT past 20k nodes", async () => {
     code: "NODE_LIMIT",
     context: { limit: 20_000 },
   });
+});
+
+test("strips on* and inline style attrs, skips stylesheet links, flags visibility:hidden", () => {
+  const ghost = find(root, (n) => n.attrs.class === "ghost")!;
+  expect(ghost.attrs).toEqual({ class: "ghost" });
+  expect(ghost.hidden).toBe(true);
+  expect(ghost.style.visibility).toBe("hidden");
+  expect(find(root, (n) => n.tag === "link" && n.attrs.rel === "stylesheet")).toBeUndefined();
+});
+
+test("cross-origin iframe keeps tag + attrs only", () => {
+  const iframe = find(root, (n) => n.attrs.class === "xorigin")!;
+  expect(iframe.attrs.src).toContain("data:text/html");
+  expect(iframe.children).toEqual([]);
+});
+
+test("works under Trusted Types CSP and removes the sandbox iframe", async () => {
+  const { snap, iframes } = await withPage(handle, async (page) => {
+    await page.goto(`${site.url}/trusted-types.html`, { waitUntil: "load" });
+    const snap = await snapshotDom(page);
+    return { snap, iframes: await page.evaluate(() => document.querySelectorAll("iframe").length) };
+  });
+  expect(hasText(snap, "Trusted types page")).toBe(true);
+  expect(iframes).toBe(0);
 });

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>Site One</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="data:text/css,">
   <style>
     body { margin: 0; font-family: sans-serif; }
     header { display: flex; justify-content: space-between; padding: 16px; background: #222; }
@@ -30,6 +31,8 @@
     <div class="card"><h2>Static</h2><p>Just HTML.</p></div>
   </section>
   <div class="secret">Hidden promo</div>
+  <div class="ghost" style="visibility: hidden" onclick="alert(1)">Ghost</div>
+  <iframe class="xorigin" src="data:text/html,<p>opaque</p>">Fallback text</iframe>
   <shadow-card></shadow-card>
   <iframe src="frame.html" width="300" height="100"></iframe>
   <footer id="contact">&copy; Site One</footer>
