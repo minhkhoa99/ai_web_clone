@@ -150,6 +150,14 @@ test("equal-height flex items keep their height: each alone probes the same with
   for (const id of ["row-a", "row-b"]) expect(find(snap, (n) => n.attrs.id === id)!.style.height, id).toBe("50px");
 });
 
+test("a column-flex child with content height still drops its height", async () => {
+  const snap = await snapshotOf("sizes.html");
+  const col = find(snap, (n) => n.attrs.id === "col-a")!;
+  expect(col.style["padding-top"]).toBe("4px");
+  expect(col.style.height).toBeUndefined();
+  expect(col.style["block-size"]).toBeUndefined();
+});
+
 test("whitespace-only text between inline siblings is kept: one space, verbatim under pre", async () => {
   const snap = await withPage(handle, async (page) => {
     await page.goto(`${site.url}/sizes.html`, { waitUntil: "load" });

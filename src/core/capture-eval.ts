@@ -72,25 +72,22 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
   const REPLACED = new Set(["img", "video", "canvas", "iframe", "svg", "input", "select", "textarea", "object", "embed"]);
   const BLOCK_LEVEL = new Set(["block", "flex", "grid", "list-item", "table", "flow-root"]);
   const SIZE_TOLERANCE = 0.5;
+  // Height probe also sets align-self:flex-start: otherwise a flex/grid parent stretches the item to its
+  // siblings' height, every equal-height item looks auto and dropping them all collapses the row. Works for
+  // any layout parent (incl. through display:contents); a no-op for non-flex/grid items.
   const sameWithAuto = (el: any, prop: "height" | "width"): boolean => {
     const original: string | null = el.getAttribute("style");
     const before: number = el.getBoundingClientRect()[prop];
     el.style.setProperty(prop, "auto", "important");
+    if (prop === "height") el.style.setProperty("align-self", "flex-start", "important");
     const after: number = el.getBoundingClientRect()[prop];
     if (original === null) el.removeAttribute("style");
     else el.setAttribute("style", original);
     return Math.abs(before - after) <= SIZE_TOLERANCE;
   };
-  // A flex/grid item's auto height can be stretched by its siblings' sizes: probed one at a time, every
-  // equal-height item looks auto, yet dropping them all collapses the row. Such items keep their height.
-  const STRETCHING = /flex|grid/;
-  const inStretchingParent = (el: any): boolean => {
-    const parent = el.parentElement;
-    return parent !== null && STRETCHING.test(el.ownerDocument.defaultView.getComputedStyle(parent).display);
-  };
   const dropAutoSize = (el: any, cs: CSSStyleDeclaration, style: Record<string, string>) => {
     if (el.namespaceURI !== XHTML || REPLACED.has(el.localName)) return;
-    if ((style.height || style["block-size"]) && !inStretchingParent(el) && sameWithAuto(el, "height")) {
+    if ((style.height || style["block-size"]) && sameWithAuto(el, "height")) {
       delete style.height;
       delete style["block-size"];
     }
