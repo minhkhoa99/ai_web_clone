@@ -58,4 +58,18 @@ test("site1: every section x bp is scored with files on disk; a recolored sectio
     if (s.sectionId === hero.id) expect(now).toBeLessThan(s.score);
     else expect(Math.abs(now - s.score)).toBeLessThanOrEqual(0.001);
   }
+
+  // Clone without data-ir-id (every root missing) + a capture with the footer gone (unresolvable at every bp).
+  const footer = ir.sections.find((s) => s.root.tag === "footer")!;
+  const drop = (dom: PageCapture["breakpoints"][number]["dom"]) => {
+    const body = dom.children.find((c) => c.tag === "body")!;
+    return { ...dom, children: dom.children.map((c) => (c === body ? { ...body, children: body.children.slice(0, body.children.findIndex((k) => k.tag === "footer")) } : c)) };
+  };
+  const trimmed: PageCapture = { ...cap, breakpoints: cap.breakpoints.map((b) => ({ ...b, dom: drop(b.dom) })) };
+  await emitHtml(ir, { ...emitOpts, stripIds: true });
+  const broken = await scoreSections(handle, { workspaceDir, outDir, ir, captures: [trimmed], bps: [1440], sectionIds: [hero.id, footer.id] });
+  expect(broken).toEqual([
+    expect.objectContaining({ sectionId: hero.id, score: 0, clonePath: null, bboxDelta: 0 }),
+    expect.objectContaining({ sectionId: footer.id, score: 0, origPath: null, heatPath: null, clonePath: null, bboxDelta: 0 }),
+  ]);
 });

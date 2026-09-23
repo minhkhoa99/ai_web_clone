@@ -4,7 +4,7 @@ import { dirname, join, posix } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { withPage, type BrowserHandle } from "./browser";
-import type { CaptureNode, PageCapture } from "./capture";
+import { lazyLoadScroll, type CaptureNode, type PageCapture } from "./capture";
 import { pageFileNames } from "./emit-html";
 import type { IR, IRNode } from "./ir";
 import { serveDir } from "./serve";
@@ -16,10 +16,10 @@ export type SectionScore = {
   sectionId: string;
   bp: Bp;
   score: number;
-  heatPath: string;
-  origPath: string;
+  heatPath: string | null; // null: the section resolves in no capture dom (nothing to diff)
+  origPath: string | null; // null: same
   clonePath: string | null; // null: the clone has no element for this section
-  bboxDelta: number; // max abs px delta of the clone bbox vs the original, hint only
+  bboxDelta: number; // max abs px delta of the clone bbox vs the original, hint only (0 when either side is missing)
 };
 export type ScoreOpts = {
   workspaceDir: string;
@@ -92,25 +92,27 @@ function sectionPaths(shell: IRNode, out: Map<string, string> = new Map()): Map<
   return out;
 }
 
-// Pure. sectionId -> capture node of that section at bp (1440 node when the path doesn't resolve at bp).
-function sectionNodes(capture: PageCapture, ir: IR, pageId: string, bp: Bp): Map<string, CaptureNode> {
+// Pure. sectionId -> capture node of that section at bp (1440 node when the path doesn't resolve at bp;
+// undefined when it resolves in neither).
+function sectionNodes(capture: PageCapture, ir: IR, pageId: string, bp: Bp): Map<string, CaptureNode | undefined> {
   const page = ir.pages.find((p) => p.id === pageId);
   if (!page) throw new Error(`qa: unknown page ${pageId}`);
   const dom = (at: number) => capture.breakpoints.find((b) => b.bp === at)?.dom;
   const [dom1440, domBp] = [dom(1440), dom(bp)];
-  const nodes = new Map<string, CaptureNode>();
+  const nodes = new Map<string, CaptureNode | undefined>();
   for (const [sectionId, path] of sectionPaths(page.shell)) {
     const wide = dom1440 && nodeAtPath(dom1440, path);
     const atBp = domBp && nodeAtPath(domBp, path);
     // The IR tree comes from the 1440 dom: a node at the same path with another tag is a different element.
-    const node = atBp && (!wide || atBp.tag === wide.tag) ? atBp : wide;
-    if (node) nodes.set(sectionId, node);
+    // ponytail: the 1440 fallback crops the wrong area of a 375/768 shot when the structure really differs
+    // at that bp; per-bp section matching (by content hash) if that shows up on real sites.
+    nodes.set(sectionId, atBp && (!wide || atBp.tag === wide.tag) ? atBp : wide);
   }
   return nodes;
 }
 
 export function sectionBoxes(capture: PageCapture, ir: IR, pageId: string, bp: Bp): Record<string, Bbox> {
-  return Object.fromEntries([...sectionNodes(capture, ir, pageId, bp)].map(([id, n]) => [id, n.bbox]));
+  return Object.fromEntries([...sectionNodes(capture, ir, pageId, bp)].flatMap(([id, n]) => (n ? [[id, n.bbox]] : [])));
 }
 
 function dynamicBoxes(node: CaptureNode, out: Bbox[] = []): Bbox[] {
@@ -130,6 +132,7 @@ async function shootClone(handle: BrowserHandle, url: string, bp: Bp, rootIds: s
   return withPage(handle, async (page) => {
     await page.setViewportSize({ width: bp, height: VIEWPORT_HEIGHT });
     await page.goto(url, { waitUntil: "load" });
+    await lazyLoadScroll(page); // same pass as capture, so lazy content is loaded like in the original shot
     await page.addStyleTag({ content: FREEZE_CSS });
     await page.evaluate(() => document.fonts.ready.then(() => true));
     const shot = PNG.sync.read(await page.screenshot({ fullPage: true, animations: "disabled", caret: "hide" }));
@@ -168,21 +171,23 @@ export async function scoreSections(handle: BrowserHandle, opts: ScoreOpts): Pro
           shootClone(handle, `${server.url}/${file}`, bp, rootIds),
         ]);
         for (const [i, [sectionId, node]] of nodes.entries()) {
-          const [ox, oy] = node.bbox;
           const cloneBox = clone.boxes[i] ?? null;
-          const origCrop = crop(orig, node.bbox);
-          const masks = dynamicBoxes(node).map(([x, y, w, h]): Bbox => [x - ox, y - oy, w, h]);
           const rel = posix.join("qa", pageId, sectionId);
-          const paths = { origPath: `${rel}/${bp}-orig.png`, heatPath: `${rel}/${bp}-heat.png`, clonePath: cloneBox && `${rel}/${bp}-clone.png` };
+          const paths = {
+            origPath: node ? `${rel}/${bp}-orig.png` : null,
+            heatPath: node ? `${rel}/${bp}-heat.png` : null,
+            clonePath: cloneBox && `${rel}/${bp}-clone.png`,
+          };
+          const origCrop = node && crop(orig, node.bbox);
           const cloneCrop = cloneBox && crop(clone.shot, cloneBox);
-          const diff = cloneCrop ? diffCrops(origCrop, cloneCrop, masks) : { score: 0, heat: origCrop };
+          const masks = node ? dynamicBoxes(node).map(([x, y, w, h]): Bbox => [x - node.bbox[0], y - node.bbox[1], w, h]) : [];
+          const diff = origCrop && cloneCrop ? diffCrops(origCrop, cloneCrop, masks) : { score: 0, heat: origCrop };
           await Promise.all([
-            writePng(join(workspaceDir, paths.origPath), origCrop),
-            writePng(join(workspaceDir, paths.heatPath), diff.heat),
+            origCrop && writePng(join(workspaceDir, paths.origPath!), origCrop),
+            diff.heat && writePng(join(workspaceDir, paths.heatPath!), diff.heat),
             cloneCrop && writePng(join(workspaceDir, paths.clonePath!), cloneCrop),
           ]);
-          const delta = cloneBox ?? [0, 0, 0, 0];
-          const bboxDelta = Math.max(...node.bbox.map((v, k) => Math.abs(v - delta[k]!)));
+          const bboxDelta = node && cloneBox ? Math.max(...node.bbox.map((v, k) => Math.abs(v - cloneBox[k]!))) : 0;
           results.push({ pageId, sectionId, bp, score: diff.score, ...paths, bboxDelta });
         }
       }
