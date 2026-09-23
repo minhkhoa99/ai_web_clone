@@ -16,6 +16,7 @@ import * as projects from "@/app/api/projects/route";
 import * as project from "@/app/api/projects/[id]/route";
 import * as start from "@/app/api/projects/[id]/start/route";
 import * as crawl from "@/app/api/projects/[id]/crawl/route";
+import * as authOpen from "@/app/api/projects/[id]/auth/open/route";
 import * as events from "@/app/api/projects/[id]/events/route";
 import * as files from "@/app/api/projects/[id]/files/[...path]/route";
 import * as exportRoute from "@/app/api/projects/[id]/export/route";
@@ -35,7 +36,7 @@ const jsonHeaders = (body: string, extra: Record<string, string> = {}) => ({
 });
 const post = (body: unknown, signal?: AbortSignal) => {
   const text = JSON.stringify(body);
-  return new Request("http://x/api", { method: "POST", body: text, headers: jsonHeaders(text), signal });
+  return new Request("http://127.0.0.1/api", { method: "POST", body: text, headers: jsonHeaders(text), signal });
 };
 const ctx = <P>(params: P) => ({ params: Promise.resolve(params) });
 const uniqueUrl = () => `https://example.com/${crypto.randomUUID()}`;
@@ -51,12 +52,12 @@ async function newProject(url = uniqueUrl()): Promise<string> {
 test("POST /api/projects returns an id; GET /api/projects lists it", async () => {
   const url = uniqueUrl();
   const id = await newProject(url);
-  const res = await projects.GET(new Request(`http://x/api/projects?group=incomplete&q=${encodeURIComponent(url)}&page=1`));
+  const res = await projects.GET(new Request(`http://127.0.0.1/api/projects?group=incomplete&q=${encodeURIComponent(url)}&page=1`));
   const body = (await res.json()) as { total: number; projects: { id: string; url: string; status: string }[] };
   expect(res.status).toBe(200);
   expect(body.total).toBe(1);
   expect(body.projects[0]).toMatchObject({ id, url, status: "draft" });
-  const completed = (await (await projects.GET(new Request(`http://x/api/projects?group=completed&q=${encodeURIComponent(url)}`))).json()) as { total: number };
+  const completed = (await (await projects.GET(new Request(`http://127.0.0.1/api/projects?group=completed&q=${encodeURIComponent(url)}`))).json()) as { total: number };
   expect(completed.total).toBe(0);
 });
 
@@ -68,7 +69,7 @@ test("POST /api/projects rejects an invalid body with 400 and never stores crede
   const row = getDb().prepare("SELECT * FROM projects WHERE id=?").get(id) as Record<string, unknown>;
   expect(typeof row.auth_enc).toBe("string");
   expect(JSON.stringify(row)).not.toContain("hunter2-secret");
-  const list = await (await projects.GET(new Request("http://x/api/projects"))).text();
+  const list = await (await projects.GET(new Request("http://127.0.0.1/api/projects"))).text();
   expect(list).not.toContain("hunter2-secret");
   expect(list).not.toContain(row.auth_enc as string);
 });
@@ -86,7 +87,7 @@ test("providers: GET masks the key; /test decrypts it server-side and counts mod
     const res = await providers.POST(post({ name: "local", kind: "openai", baseUrl, apiKey, roles: { vision: "m1" } }));
     expect(res.status).toBe(201);
     const { id } = (await res.json()) as { id: string };
-    const text = await (await providers.GET(new Request("http://x/api/providers"))).text();
+    const text = await (await providers.GET(new Request("http://127.0.0.1/api/providers"))).text();
     expect(text).not.toContain(apiKey);
     expect(text).not.toContain("api_key_enc");
     const mine = (JSON.parse(text) as { providers: { id: string; apiKey: string }[] }).providers.find((p) => p.id === id);
@@ -110,20 +111,20 @@ test("files route serves only allowlisted workspace dirs and rejects traversal",
   await writeFile(join(ws, "pages", "home", "capture.json"), "{}");
   await writeFile(join(ws, "pages", "home", "shots", "375.png"), "png");
 
-  const ok = await files.GET(new Request("http://x"), ctx({ id, path: ["out", "index.html"] }));
+  const ok = await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "index.html"] }));
   expect(ok.status).toBe(200);
   const csp = "default-src 'self' data: blob: http: https:; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
   expect(ok.headers.get("content-security-policy")).toBe(csp);
   expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
-  const missing = await files.GET(new Request("http://x"), ctx({ id, path: ["out", "nope.html"] }));
+  const missing = await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "nope.html"] }));
   expect(missing.headers.get("content-security-policy")).toBe(csp);
   expect(ok.headers.get("content-type")).toContain("text/html");
   expect(await ok.text()).toBe("<p>hi</p>");
-  expect((await files.GET(new Request("http://x"), ctx({ id, path: ["pages", "home", "shots", "375.png"] }))).status).toBe(200);
-  expect((await files.GET(new Request("http://x"), ctx({ id, path: ["pages", "home", "capture.json"] }))).status).toBe(404);
-  expect((await files.GET(new Request("http://x"), ctx({ id, path: ["out", "..", "pages", "home", "capture.json"] }))).status).toBe(404);
-  expect((await files.GET(new Request("http://x"), ctx({ id, path: ["out", "..", "..", "..", "secret.key"] }))).status).toBe(404);
-  expect((await files.GET(new Request("http://x"), ctx({ id, path: ["out", "missing.html"] }))).status).toBe(404);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["pages", "home", "shots", "375.png"] }))).status).toBe(200);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["pages", "home", "capture.json"] }))).status).toBe(404);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "..", "pages", "home", "capture.json"] }))).status).toBe(404);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "..", "..", "..", "secret.key"] }))).status).toBe(404);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "missing.html"] }))).status).toBe(404);
 });
 
 // Tiny zip reader: walks the central directory and inflates each entry via its local header.
@@ -173,7 +174,7 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   await mkdir(ws, { recursive: true });
   await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", path: "/" }, { id: "about", path: "/about" }] }));
   await writeFile(join(ws, "qa.json"), JSON.stringify([{ pageId: "home", sectionId: "s1", bp: 375, score: 0.9 }]));
-  const body = (await (await preview.GET(new Request("http://x"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; coverage: unknown[] };
+  const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; coverage: unknown[] };
   expect(body.pages).toEqual([{ pageId: "home", path: "/", file: "index.html" }, { pageId: "about", path: "/about", file: "about.html" }]);
   expect(body.scores).toHaveLength(1);
   expect(body.coverage).toEqual([]);
@@ -184,17 +185,17 @@ test("DELETE removes the rows and the workspace; unknown id is 404", async () =>
   const ws = join(config.workspaceRoot, id);
   await mkdir(join(ws, "out"), { recursive: true });
   await writeFile(join(ws, "out", "index.html"), "x");
-  const res = await project.DELETE(new Request("http://x", { method: "DELETE" }), ctx({ id }));
+  const res = await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
   expect(res.status).toBe(200);
   expect(existsSync(ws)).toBe(false);
   expect(getDb().prepare("SELECT id FROM projects WHERE id=?").get(id)).toBeUndefined();
-  expect((await project.DELETE(new Request("http://x", { method: "DELETE" }), ctx({ id }))).status).toBe(404);
+  expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }))).status).toBe(404);
 });
 
 test("SSE streams the current status, then job events, and closes on abort", async () => {
   const id = await newProject();
   const ac = new AbortController();
-  const res = await events.GET(new Request("http://x", { signal: ac.signal }), ctx({ id }));
+  const res = await events.GET(new Request("http://127.0.0.1", { signal: ac.signal }), ctx({ id }));
   expect(res.headers.get("content-type")).toBe("text/event-stream");
   const reader = res.body!.getReader();
   const dec = new TextDecoder();
@@ -224,12 +225,19 @@ test("start maps a full queue to 429 QUEUE_FULL", async () => {
   const res = await start.POST(post({ pages: [uniqueUrl()] }), ctx({ id }));
   expect(res.status).toBe(429);
   expect(((await res.json()) as { code: string }).code).toBe("QUEUE_FULL");
+  expect(existsSync(join(config.workspaceRoot, id, "pages.json"))).toBe(false); // refused before enqueue
 
   // a waiting (still draft) project can't be re-started: 409 before its page selection is rewritten
   const again = await start.POST(post({ pages: [uniqueUrl()] }), ctx({ id: fillers[1]! }));
   expect(again.status).toBe(409);
   expect(((await again.json()) as { code: string }).code).toBe("PROJECT_BUSY");
   expect(existsSync(join(config.workspaceRoot, fillers[1]!, "pages.json"))).toBe(false);
+
+  // a queued project waiting on a login can't get a login window (it would fight the job for the profile)
+  db.prepare("UPDATE projects SET status='needs_auth' WHERE id=?").run(fillers[2]!);
+  const open = await authOpen.POST(new Request("http://127.0.0.1", { method: "POST" }), ctx({ id: fillers[2]! }));
+  expect(open.status).toBe(409);
+  expect(((await open.json()) as { code: string }).code).toBe("PROJECT_BUSY");
 
   release();
   const statusOf = (p: string) => (db.prepare("SELECT status FROM projects WHERE id=?").get(p) as { status: string }).status;
@@ -238,19 +246,31 @@ test("start maps a full queue to 429 QUEUE_FULL", async () => {
 
 test("CSRF guard: foreign Origin and non-JSON bodies are refused; same-origin JSON passes", async () => {
   const body = JSON.stringify({ url: uniqueUrl(), mode: "single", config: {} });
-  const foreign = await projects.POST(new Request("http://x/api/projects", { method: "POST", body, headers: jsonHeaders(body, { origin: "http://evil.test" }) }));
+  const foreign = await projects.POST(new Request("http://127.0.0.1/api/projects", { method: "POST", body, headers: jsonHeaders(body, { origin: "http://evil.test" }) }));
   expect(foreign.status).toBe(403);
-  const opaque = await projects.POST(new Request("http://x/api/projects", { method: "POST", body, headers: jsonHeaders(body, { origin: "null" }) }));
+  const opaque = await projects.POST(new Request("http://127.0.0.1/api/projects", { method: "POST", body, headers: jsonHeaders(body, { origin: "null" }) }));
   expect(opaque.status).toBe(403);
-  const plain = await projects.POST(new Request("http://x/api/projects", { method: "POST", body, headers: jsonHeaders(body, { "content-type": "text/plain" }) }));
+  const plain = await projects.POST(new Request("http://127.0.0.1/api/projects", { method: "POST", body, headers: jsonHeaders(body, { "content-type": "text/plain" }) }));
   expect(plain.status).toBe(403);
-  const same = await projects.POST(new Request("http://x/api/projects", { method: "POST", body, headers: jsonHeaders(body, { "content-type": "application/json; charset=utf-8", origin: "http://x" }) }));
+  const same = await projects.POST(new Request("http://127.0.0.1/api/projects", { method: "POST", body, headers: jsonHeaders(body, { "content-type": "application/json; charset=utf-8", origin: "http://127.0.0.1" }) }));
   expect(same.status).toBe(201);
   const { id } = (await same.json()) as { id: string };
   created.push(id);
   // bodiless mutations need no content-type but are still Origin-checked
-  expect((await project.DELETE(new Request("http://x", { method: "DELETE", headers: { origin: "http://evil.test" } }), ctx({ id }))).status).toBe(403);
-  expect((await project.DELETE(new Request("http://x", { method: "DELETE", headers: { origin: "http://x" } }), ctx({ id }))).status).toBe(200);
+  expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE", headers: { origin: "http://evil.test" } }), ctx({ id }))).status).toBe(403);
+  expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE", headers: { origin: "http://127.0.0.1" } }), ctx({ id }))).status).toBe(200);
+});
+
+test("DNS rebinding: a non-loopback Host is refused on every request, GET included", async () => {
+  const evil = { host: "evil.test:3000" };
+  expect((await projects.GET(new Request("http://127.0.0.1/api/projects", { headers: evil }))).status).toBe(403);
+  expect((await providers.GET(new Request("http://127.0.0.1/api/providers", { headers: evil }))).status).toBe(403);
+  const body = JSON.stringify({ url: uniqueUrl(), mode: "single", config: {} });
+  const rebound = await projects.POST(new Request("http://127.0.0.1/api/projects", { method: "POST", body, headers: jsonHeaders(body, { ...evil, origin: "http://evil.test:3000" }) }));
+  expect(rebound.status).toBe(403);
+  for (const host of ["localhost:3000", "127.0.0.1:3107", "[::1]:3000"]) {
+    expect((await projects.GET(new Request("http://127.0.0.1/api/projects?q=none", { headers: { host } }))).status).toBe(200);
+  }
 });
 
 test("a project is busy while its crawl runs: DELETE -> 409 PROJECT_BUSY", async () => {
@@ -267,14 +287,14 @@ test("a project is busy while its crawl runs: DELETE -> 409 PROJECT_BUSY", async
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   try {
     const id = await newProject(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
-    const crawling = crawl.POST(new Request("http://x", { method: "POST" }), ctx({ id }));
+    const crawling = crawl.POST(new Request("http://127.0.0.1", { method: "POST" }), ctx({ id }));
     await firstHit;
-    const del = await project.DELETE(new Request("http://x", { method: "DELETE" }), ctx({ id }));
+    const del = await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
     expect(del.status).toBe(409);
     expect(((await del.json()) as { code: string }).code).toBe("PROJECT_BUSY");
     release();
     expect((await crawling).status).toBe(200);
-    expect((await project.DELETE(new Request("http://x", { method: "DELETE" }), ctx({ id }))).status).toBe(200);
+    expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }))).status).toBe(200);
   } finally {
     server.closeAllConnections();
     await new Promise((r) => server.close(r));

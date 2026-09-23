@@ -26,8 +26,9 @@ export function POST(req: Request, { params }: IdCtx) {
     const db = getDb();
     const project = requireProject(db, id);
     requireStatus(project, ["needs_auth"], "open a login window for");
-    assertIdle(id, { ignoreAuthWindow: true }); // re-opening is idempotent
     const url = await authUrl(db, project);
+    // same tick as openAuthWindow registering the window: nothing can start in between. Re-opening is idempotent.
+    assertIdle(id, { ignoreAuthWindow: true });
     await openAuthWindow(db, id, url);
     return Response.json({ ok: true, url });
   });

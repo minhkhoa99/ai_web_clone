@@ -35,12 +35,22 @@ export function errorResponse(e: unknown): Response {
   return Response.json({ code: "INTERNAL", message: "internal error" }, { status: 500 });
 }
 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+// Every request: the Host must be loopback (any port). Blocks DNS rebinding, where evil.test resolves to
+// 127.0.0.1 and the page's own requests arrive with Host/Origin evil.test — same-origin as far as the browser knows.
+function hostOf(req: Request): string {
+  const host = req.headers.get("host") ?? new URL(req.url).host;
+  const url = URL.parse(`http://${host}`);
+  if (!url || !LOOPBACK_HOSTS.has(url.hostname)) throw new ApiError(403, "FORBIDDEN", "requests must target a loopback host");
+  return host;
+}
+
 // CSRF guard for every mutation: a page on another origin can't drive the local API. Origin must be absent
 // (non-browser client) or this host; a body must be JSON (text/plain & form posts skip CORS preflight).
-function guardMutation(req: Request): void {
+function guardMutation(req: Request, host: string): void {
   if (req.method === "GET" || req.method === "HEAD") return;
   const origin = req.headers.get("origin");
-  const host = req.headers.get("host") ?? new URL(req.url).host;
   // an opaque origin ("null", e.g. a sandboxed frame) doesn't parse and is refused too
   if (origin && (!URL.canParse(origin) || new URL(origin).host !== host)) throw new ApiError(403, "FORBIDDEN", "cross-origin request refused");
   // on the wire a body always comes with Content-Length > 0 or Transfer-Encoding (Next gives bodiless requests an empty stream)
@@ -51,7 +61,7 @@ function guardMutation(req: Request): void {
 
 export async function handle(req: Request, fn: () => Promise<Response> | Response): Promise<Response> {
   try {
-    guardMutation(req);
+    guardMutation(req, hostOf(req));
     return await fn();
   } catch (e) {
     return errorResponse(e);

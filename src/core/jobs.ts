@@ -514,6 +514,8 @@ export function startProject(db: DatabaseSync, projectId: string, opts: RunOpts 
 }
 
 export const isQueuedOrActive = (projectId: string): boolean => queued.has(projectId);
+// Whether startProject would accept a new project now (lets callers refuse before doing prep work).
+export const queueHasRoom = (): boolean => !active || waiting.length < MAX_WAITING;
 
 function drain(): void {
   if (active) return;

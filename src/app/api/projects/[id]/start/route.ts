@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { enqueue, startProject } from "@/core/jobs";
+import { AppError, Codes } from "@/core/errors";
+import { enqueue, queueHasRoom, startProject } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, requireStatus, type IdCtx } from "@/app/_server/http";
 import { credentialsFor, credentialsSchema, exclusive } from "@/app/_server/session";
@@ -21,6 +22,8 @@ export function POST(req: Request, { params }: IdCtx) {
     requireStatus(project, ["draft"], "start");
     // busy (already queued, crawling, login window) -> 409 before the page selection is rewritten
     await exclusive(id, async () => {
+      // a full queue -> 429 before the page selection is rewritten (startProject re-checks after the await)
+      if (!queueHasRoom()) throw new AppError(Codes.QUEUE_FULL, "job queue full", { projectId: id });
       await enqueue(db, id, pages);
       startProject(db, id, { credentials: credentialsFor(db, project, credentials) });
     });
