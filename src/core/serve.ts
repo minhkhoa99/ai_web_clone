@@ -1,0 +1,54 @@
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, resolve, sep } from "node:path";
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+};
+
+// Tiny static file server for local fixtures (and T20 QA later): no
+// directory listing, no caching headers, "/" maps to "index.html".
+export async function serveDir(dir: string): Promise<{ url: string; close(): Promise<void> }> {
+  const root = resolve(dir);
+
+  const server = createServer((req, res) => {
+    void (async () => {
+      const reqPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+      const rel = reqPath === "/" ? "/index.html" : reqPath;
+      const filePath = resolve(join(root, rel));
+      if (filePath !== root && !filePath.startsWith(root + sep)) {
+        res.writeHead(404).end();
+        return;
+      }
+      try {
+        const body = await readFile(filePath);
+        res.writeHead(200, { "content-type": MIME[extname(filePath)] ?? "application/octet-stream" });
+        res.end(body);
+      } catch {
+        res.writeHead(404).end();
+      }
+    })();
+  });
+
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>((res, rej) => server.close((err) => (err ? rej(err) : res()))),
+  };
+}
