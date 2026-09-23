@@ -8,6 +8,7 @@ export type SnapshotResult = { root: CaptureNode } | { limitExceeded: true };
 export function snapshotInPage(maxNodes: number): SnapshotResult {
   const SKIP_TAGS = new Set(["script", "noscript", "template", "style"]);
   const EMPTY_PSEUDO = new Set(["none", "normal"]);
+  const PRESERVE_WS = new Set(["pre", "pre-wrap", "pre-line", "break-spaces"]);
   const round = (n: number) => Math.round(n * 100) / 100;
 
   // Clean same-origin document to read per-tag default styles from.
@@ -100,11 +101,19 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
   const visit = (node: any, offset: [number, number], inHead: boolean): CaptureNode | null => {
     if (limitExceeded) return null;
     if (node.nodeType === 3) {
-      if (!node.data.trim()) return null;
+      // Whitespace-only text is layout (gaps between inline siblings): kept as one space,
+      // verbatim under preserving white-space. Head whitespace carries nothing.
+      let text: string = node.data;
+      if (!text.trim()) {
+        if (inHead) return null;
+        const parent = node.parentElement ?? node.parentNode?.host;
+        const ws = parent ? node.ownerDocument.defaultView.getComputedStyle(parent).whiteSpace : "normal";
+        if (!PRESERVE_WS.has(ws)) text = " ";
+      }
       if (++count > maxNodes) return (limitExceeded = true), null;
       const range = node.ownerDocument.createRange();
       range.selectNodeContents(node);
-      return { tag: "#text", text: node.data, attrs: {}, bbox: bboxOf(range.getBoundingClientRect(), offset), style: {}, children: [] };
+      return { tag: "#text", text, attrs: {}, bbox: bboxOf(range.getBoundingClientRect(), offset), style: {}, children: [] };
     }
     if (node.nodeType !== 1 || node === sandbox) return null;
     const tag: string = node.localName;

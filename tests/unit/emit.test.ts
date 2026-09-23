@@ -281,3 +281,8 @@ test("srcset splits candidates on comma+whitespace only (commas inside URLs surv
   expect(html).toContain('srcset="assets/aaa.png 1x, assets/bbb.png 2x"');
   expect(html).toContain('srcset="data:image/png;base64,AAAA 1x, assets/bbb.png 2x"');
 });
+
+test("whitespace text between inline siblings is emitted as-is", () => {
+  const ir = buildIR([capture("p1", "https://x.test/", doc([el("p", {}, [el("a", {}, [txt("x")]), txt(" "), el("a", {}, [txt("y")])])]))]);
+  expect(renderSite(ir, { ...noUrls, stripIds: true })["index.html"]).toContain("<p><a>x</a> <a>y</a></p>");
+});

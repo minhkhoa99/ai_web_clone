@@ -144,3 +144,16 @@ test("auto-sized boxes drop width/height, explicit sizes are kept, page left unc
   expect(fixed.style.width).toBe("300px");
   expect(styles[1]).toEqual(styles[0]);
 });
+
+test("whitespace-only text between inline siblings is kept: one space, verbatim under pre", async () => {
+  const snap = await withPage(handle, async (page) => {
+    await page.goto(`${site.url}/sizes.html`, { waitUntil: "load" });
+    return snapshotDom(page);
+  });
+  const ws = find(snap, (n) => n.attrs.id === "ws")!;
+  expect(ws.children.map((c) => c.text ?? c.tag)).toEqual(["a", " ", "a"]);
+  const pre = find(snap, (n) => n.attrs.id === "pre")!;
+  expect(pre.children.map((c) => c.text ?? c.tag)).toEqual(["b", "\n  ", "b"]);
+  const head = find(root, (n) => n.tag === "head")!; // site1 head has indentation whitespace
+  expect(head.children.some((c) => c.tag === "#text")).toBe(false);
+});
