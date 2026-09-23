@@ -123,6 +123,8 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 const DOWNLOAD_RETRY_ATTEMPTS = 2; // + the initial try = 3 total
 const RETRY_BASE_DELAY_MS = 300;
 
+// Passive media only: an asset lands on the app origin (files route), so a downloaded HTML/JS/CSS file must
+// never keep an extension that a browser would run or apply. Anything else is stored as .bin.
 const EXT_FROM_CONTENT_TYPE: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -132,6 +134,7 @@ const EXT_FROM_CONTENT_TYPE: Record<string, string> = {
   "image/x-icon": "ico",
   "image/vnd.microsoft.icon": "ico",
   "image/avif": "avif",
+  "image/bmp": "bmp",
   "font/woff": "woff",
   "font/woff2": "woff2",
   "font/ttf": "ttf",
@@ -140,20 +143,23 @@ const EXT_FROM_CONTENT_TYPE: Record<string, string> = {
   "video/mp4": "mp4",
   "video/webm": "webm",
   "audio/mpeg": "mp3",
+  "audio/ogg": "ogg",
+  "audio/wav": "wav",
 };
+const PASSIVE_EXTS = new Set([...Object.values(EXT_FROM_CONTENT_TYPE), "jpeg", "eot", "m4a"]);
 
-function extFromContentType(contentType: string | undefined): string | undefined {
+// PURE. The stored extension: from a passive content type, else a passive URL extension, else "bin".
+export function assetExt(contentType: string | undefined, url: string): string {
   const base = contentType?.split(";")[0]?.trim().toLowerCase();
-  return base ? EXT_FROM_CONTENT_TYPE[base] : undefined;
-}
-
-function extFromUrl(url: string): string | undefined {
+  const fromType = base ? EXT_FROM_CONTENT_TYPE[base] : undefined;
+  if (fromType) return fromType;
+  let fromUrl: string | undefined;
   try {
-    const match = /\.([a-z0-9]{1,8})$/i.exec(new URL(url).pathname);
-    return match?.[1]?.toLowerCase();
+    fromUrl = /\.([a-z0-9]{1,8})$/i.exec(new URL(url).pathname)?.[1]?.toLowerCase();
   } catch {
-    return undefined;
+    fromUrl = undefined;
   }
+  return fromUrl && PASSIVE_EXTS.has(fromUrl) ? fromUrl : "bin";
 }
 
 function delay(ms: number): Promise<void> {
@@ -266,7 +272,7 @@ export async function downloadAssets(
     }
 
     const sha = createHash("sha256").update(body).digest("hex");
-    const ext = extFromContentType(res.headers()["content-type"]) ?? extFromUrl(url) ?? "bin";
+    const ext = assetExt(res.headers()["content-type"], url);
     const fileName = `${sha}.${ext}`;
 
     let writePromise = inFlightWrites.get(fileName);

@@ -102,6 +102,38 @@ test("providers: GET masks the key; /test decrypts it server-side and counts mod
   }
 });
 
+const FILE_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; font-src 'self'";
+
+test("files route: assets and SVG are sandboxed, unknown downloads (.bin) are attachments, pages pin script-src to the runtime", async () => {
+  const id = await newProject();
+  const assets = join(config.workspaceRoot, id, "out", "assets");
+  await mkdir(assets, { recursive: true });
+  const sha = "c".repeat(64);
+  await writeFile(join(assets, `${sha}.bin`), "<script>alert(1)</script>");
+  await writeFile(join(assets, `${sha}.svg`), "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>");
+  await writeFile(join(assets, `${sha}.png`), "png");
+  await writeFile(join(config.workspaceRoot, id, "out", "index.html"), `<script src="assets/${sha}.js"></script>`);
+  const get = (...path: string[]) => files.GET(new Request("http://127.0.0.1:3107", { headers: { host: "localhost:3107" } }), ctx({ id, path }));
+
+  const bin = await get("out", "assets", `${sha}.bin`);
+  expect(bin.headers.get("content-type")).toBe("application/octet-stream");
+  expect(bin.headers.get("content-disposition")).toBe("attachment");
+  expect(bin.headers.get("content-security-policy")).toBe(FILE_CSP);
+  for (const ext of ["svg", "png"]) {
+    const res = await get("out", "assets", `${sha}.${ext}`);
+    expect(res.headers.get("content-security-policy")).toBe(FILE_CSP);
+    expect(res.headers.get("content-disposition")).toBe("inline");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  }
+  expect((await get("out", "assets", `${sha}.svg`)).headers.get("content-type")).toBe("image/svg+xml");
+
+  // the page's only script source is the exact runtime URL on the request's host: assets/<sha>.js can't match it
+  const page = (await get("out", "index.html")).headers.get("content-security-policy")!;
+  const scriptSrc = page.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src"));
+  expect(scriptSrc).toBe(`script-src http://localhost:3107/api/projects/${id}/files/out/js/runtime.js`);
+  expect(page).not.toContain("'self'; object-src"); // no 'self' in script-src
+});
+
 test("files route serves only allowlisted workspace dirs and rejects traversal", async () => {
   const id = await newProject();
   const ws = join(config.workspaceRoot, id);
@@ -113,7 +145,8 @@ test("files route serves only allowlisted workspace dirs and rejects traversal",
 
   const ok = await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "index.html"] }));
   expect(ok.status).toBe(200);
-  const csp = "default-src 'self' data: blob: http: https:; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+  const runtime = `http://127.0.0.1/api/projects/${id}/files/out/js/runtime.js`;
+  const csp = `default-src 'self' data: blob: http: https:; script-src ${runtime}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`;
   expect(ok.headers.get("content-security-policy")).toBe(csp);
   expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
   const missing = await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "nope.html"] }));

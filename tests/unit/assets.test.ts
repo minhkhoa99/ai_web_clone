@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { collectAssetUrls } from "@/core/assets";
+import { assetExt, collectAssetUrls } from "@/core/assets";
 import type { CaptureNode } from "@/core/capture";
 
 const BASE = "https://example.com/page";
@@ -100,4 +100,16 @@ test("data: and blob: urls are skipped, unresolvable urls are skipped", () => {
     ],
   });
   expect(collectAssetUrls(dom, [], BASE)).toEqual([]);
+});
+
+test("assetExt: only passive media extensions survive; html/js/css (by type or by url) become .bin", () => {
+  expect(assetExt("image/png", "https://x.test/a")).toBe("png");
+  expect(assetExt("application/octet-stream", "https://x.test/f/font.woff2?v=1")).toBe("woff2");
+  expect(assetExt("image/svg+xml; charset=utf-8", "https://x.test/i")).toBe("svg");
+  expect(assetExt("application/octet-stream", "https://x.test/x.html")).toBe("bin");
+  expect(assetExt("text/html", "https://x.test/x.html")).toBe("bin");
+  expect(assetExt("text/javascript", "https://x.test/app.js")).toBe("bin");
+  expect(assetExt(undefined, "https://x.test/site.css")).toBe("bin");
+  expect(assetExt("text/html", "https://x.test/evil.htm")).toBe("bin");
+  expect(assetExt(undefined, "https://x.test/noext")).toBe("bin");
 });

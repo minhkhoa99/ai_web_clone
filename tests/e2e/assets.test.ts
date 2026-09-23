@@ -103,3 +103,21 @@ test("downloadAssets: a 404 is skipped, not thrown, and other downloads still su
   expect(result.skipped[0]!.url).toBe(urls[0]);
   expect(result.skipped[0]!.reason).toContain("404");
 });
+
+test("downloadAssets: an <img src=/x.html> answered as octet-stream (or html/js) is stored as .bin, never .html/.js", async () => {
+  const { createServer } = await import("node:http");
+  const server = createServer((req, res) => {
+    const type = req.url === "/x.html" ? "application/octet-stream" : req.url === "/y.js" ? "text/javascript" : "text/html";
+    res.writeHead(200, { "content-type": type }).end(`<script>/*${req.url}*/</script>`);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const urls = [`${base}/x.html`, `${base}/y.js`, `${base}/z.css`];
+    const result = await downloadAssets(handle.context, urls, await freshDestDir());
+    expect(result.skipped).toEqual([]);
+    for (const url of urls) expect(result.assets.get(url)).toMatch(/^assets\/[0-9a-f]{64}\.bin$/);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});

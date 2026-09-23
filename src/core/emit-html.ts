@@ -25,6 +25,7 @@ const BEHAVIOR_ATTR: Partial<Record<Interaction["kind"], string>> = {
   sticky: "sticky",
 };
 const STATES = ["hover", "focus", "active"] as const;
+const FRAME_TAGS = new Set(["iframe", "frame", "embed", "object"]);
 const SAFE_ATTR_NAME = /^[^\s"'<>/=]+$/;
 const SAFE_TAG = /^[a-zA-Z][a-zA-Z0-9-]*$/;
 const PROPERTY_META = /^(og|fb|article):/;
@@ -80,6 +81,8 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
   switch (name) {
     case "src":
     case "poster":
+      // A document/plugin never loads from a local asset (it would run on the app origin): original URL only.
+      if (FRAME_TAGS.has(node.tag.toLowerCase())) return resolveHttp(value.trim(), base)?.href ?? value;
       return node.attrs["data-dynamic"] === "canvas" ? value : assetUrl(value, base, ctx);
     case "href":
     case "xlink:href":

@@ -326,3 +326,25 @@ test("unsafe tags from patched IR are skipped, unsafe attr names dropped, never 
   const html = emitSection(patched, ir.sections[0]!.id, noUrls);
   expect(html).toBe(`<header title="ok" data-ir-id="${root.id}"><p data-ir-id="n4"></p></header>`);
 });
+
+test("iframe/frame/embed/object src never points at a local asset: the resolved original URL is kept", () => {
+  const assetMap = { "https://x.test/doc.html": "assets/" + "a".repeat(64) + ".bin", "https://x.test/pic.png": "assets/" + "b".repeat(64) + ".png" };
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("section", {}, [
+          el("iframe", { src: "/doc.html" }),
+          el("embed", { src: "doc.html" }),
+          el("object", { src: "https://x.test/doc.html" }),
+          el("img", { src: "/pic.png" }),
+        ]),
+      ]),
+    ),
+  ]);
+  const html = renderSite(ir, { ...noUrls, assetMap })["index.html"]!;
+  expect(html).not.toContain("assets/" + "a".repeat(64));
+  expect(html.match(/src="https:\/\/x\.test\/doc\.html"/g)).toHaveLength(3);
+  expect(html).toContain(`src="assets/${"b".repeat(64)}.png"`);
+});
