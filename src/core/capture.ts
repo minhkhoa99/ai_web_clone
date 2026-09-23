@@ -1,7 +1,13 @@
-import type { Page } from "playwright";
+import type { Page, Route } from "playwright";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { AppError, Codes } from "./errors";
 import { mapLimit } from "./limit";
 import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage } from "./capture-eval";
+import { withPage, type BrowserHandle } from "./browser";
+import { detectNeedsAuth } from "./auth";
+import { scanInteractions, type Interaction } from "./interactions";
+import { trackResponses, collectAssetUrls, downloadAssets, type DownloadResult } from "./assets";
 
 // Runs `run` (a page.evaluate call) and rethrows any failure (crashed page,
 // detached frame, throw inside the page) as AppError(BROWSER_CRASH, …) with
@@ -121,4 +127,172 @@ export async function readCssom(page: Page): Promise<CssomResult> {
     stateSelectors: dedupe([...main.stateSelectors, ...extra.stateSelectors]),
     vars,
   };
+}
+
+// --- capturePage ------------------------------------------------------------
+
+const CAPTURE_NAV_TIMEOUT_MS = 30_000;
+
+function assertSafePageId(pageId: string): void {
+  if (!pageId || pageId.includes("/") || pageId.includes("\\") || pageId.includes("..")) {
+    throw new Error(`capturePage: unsafe pageId ${JSON.stringify(pageId)}`);
+  }
+}
+
+const stripHash = (url: string) => url.split("#")[0];
+
+// Blocks the page from ever leaving `targetUrl` (same-document nav, e.g. a
+// hash change, is still allowed since it strips to the same URL). Set up
+// before goto so the very first navigation is already covered.
+async function blockNavigationAway(page: Page, targetUrl: string): Promise<() => Promise<void>> {
+  const home = stripHash(targetUrl);
+  const onRoute = (route: Route) => {
+    const req = route.request();
+    const leaving = req.isNavigationRequest() && req.frame() === page.mainFrame() && stripHash(req.url()) !== home;
+    return leaving ? route.abort() : route.fallback();
+  };
+  await page.route("**/*", onRoute);
+  return () => page.unroute("**/*", onRoute);
+}
+
+const EMPTY_DOM: CaptureNode = { tag: "", attrs: {}, style: {}, bbox: [0, 0, 0, 0], children: [] };
+
+// Union of every asset reference across all 3 breakpoint DOMs (responsive
+// layouts can swap images) plus the network-observed URLs, deduped.
+function collectAllAssetUrls(breakpoints: ResponsiveCapture[], networkUrls: string[], baseUrl: string): string[] {
+  const fromDoms = breakpoints.flatMap((bp) => collectAssetUrls(bp.dom, [], baseUrl));
+  const fromNetwork = collectAssetUrls(EMPTY_DOM, networkUrls, baseUrl);
+  return [...new Set([...fromDoms, ...fromNetwork])];
+}
+
+// title + head meta[name]/meta[property] -> content.
+async function readPageMeta(page: Page): Promise<{ title: string; meta: Record<string, string> }> {
+  return evalOrCrash(page, "Meta read", () =>
+    page.evaluate(() => {
+      const meta: Record<string, string> = {};
+      for (const el of Array.from(document.querySelectorAll("head meta[name], head meta[property]"))) {
+        const key = el.getAttribute("name") ?? el.getAttribute("property");
+        const content = el.getAttribute("content");
+        if (key && content !== null) meta[key] = content;
+      }
+      return { title: document.title, meta };
+    }),
+  );
+}
+
+async function writeFileAtomic(path: string, data: string | Buffer): Promise<void> {
+  const tmpPath = `${path}.tmp`;
+  await writeFile(tmpPath, data);
+  await rename(tmpPath, path);
+}
+
+export type PageCapture = {
+  url: string;
+  pageId: string;
+  capturedAt: string;
+  title: string;
+  meta: Record<string, string>;
+  cssom: CssomResult;
+  breakpoints: Pick<ResponsiveCapture, "bp" | "dom" | "truncated">[];
+  interactions: Interaction[];
+  assets: Record<string, string>;
+  skippedAssets: DownloadResult["skipped"];
+};
+
+export type PageCaptureMeta = {
+  pageId: string;
+  capturePath: string;
+  shots: Record<number, string>;
+  assetBytes: number;
+  warnings: string[];
+};
+
+// Writes capture.json + shots/<bp>.png (each tmp -> rename) and returns the
+// lightweight metadata capturePage resolves with — never the DOMs/buffers.
+async function writeCaptureOutput(
+  workspaceDir: string,
+  pageId: string,
+  data: PageCapture,
+  breakpoints: ResponsiveCapture[],
+  skipped: DownloadResult["skipped"],
+  assetBytes: number,
+): Promise<PageCaptureMeta> {
+  const pageDir = join(workspaceDir, "pages", pageId);
+  await mkdir(join(pageDir, "shots"), { recursive: true });
+
+  const shots: Record<number, string> = {};
+  await Promise.all(
+    breakpoints.map(async (bp) => {
+      const relPath = `pages/${pageId}/shots/${bp.bp}.png`;
+      await writeFileAtomic(join(workspaceDir, relPath), bp.shot);
+      shots[bp.bp] = relPath;
+    }),
+  );
+
+  const capturePath = `pages/${pageId}/capture.json`;
+  await writeFileAtomic(join(workspaceDir, capturePath), JSON.stringify(data));
+
+  const warnings: string[] = [];
+  for (const bp of breakpoints) {
+    if (bp.truncated) warnings.push(`breakpoint ${bp.bp}px: lazy-load truncated`);
+  }
+  for (const s of skipped) warnings.push(`asset skipped (${s.code}): ${s.url}`);
+
+  return { pageId, capturePath, shots, assetBytes, warnings };
+}
+
+export type CapturePageOpts = { url: string; pageId: string; workspaceDir: string; budgetBytes?: number };
+
+// Ties T9-T12 into one call per page (spec §6 steps 1-8): navigate (blocked
+// from leaving, networkidle, fonts ready) -> auth/captcha check -> CSSOM ->
+// responsive DOM+screenshots -> hidden interactions at 1440 -> assets.
+// Writes capture.json + shots and resolves with metadata only.
+export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts): Promise<PageCaptureMeta> {
+  assertSafePageId(opts.pageId);
+  const { url, pageId, workspaceDir, budgetBytes } = opts;
+
+  return withPage(handle, async (page) => {
+    const tracker = trackResponses(page);
+    const unblock = await blockNavigationAway(page, url);
+    try {
+      const response = await page
+        .goto(url, { waitUntil: "networkidle", timeout: CAPTURE_NAV_TIMEOUT_MS })
+        .catch((err) => {
+          throw new AppError(Codes.NAV_TIMEOUT, `navigation to ${url} timed out`, { url, cause: err });
+        });
+
+      await evalOrCrash(page, "Fonts ready", () => page.evaluate(() => document.fonts.ready.then(() => true)));
+
+      const authState = await detectNeedsAuth(page, { status: response?.status(), requestedUrl: url });
+      if (authState === "auth") throw new AppError(Codes.AUTH_REQUIRED, `page requires login: ${url}`, { url });
+      if (authState === "captcha") throw new AppError(Codes.CAPTCHA_REQUIRED, `page requires captcha: ${url}`, { url });
+
+      const cssom = await readCssom(page);
+      const breakpoints = await captureResponsive(page);
+      const interactions = await scanInteractions(page, { stateSelectors: cssom.stateSelectors });
+      const { title, meta } = await readPageMeta(page);
+
+      const assetUrls = collectAllAssetUrls(breakpoints, tracker.urls(), url);
+      const { assets, skipped, bytes } = await downloadAssets(handle.context, assetUrls, join(workspaceDir, "assets"), {
+        budgetBytes,
+      });
+
+      const data: PageCapture = {
+        url,
+        pageId,
+        capturedAt: new Date().toISOString(),
+        title,
+        meta,
+        cssom,
+        breakpoints: breakpoints.map(({ bp, dom, truncated }) => ({ bp, dom, truncated })),
+        interactions,
+        assets: Object.fromEntries(assets),
+        skippedAssets: skipped,
+      };
+      return await writeCaptureOutput(workspaceDir, pageId, data, breakpoints, skipped, bytes);
+    } finally {
+      tracker.stop();
+      await unblock();
+    }
+  });
 }
