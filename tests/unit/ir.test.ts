@@ -301,3 +301,48 @@ test("nth-of-type trigger counts same-tag siblings only", () => {
   expect(find(ir, "p1:0.1.3")?.behavior).toBe("i1");
   expect(find(ir, "p1:0.1.2")?.behavior).toBeUndefined();
 });
+
+function patchError(ir: IR, op: Parameters<typeof applyPatch>[1][number]): unknown {
+  try {
+    applyPatch(ir, [op]);
+  } catch (err) {
+    return err;
+  }
+  return undefined;
+}
+
+test("applyPatch reaches page shell nodes (setStyle on body)", () => {
+  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header(), el("footer")]))]));
+  const next = applyPatch(ir, [{ op: "setStyle", id: "p1:0.1", style: { background: "black" } }]);
+
+  const body = next.pages[0]!.shell.children[0]!;
+  expect(body.id).toBe("p1:0.1");
+  expect(next.classes[body.cls[0]!]).toEqual({ base: { background: "black" } });
+  expect(ir.pages[0]!.shell.children[0]!.cls).toEqual([]);
+});
+
+test("replaceSubtree: input unchanged, old subtree ids reusable, duplicate ids rejected", () => {
+  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header(), el("footer", {}, [txt("f")])]))]));
+  const before = JSON.stringify(ir);
+  const node = (childId: string): IRNode => ({ id: "x", tag: "div", attrs: {}, cls: [], children: [{ id: childId, tag: "#text", attrs: {}, text: "hi", cls: [], children: [] }] });
+
+  const next = applyPatch(ir, [{ op: "replaceSubtree", id: "p1:0.1.0", node: node("p1:0.1.0.0") }]);
+  expect(next.sections[0]!.root).toMatchObject({ id: "p1:0.1.0", tag: "div", children: [{ id: "p1:0.1.0.0", text: "hi" }] });
+  expect(JSON.stringify(ir)).toBe(before);
+
+  for (const dup of ["p1:0.1.1.0", "p1:0.1"]) {
+    expect(patchError(ir, { op: "replaceSubtree", id: "p1:0.1.0", node: node(dup) })).toMatchObject({
+      code: "IR_PATCH_INVALID",
+      context: { op: "replaceSubtree", id: "p1:0.1.0" },
+    });
+  }
+});
+
+test("setStyle / setBehavior on a #text node -> IR_PATCH_INVALID", () => {
+  const ir = buildIR([capture("p1", "https://x.test/", doc([header()]))]);
+  expect(patchError(ir, { op: "setStyle", id: "p1:0.1.0.0.0", style: { color: "red" } })).toMatchObject({ code: "IR_PATCH_INVALID" });
+  expect(patchError(ir, { op: "setBehavior", id: "p1:0.1.0.0.0", behavior: "i1" })).toMatchObject({
+    code: "IR_PATCH_INVALID",
+    context: { op: "setBehavior", id: "p1:0.1.0.0.0" },
+  });
+});

@@ -204,12 +204,26 @@ function styleClass(ir: IR, node: IRNode, style: Decl): { cls: string[]; classes
   return { cls, classes: ir.classes };
 }
 
+function collectNodeIds(node: IRNode, out: Set<string>): Set<string> {
+  out.add(node.id);
+  for (const child of node.children) collectNodeIds(child, out);
+  return out;
+}
+
+// Every node the IR can patch lives under a section root or a page shell.
+const irRoots = (ir: IR) => [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
+
 function applyOp(ir: IR, op: PatchOp): IR {
+  const invalid = (message: string) => new AppError(Codes.IR_PATCH_INVALID, message, { op: op.op, id: op.id });
+  const requireElement = (n: IRNode) => {
+    if (n.tag === "#text") throw invalid(`${op.op} on a text node: ${op.id}`);
+  };
   let classes = ir.classes;
   let edit: (n: IRNode) => IRNode;
   switch (op.op) {
     case "setStyle":
       edit = (n) => {
+        requireElement(n);
         const styled = styleClass(ir, n, op.style);
         classes = styled.classes;
         return { ...n, cls: styled.cls };
@@ -225,10 +239,29 @@ function applyOp(ir: IR, op: PatchOp): IR {
           : { ...n, children: [{ id: `${n.id}.0`, tag: "#text", attrs: {}, text: op.text, cls: [], children: [] }] };
       break;
     case "replaceSubtree":
-      edit = () => ({ ...op.node, id: op.id });
+      edit = (n) => {
+        // New descendant ids must be unique: not used elsewhere in the IR (the replaced subtree's
+        // old ids are free to reuse) and not repeated inside the new subtree.
+        const own = collectNodeIds(n, new Set());
+        const taken = new Set<string>();
+        for (const root of irRoots(ir)) collectNodeIds(root, taken);
+        const seen = new Set([op.id]);
+        const check = (node: IRNode): void => {
+          for (const child of node.children) {
+            if (seen.has(child.id) || (taken.has(child.id) && !own.has(child.id))) throw invalid(`duplicate node id in replaceSubtree: ${child.id}`);
+            seen.add(child.id);
+            check(child);
+          }
+        };
+        check(op.node);
+        return { ...op.node, id: op.id };
+      };
       break;
     case "setBehavior":
-      edit = (n) => ({ ...n, behavior: op.behavior });
+      edit = (n) => {
+        requireElement(n);
+        return { ...n, behavior: op.behavior };
+      };
       break;
   }
 
@@ -240,7 +273,15 @@ function applyOp(ir: IR, op: PatchOp): IR {
     sections[i] = { ...section, root };
     return { ...ir, sections, classes };
   }
-  throw new AppError(Codes.IR_PATCH_INVALID, `patch target not found: ${op.id}`, { op: op.op, id: op.id });
+  for (let i = 0; i < ir.pages.length; i++) {
+    const page = ir.pages[i]!;
+    const shell = replaceNode(page.shell, op.id, edit);
+    if (!shell) continue;
+    const pages = ir.pages.slice();
+    pages[i] = { ...page, shell };
+    return { ...ir, pages, classes };
+  }
+  throw invalid(`patch target not found: ${op.id}`);
 }
 
 export function applyPatch(ir: IR, ops: PatchOp[]): IR {
