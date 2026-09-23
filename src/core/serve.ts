@@ -55,6 +55,11 @@ export async function serveDir(dir: string): Promise<{ url: string; close(): Pro
 
   return {
     url: `http://127.0.0.1:${port}`,
-    close: () => new Promise<void>((res, rej) => server.close((err) => (err ? rej(err) : res()))),
+    // closeAllConnections: browsers hold keep-alive sockets open, which would stall close() until they time out.
+    close: () =>
+      new Promise<void>((res, rej) => {
+        server.close((err) => (err ? rej(err) : res()));
+        server.closeAllConnections();
+      }),
   };
 }

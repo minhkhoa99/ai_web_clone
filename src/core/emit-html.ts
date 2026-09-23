@@ -142,7 +142,7 @@ function renderNode(node: IRNode, base: string | undefined, ctx: Ctx, out: strin
 }
 
 // "/" -> index, "/a/b" -> a-b, "/x.html" -> x; case-insensitive collisions get -2, -3 in page order.
-function pageFileNames(pages: Page[]): Map<string, string> {
+export function pageFileNames(pages: Page[]): Map<string, string> {
   const used = new Set<string>();
   const names = new Map<string, string>();
   for (const page of pages) {
