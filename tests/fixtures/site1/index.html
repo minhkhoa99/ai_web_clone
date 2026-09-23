@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Site One</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    header { display: flex; justify-content: space-between; padding: 16px; background: #222; }
+    header a { color: #fff; margin-left: 12px; }
+    .hero h1 { color: rgb(200, 30, 60); font-size: 48px; }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 24px; }
+    .badge::before { content: "\2605"; color: rgb(255, 180, 0); margin-right: 4px; }
+    .secret { display: none; }
+    footer { padding: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">SiteOne</span>
+    <nav><a href="#features">Features</a><a href="#contact">Contact</a></nav>
+  </header>
+  <section class="hero">
+    <h1>Build faster sites</h1>
+    <p>Plain paragraph text.</p>
+  </section>
+  <section class="features" id="features">
+    <div class="card"><h2>Fast</h2><p class="badge">Rated top</p></div>
+    <div class="card"><h2>Simple</h2><p>Nothing extra.</p></div>
+    <div class="card"><h2>Static</h2><p>Just HTML.</p></div>
+  </section>
+  <div class="secret">Hidden promo</div>
+  <shadow-card></shadow-card>
+  <iframe src="frame.html" width="300" height="100"></iframe>
+  <footer id="contact">&copy; Site One</footer>
+  <script>
+    customElements.define("shadow-card", class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "open" }).innerHTML = "<p>Shadow content</p>";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { fileURLToPath } from "node:url";
+import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
+import { serveDir } from "@/core/serve";
+import { snapshotDom, type CaptureNode } from "@/core/capture";
+
+const fixtureDir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
+
+let handle: BrowserHandle;
+let site: { url: string; close(): Promise<void> };
+let root: CaptureNode;
+
+function snapshotOf(path: string): Promise<CaptureNode> {
+  return withPage(handle, async (page) => {
+    await page.goto(`${site.url}/${path}`, { waitUntil: "load" });
+    return snapshotDom(page);
+  });
+}
+
+function findAll(node: CaptureNode, pred: (n: CaptureNode) => boolean, out: CaptureNode[] = []): CaptureNode[] {
+  if (pred(node)) out.push(node);
+  for (const child of node.children) findAll(child, pred, out);
+  return out;
+}
+
+function find(node: CaptureNode, pred: (n: CaptureNode) => boolean): CaptureNode | undefined {
+  return findAll(node, pred)[0];
+}
+
+function hasText(node: CaptureNode, text: string): boolean {
+  return find(node, (n) => n.tag === "#text" && n.text?.trim() === text) !== undefined;
+}
+
+beforeAll(async () => {
+  handle = await openBrowser({ headed: false });
+  site = await serveDir(fixtureDir);
+  root = await snapshotOf("index.html");
+});
+
+afterAll(async () => {
+  await handle.close();
+  await site.close();
+});
+
+test("root is html, title text present, h1 color set, untouched defaults omitted", () => {
+  expect(root.tag).toBe("html");
+  const h1 = find(root, (n) => n.tag === "h1");
+  expect(h1).toBeDefined();
+  expect(hasText(h1!, "Build faster sites")).toBe(true);
+  expect(h1!.style.color).toBe("rgb(200, 30, 60)");
+  expect(h1!.bbox).toHaveLength(4);
+  const plainP = find(root, (n) => n.tag === "p" && hasText(n, "Plain paragraph text."));
+  expect(plainP).toBeDefined();
+  expect(plainP!.style.display).toBeUndefined();
+  expect(Object.keys(plainP!.style).some((k) => k.startsWith("--"))).toBe(false);
+});
+
+test("head keeps title/meta/icon without computed style; skips style/script", () => {
+  const head = find(root, (n) => n.tag === "head")!;
+  const title = find(head, (n) => n.tag === "title")!;
+  expect(title.style).toEqual({});
+  expect(hasText(title, "Site One")).toBe(true);
+  expect(find(root, (n) => n.tag === "style" || n.tag === "script")).toBeUndefined();
+  expect(find(head, (n) => n.tag === "link" && n.attrs.rel === "icon")).toBeDefined();
+});
+
+test("captures ::before content", () => {
+  const badge = find(root, (n) => n.attrs.class === "badge")!;
+  expect(badge.pseudo?.before?.content).toBe('"★"');
+  expect(badge.pseudo?.before?.color).toBe("rgb(255, 180, 0)");
+  const plainP = find(root, (n) => n.tag === "p" && hasText(n, "Plain paragraph text."))!;
+  expect(plainP.pseudo).toBeUndefined();
+});
+
+test("display:none element is captured and flagged hidden", () => {
+  const secret = find(root, (n) => n.attrs.class === "secret")!;
+  expect(secret.hidden).toBe(true);
+  expect(hasText(secret, "Hidden promo")).toBe(true);
+  expect(find(root, (n) => n.tag === "h1")!.hidden).toBeUndefined();
+});
+
+test("open shadow DOM content is flattened into the host", () => {
+  const host = find(root, (n) => n.tag === "shadow-card")!;
+  expect(hasText(host, "Shadow content")).toBe(true);
+});
+
+test("same-origin iframe content is inlined", () => {
+  const iframe = find(root, (n) => n.tag === "iframe")!;
+  expect(iframe.children).toHaveLength(1);
+  expect(iframe.children[0]!.tag).toBe("html");
+  expect(hasText(iframe, "Frame content")).toBe(true);
+});
+
+test("snapshot is deterministic", async () => {
+  expect(await snapshotOf("index.html")).toEqual(root);
+});
+
+test("throws NODE_LIMIT past 20k nodes", async () => {
+  await expect(snapshotOf("huge.html")).rejects.toMatchObject({
+    code: "NODE_LIMIT",
+    context: { limit: 20_000 },
+  });
+});

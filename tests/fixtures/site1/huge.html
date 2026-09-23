@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <script>
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < 21000; i++) frag.appendChild(document.createElement("span"));
+    document.body.appendChild(frag);
+  </script>
+</body>
+</html>
