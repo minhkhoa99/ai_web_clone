@@ -1,0 +1,19 @@
+import { expect, test } from "vitest";
+import { normalizeUrl, sameOrigin, isHtmlLike } from "@/core/url";
+
+test("strips tracking + hash + trailing slash", () => {
+  expect(normalizeUrl("https://x.com/a/?utm_source=z&b=1#top"))
+    .toBe("https://x.com/a?b=1");
+});
+
+test("resolves relative", () => {
+  expect(normalizeUrl("../b", "https://x.com/a/c")).toBe("https://x.com/b");
+});
+
+test("rejects non-http", () => {
+  expect(normalizeUrl("mailto:a@b.com")).toBeNull();
+});
+
+test("isHtmlLike false for assets", () => {
+  expect(isHtmlLike("https://x.com/a.png")).toBe(false);
+});
