@@ -99,10 +99,16 @@ export async function saveSession(context: BrowserContext, path: string): Promis
 type StorageStateOrigin = { origin: string; localStorage?: { name: string; value: string }[] };
 
 function validateStorageState(json: unknown): { cookies: Cookie[]; origins: StorageStateOrigin[] } {
-  if (typeof json !== "object" || json === null) throw new Error("invalid storage state: not an object");
+  if (typeof json !== "object" || json === null) {
+    throw new AppError(Codes.AUTH_REQUIRED, "invalid storage state: not an object", { type: typeof json });
+  }
   const { cookies, origins } = json as { cookies?: unknown; origins?: unknown };
-  if (cookies !== undefined && !Array.isArray(cookies)) throw new Error("invalid storage state: cookies must be an array");
-  if (origins !== undefined && !Array.isArray(origins)) throw new Error("invalid storage state: origins must be an array");
+  if (cookies !== undefined && !Array.isArray(cookies)) {
+    throw new AppError(Codes.AUTH_REQUIRED, "invalid storage state: cookies must be an array", { type: typeof cookies });
+  }
+  if (origins !== undefined && !Array.isArray(origins)) {
+    throw new AppError(Codes.AUTH_REQUIRED, "invalid storage state: origins must be an array", { type: typeof origins });
+  }
   return { cookies: (cookies as Cookie[] | undefined) ?? [], origins: (origins as StorageStateOrigin[] | undefined) ?? [] };
 }
 

@@ -99,3 +99,30 @@ test("saveSession then importStorageState carries a cookie into a fresh context"
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("saveSession then importStorageState restores localStorage for the origin", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "auth-session-ls-"));
+  const statePath = join(dir, "state.json");
+  try {
+    await withPage(handle, async (page) => {
+      await page.goto(`${site.url}/index.html`);
+      await page.evaluate(() => localStorage.setItem("theme", "dark"));
+    });
+    await saveSession(handle.context, statePath);
+
+    const fresh = await openBrowser({ headed: false });
+    try {
+      const raw: unknown = JSON.parse(await readFile(statePath, "utf8"));
+      await importStorageState(fresh.context, raw);
+      const value = await withPage(fresh, async (page) => {
+        await page.goto(`${site.url}/index.html`);
+        return page.evaluate(() => localStorage.getItem("theme"));
+      });
+      expect(value).toBe("dark");
+    } finally {
+      await fresh.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
