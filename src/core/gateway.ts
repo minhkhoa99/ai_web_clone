@@ -161,6 +161,15 @@ export function toRequest(kind: ProviderKind, baseUrl: string, apiKey: string, o
   return kind === "anthropic" ? toAnthropicRequest(baseUrl, apiKey, opts) : toOpenAiRequest(baseUrl, apiKey, opts);
 }
 
+// Model-written JSON: a malformed one is a bad reply (the fix round is spent), never an uncaught SyntaxError.
+function parseToolArgs(name: string, args: string): unknown {
+  try {
+    return JSON.parse(args) as unknown;
+  } catch {
+    throw new AppError("AI_BAD_RESPONSE", `tool call "${name}" arguments are not JSON`, { tool: name });
+  }
+}
+
 function parseOpenAiResponse(raw: unknown): GenerateResult {
   const r = raw as {
     choices?: { message?: { content?: string | null; tool_calls?: { function: { name: string; arguments: string } }[] } }[];
@@ -169,7 +178,7 @@ function parseOpenAiResponse(raw: unknown): GenerateResult {
   const message = r.choices?.[0]?.message;
   if (!message) throw new AppError("AI_BAD_RESPONSE", "openai response missing choices[0].message", {});
   const text = message.content ?? "";
-  const toolCalls = message.tool_calls?.map((tc) => ({ name: tc.function.name, args: JSON.parse(tc.function.arguments) as unknown }));
+  const toolCalls = message.tool_calls?.map((tc) => ({ name: tc.function.name, args: parseToolArgs(tc.function.name, tc.function.arguments) }));
   const tokens = r.usage?.total_tokens ?? 0;
   return toolCalls?.length ? { text, toolCalls, tokens } : { text, tokens };
 }

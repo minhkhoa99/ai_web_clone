@@ -168,3 +168,18 @@ test("AI_AUTH is rethrown", async () => {
   generateMock.mockRejectedValue(new AppError("AI_AUTH", "bad key"));
   await expect(fixSection(newCtx(), hero.id, "home")).rejects.toMatchObject({ code: "AI_AUTH" });
 });
+
+test("malformed tool calls (inherited tool name, unparseable args) waste the round; the project isn't failed", async () => {
+  generateMock
+    .mockResolvedValueOnce({ text: "", tokens: 1, toolCalls: [{ name: "constructor", args: {} }, { name: "__proto__", args: {} }] })
+    .mockResolvedValueOnce(reply([restore(hero)]));
+  const res = await fixSection(newCtx(), hero.id, "home");
+  expect(res).toMatchObject({ rounds: 1, patched: true, status: "pass" });
+  const fed = generateMock.mock.calls[1]![1].messages.at(-1)!.content;
+  expect(fed).toContain("unknown tool: constructor");
+
+  // what generate now throws for a tool call whose arguments aren't JSON: the round is spent, the next one lands
+  generateMock.mockReset();
+  generateMock.mockRejectedValueOnce(new AppError("AI_BAD_RESPONSE", "tool call arguments are not JSON")).mockResolvedValueOnce(reply([restore(hero)]));
+  expect(await fixSection(newCtx(), hero.id, "home")).toMatchObject({ rounds: 2, patched: true, status: "pass" });
+});

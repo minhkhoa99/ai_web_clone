@@ -116,12 +116,14 @@ test("asTools: unknown tool name and op errors both return {error} and count as 
   const result = await onSite1(async (page) => {
     const { call, calls } = asTools({ clone: page });
     const unknown = (await call("doesNotExist", {})) as { error: string };
+    const inherited = (await call("constructor", {})) as { error: string }; // Object.prototype key, not a tool
     const opError = (await call("readStyle", { target: "clone", selector: "#does-not-exist", props: ["color"] })) as { error: string };
-    return { unknown, opError, calls: calls() };
+    return { unknown, inherited, opError, calls: calls() };
   });
   expect(result.unknown.error).toMatch(/unknown tool/);
+  expect(result.inherited.error).toMatch(/unknown tool/);
   expect(result.opError.error).toBeTruthy();
-  expect(result.calls).toBe(2);
+  expect(result.calls).toBe(3);
 });
 
 test("asTools: zod rejects bad args and still counts as a call", async () => {

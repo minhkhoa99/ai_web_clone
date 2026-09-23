@@ -174,7 +174,8 @@ export function asTools(
     }
     count++;
 
-    const spec = TOOL_SPECS[name];
+    // own keys only: "constructor" / "__proto__" are not tools
+    const spec = Object.hasOwn(TOOL_SPECS, name) ? TOOL_SPECS[name] : undefined;
     if (!spec) return { error: `unknown tool: ${name}` };
 
     const parsed = spec.schema.safeParse(args);

@@ -131,3 +131,8 @@ test("generate accumulates tokens_used and throws BUDGET_EXCEEDED past project's
   const row = db.prepare("SELECT tokens_used FROM projects WHERE id=?").get("p1") as { tokens_used: number };
   expect(row.tokens_used).toBe(9);
 });
+
+test("openai tool call with malformed JSON arguments -> AppError AI_BAD_RESPONSE, not a SyntaxError", () => {
+  const raw = { choices: [{ message: { content: "", tool_calls: [{ function: { name: "readStyle", arguments: "{not json" } }] } }] };
+  expect(() => parseResponse("openai", raw)).toThrow(expect.objectContaining({ name: "AppError", code: "AI_BAD_RESPONSE" }));
+});
