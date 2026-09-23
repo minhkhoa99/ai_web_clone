@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><title>Infinite scroll</title></head>
+<body style="margin: 0">
+  <div id="content"></div>
+  <script>
+    // Keeps growing whenever the viewport nears the bottom, so a bounded
+    // scroller can never reach a real end — this is what the lazy-load
+    // scroll cap (steps/px) exists to stop.
+    var content = document.getElementById("content");
+    function addChunk() {
+      var chunk = document.createElement("div");
+      chunk.style.height = "2000px";
+      chunk.textContent = "chunk";
+      content.appendChild(chunk);
+    }
+    for (var i = 0; i < 3; i++) addChunk();
+    window.addEventListener("scroll", function () {
+      var nearBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 500;
+      if (nearBottom) addChunk();
+    });
+  </script>
+</body>
+</html>

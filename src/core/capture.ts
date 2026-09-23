@@ -1,7 +1,18 @@
 import type { Page } from "playwright";
 import { AppError, Codes } from "./errors";
 import { mapLimit } from "./limit";
-import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage } from "./capture-eval";
+import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage } from "./capture-eval";
+
+// Runs `run` (a page.evaluate call) and rethrows any failure (crashed page,
+// detached frame, throw inside the page) as AppError(BROWSER_CRASH, …) with
+// url context — the same wrapping every evaluate call in this file needs.
+async function evalOrCrash<R>(page: Page, what: string, run: () => Promise<R>): Promise<R> {
+  try {
+    return await run();
+  } catch (err) {
+    throw new AppError(Codes.BROWSER_CRASH, `${what} failed: ${String(err)}`, { url: page.url(), cause: err });
+  }
+}
 
 export type CaptureNode = {
   tag: string;
@@ -18,9 +29,7 @@ const MAX_NODES = 20_000;
 
 // One page.evaluate walks the whole tree; styles are diffed against per-tag defaults.
 export async function snapshotDom(page: Page): Promise<CaptureNode> {
-  const result = await page.evaluate(snapshotInPage, MAX_NODES).catch((err: unknown) => {
-    throw new AppError(Codes.BROWSER_CRASH, `DOM snapshot failed: ${String(err)}`, { url: page.url(), cause: err });
-  });
+  const result = await evalOrCrash(page, "DOM snapshot", () => page.evaluate(snapshotInPage, MAX_NODES));
   if ("limitExceeded" in result) {
     throw new AppError(Codes.NODE_LIMIT, `DOM exceeds ${MAX_NODES} nodes`, { url: page.url(), limit: MAX_NODES });
   }
@@ -36,14 +45,14 @@ const IMG_DECODE_TIMEOUT_MS = 2_000;
 // decodes images, then scrolls back to the top. `truncated: true` means an
 // infinite-scroll page hit the step/px cap before reaching its real bottom.
 export async function lazyLoadScroll(page: Page): Promise<{ truncated: boolean }> {
-  return page.evaluate(lazyLoadInPage, {
-    maxSteps: MAX_SCROLL_STEPS,
-    maxPx: MAX_SCROLL_PX,
-    stepDelayMs: SCROLL_SETTLE_MS,
-    decodeTimeoutMs: IMG_DECODE_TIMEOUT_MS,
-  }).catch((err: unknown) => {
-    throw new AppError(Codes.BROWSER_CRASH, `Lazy-load scroll failed: ${String(err)}`, { url: page.url(), cause: err });
-  });
+  return evalOrCrash(page, "Lazy-load scroll", () =>
+    page.evaluate(lazyLoadInPage, {
+      maxSteps: MAX_SCROLL_STEPS,
+      maxPx: MAX_SCROLL_PX,
+      stepDelayMs: SCROLL_SETTLE_MS,
+      decodeTimeoutMs: IMG_DECODE_TIMEOUT_MS,
+    }),
+  );
 }
 
 const BREAKPOINTS = [375, 768, 1440] as const;
@@ -87,7 +96,7 @@ function dedupe(values: string[]): string[] {
 // text in Node (bounded concurrency, per-fetch timeout, failures skipped)
 // and parsed in a second evaluate via a constructable stylesheet.
 export async function readCssom(page: Page): Promise<CssomResult> {
-  const main = await page.evaluate(readCssomInPage);
+  const main = await evalOrCrash(page, "CSSOM read", () => page.evaluate(readCssomInPage));
 
   const fetched = await mapLimit(main.crossOriginHrefs, CROSS_ORIGIN_FETCH_LIMIT, async (href) => {
     try {
@@ -99,19 +108,11 @@ export async function readCssom(page: Page): Promise<CssomResult> {
   });
   const cssTexts = fetched.filter((text): text is string => text !== null);
   const extra = cssTexts.length
-    ? await page.evaluate(parseCssTextInPage, cssTexts)
+    ? await evalOrCrash(page, "Cross-origin CSSOM parse", () => page.evaluate(parseCssTextInPage, cssTexts))
     : { keyframes: [], fontFace: [], media: [], varNames: [], stateSelectors: [] };
 
   const varNames = dedupe([...main.varNames, ...extra.varNames]);
-  const vars = await page.evaluate((names: string[]) => {
-    const cs = getComputedStyle(document.documentElement);
-    const out: Record<string, string> = {};
-    for (const name of names) {
-      const value = cs.getPropertyValue(name).trim();
-      if (value) out[name] = value;
-    }
-    return out;
-  }, varNames);
+  const vars = await evalOrCrash(page, "CSS var resolution", () => page.evaluate(readCssomVarsInPage, varNames));
 
   return {
     keyframes: dedupe([...main.keyframes, ...extra.keyframes]),

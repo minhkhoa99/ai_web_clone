@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { fileURLToPath } from "node:url";
 import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
-import { captureResponsive, readCssom } from "@/core/capture";
+import { captureResponsive, readCssom, lazyLoadScroll } from "@/core/capture";
 
 const fixtureDir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
 const crossOriginDir = fileURLToPath(new URL("../fixtures/cross-origin", import.meta.url));
@@ -46,6 +46,15 @@ test("lazy image below the fold is loaded after the scroll pass", async () => {
     return page.evaluate(() => document.querySelector<HTMLImageElement>("img.lazy-img")!.naturalWidth);
   });
   expect(naturalWidth).toBeGreaterThan(0);
+});
+
+test("lazyLoadScroll reports truncated on an infinite-scroll page", async () => {
+  const { truncated } = await withPage(handle, async (page) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${site.url}/infinite-scroll.html`, { waitUntil: "load" });
+    return lazyLoadScroll(page);
+  });
+  expect(truncated).toBe(true);
 });
 
 test("readCssom extracts keyframes, font-face, media, vars, and state selectors", async () => {

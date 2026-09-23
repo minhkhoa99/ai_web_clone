@@ -195,6 +195,8 @@ export function readCssomInPage(): CssomExtract & { crossOriginHrefs: string[] }
   const out: CssomExtract = { keyframes: [], fontFace: [], media: [], varNames: [], stateSelectors: [] };
   const statePseudo = /:hover|:focus-visible|:focus|:active/;
 
+  // Identical to the `walk` closure in parseCssTextInPage below — see the
+  // file-level note above for why it's copy-pasted rather than shared.
   const walk = (rules: CSSRuleList) => {
     for (const rule of Array.from(rules)) {
       if (rule instanceof CSSMediaRule) {
@@ -250,6 +252,8 @@ export function parseCssTextInPage(cssTexts: string[]): CssomExtract {
   const out: CssomExtract = { keyframes: [], fontFace: [], media: [], varNames: [], stateSelectors: [] };
   const statePseudo = /:hover|:focus-visible|:focus|:active/;
 
+  // Identical to the `walk` closure in readCssomInPage above — see the
+  // file-level note above for why it's copy-pasted rather than shared.
   const walk = (rules: CSSRuleList) => {
     for (const rule of Array.from(rules)) {
       if (rule instanceof CSSMediaRule) {
@@ -293,4 +297,18 @@ export function parseCssTextInPage(cssTexts: string[]): CssomExtract {
     varNames: [...new Set(out.varNames)],
     stateSelectors: [...new Set(out.stateSelectors)],
   };
+}
+
+// Runs inside the page: resolves each custom-property name against the
+// document's own cascade (getComputedStyle on :root), skipping names that
+// resolve empty. Cross-origin custom properties merged in by the caller are
+// still looked up here — they only matter if they also apply to this document.
+export function readCssomVarsInPage(names: string[]): Record<string, string> {
+  const cs = getComputedStyle(document.documentElement);
+  const out: Record<string, string> = {};
+  for (const name of names) {
+    const value = cs.getPropertyValue(name).trim();
+    if (value) out[name] = value;
+  }
+  return out;
 }
