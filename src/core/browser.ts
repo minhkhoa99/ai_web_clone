@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page, type Route } from "playwright";
 
 export type BrowserHandle = {
   context: BrowserContext;
@@ -88,4 +88,23 @@ export async function withPage<T>(
   } finally {
     semaphore.release();
   }
+}
+
+const stripHash = (url: string) => url.split("#")[0];
+
+// Blocks the page's main frame from navigating to any URL other than
+// `homeUrl` (hash-only changes still allowed since both sides are
+// hash-stripped before comparing). Set up before or after navigating to
+// `homeUrl` itself — the initial/current load always matches `home` so it is
+// never blocked. Returns the teardown (unroute). Callers that also need to
+// stop popups (e.g. interaction scanning) add that on top.
+export async function blockNavigationAway(page: Page, homeUrl: string): Promise<() => Promise<void>> {
+  const home = stripHash(homeUrl);
+  const onRoute = (route: Route) => {
+    const req = route.request();
+    const leaving = req.isNavigationRequest() && req.frame() === page.mainFrame() && stripHash(req.url()) !== home;
+    return leaving ? route.abort() : route.fallback();
+  };
+  await page.route("**/*", onRoute);
+  return () => page.unroute("**/*", onRoute);
 }

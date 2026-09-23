@@ -1,10 +1,11 @@
-import type { Page, Route } from "playwright";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import type { Page } from "playwright";
+import { createHash } from "node:crypto";
+import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AppError, Codes } from "./errors";
 import { mapLimit } from "./limit";
 import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage } from "./capture-eval";
-import { withPage, type BrowserHandle } from "./browser";
+import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
 import { scanInteractions, type Interaction } from "./interactions";
 import { trackResponses, collectAssetUrls, downloadAssets, type DownloadResult } from "./assets";
@@ -139,22 +140,6 @@ function assertSafePageId(pageId: string): void {
   }
 }
 
-const stripHash = (url: string) => url.split("#")[0];
-
-// Blocks the page from ever leaving `targetUrl` (same-document nav, e.g. a
-// hash change, is still allowed since it strips to the same URL). Set up
-// before goto so the very first navigation is already covered.
-async function blockNavigationAway(page: Page, targetUrl: string): Promise<() => Promise<void>> {
-  const home = stripHash(targetUrl);
-  const onRoute = (route: Route) => {
-    const req = route.request();
-    const leaving = req.isNavigationRequest() && req.frame() === page.mainFrame() && stripHash(req.url()) !== home;
-    return leaving ? route.abort() : route.fallback();
-  };
-  await page.route("**/*", onRoute);
-  return () => page.unroute("**/*", onRoute);
-}
-
 const EMPTY_DOM: CaptureNode = { tag: "", attrs: {}, style: {}, bbox: [0, 0, 0, 0], children: [] };
 
 // Union of every asset reference across all 3 breakpoint DOMs (responsive
@@ -186,6 +171,49 @@ async function writeFileAtomic(path: string, data: string | Buffer): Promise<voi
   await rename(tmpPath, path);
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type DynamicAsset = { order: number; asset: string };
+
+const MAX_CANVAS_SHOTS = 20;
+
+// Spec §6 step 8 (canvas/WebGL -> image + `dynamic`): screenshots every
+// visible <canvas>, in document order, up to the cap. Content-hash named and
+// deduped like other assets (tmp -> rename, reused if already on disk).
+// Sequential: bounded to MAX_CANVAS_SHOTS actions on the one shared page.
+// A single canvas failing to screenshot is a warning, never a throw.
+async function captureCanvases(page: Page, workspaceDir: string): Promise<{ dynamic: DynamicAsset[]; warnings: string[] }> {
+  const total = Math.min(await page.locator("canvas").count(), MAX_CANVAS_SHOTS);
+  const assetsDir = join(workspaceDir, "assets");
+  const dynamic: DynamicAsset[] = [];
+  const warnings: string[] = [];
+
+  for (let order = 0; order < total; order++) {
+    const locator = page.locator("canvas").nth(order);
+    try {
+      if (!(await locator.isVisible())) continue;
+      const shot = await locator.screenshot({ animations: "disabled" });
+      const fileName = `${createHash("sha256").update(shot).digest("hex")}.png`;
+      const absPath = join(assetsDir, fileName);
+      if (!(await fileExists(absPath))) {
+        await mkdir(assetsDir, { recursive: true });
+        await writeFileAtomic(absPath, shot);
+      }
+      dynamic.push({ order, asset: `assets/${fileName}` });
+    } catch (err) {
+      warnings.push(`canvas #${order} screenshot failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { dynamic, warnings };
+}
+
 export type PageCapture = {
   url: string;
   pageId: string;
@@ -197,6 +225,7 @@ export type PageCapture = {
   interactions: Interaction[];
   assets: Record<string, string>;
   skippedAssets: DownloadResult["skipped"];
+  dynamic: DynamicAsset[];
 };
 
 export type PageCaptureMeta = {
@@ -216,6 +245,7 @@ async function writeCaptureOutput(
   breakpoints: ResponsiveCapture[],
   skipped: DownloadResult["skipped"],
   assetBytes: number,
+  extraWarnings: string[],
 ): Promise<PageCaptureMeta> {
   const pageDir = join(workspaceDir, "pages", pageId);
   await mkdir(join(pageDir, "shots"), { recursive: true });
@@ -232,7 +262,7 @@ async function writeCaptureOutput(
   const capturePath = `pages/${pageId}/capture.json`;
   await writeFileAtomic(join(workspaceDir, capturePath), JSON.stringify(data));
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...extraWarnings];
   for (const bp of breakpoints) {
     if (bp.truncated) warnings.push(`breakpoint ${bp.bp}px: lazy-load truncated`);
   }
@@ -245,8 +275,8 @@ export type CapturePageOpts = { url: string; pageId: string; workspaceDir: strin
 
 // Ties T9-T12 into one call per page (spec §6 steps 1-8): navigate (blocked
 // from leaving, networkidle, fonts ready) -> auth/captcha check -> CSSOM ->
-// responsive DOM+screenshots -> hidden interactions at 1440 -> assets.
-// Writes capture.json + shots and resolves with metadata only.
+// responsive DOM+screenshots -> canvas/WebGL snapshots -> hidden interactions
+// at 1440 -> assets. Writes capture.json + shots and resolves with metadata only.
 export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts): Promise<PageCaptureMeta> {
   assertSafePageId(opts.pageId);
   const { url, pageId, workspaceDir, budgetBytes } = opts;
@@ -269,6 +299,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
 
       const cssom = await readCssom(page);
       const breakpoints = await captureResponsive(page);
+      const { dynamic, warnings: canvasWarnings } = await captureCanvases(page, workspaceDir);
       const interactions = await scanInteractions(page, { stateSelectors: cssom.stateSelectors });
       const { title, meta } = await readPageMeta(page);
 
@@ -288,8 +319,9 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
         interactions,
         assets: Object.fromEntries(assets),
         skippedAssets: skipped,
+        dynamic,
       };
-      return await writeCaptureOutput(workspaceDir, pageId, data, breakpoints, skipped, bytes);
+      return await writeCaptureOutput(workspaceDir, pageId, data, breakpoints, skipped, bytes, canvasWarnings);
     } finally {
       tracker.stop();
       await unblock();

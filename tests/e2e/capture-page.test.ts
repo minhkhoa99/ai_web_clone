@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
-import { capturePage, type PageCapture } from "@/core/capture";
+import { capturePage, type PageCapture, type CaptureNode } from "@/core/capture";
 
 const site1Dir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
 const site2Dir = fileURLToPath(new URL("../fixtures/site2", import.meta.url));
@@ -40,6 +40,15 @@ afterEach(async () => {
 async function freshWorkspace(): Promise<string> {
   workspaceDir = await mkdtemp(join(tmpdir(), "ai-web-clone-capture-page-"));
   return workspaceDir;
+}
+
+function findNode(node: CaptureNode, pred: (n: CaptureNode) => boolean): CaptureNode | undefined {
+  if (pred(node)) return node;
+  for (const child of node.children) {
+    const found = findNode(child, pred);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 test("captures site1 and writes capture.json + shots for all 3 breakpoints", async () => {
@@ -93,4 +102,25 @@ test("rejects an unsafe pageId without touching the browser", async () => {
   await expect(capturePage(handle, { url, pageId: "../escape", workspaceDir: dir })).rejects.toThrow();
   await expect(capturePage(handle, { url, pageId: "a/b", workspaceDir: dir })).rejects.toThrow();
   await expect(capturePage(handle, { url, pageId: "a\\b", workspaceDir: dir })).rejects.toThrow();
+});
+
+test("a page with a CAPTCHA widget throws CAPTCHA_REQUIRED instead of capturing", async () => {
+  const dir = await freshWorkspace();
+  await expect(
+    capturePage(handle, { url: `${authSite.url}/captcha.html`, pageId: "captcha", workspaceDir: dir }),
+  ).rejects.toMatchObject({ code: "CAPTCHA_REQUIRED" });
+});
+
+test("screenshots a canvas as a dynamic asset and flags the DOM node", async () => {
+  const dir = await freshWorkspace();
+  const meta = await capturePage(handle, { url: `${site1.url}/index.html`, pageId: "canvas-page", workspaceDir: dir });
+  const raw = JSON.parse(await readFile(join(dir, meta.capturePath), "utf8")) as PageCapture;
+
+  expect(raw.dynamic).toHaveLength(1);
+  expect(raw.dynamic[0]!.order).toBe(0);
+  const assetBytes = await readFile(join(dir, raw.dynamic[0]!.asset));
+  expect(assetBytes.subarray(0, 4)).toEqual(PNG_MAGIC);
+
+  const canvasNode = findNode(raw.breakpoints[0]!.dom, (n) => n.tag === "canvas");
+  expect(canvasNode?.attrs["data-dynamic"]).toBe("canvas");
 });

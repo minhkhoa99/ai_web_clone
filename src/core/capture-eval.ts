@@ -87,6 +87,7 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
     for (const attr of node.attributes) {
       if (attr.name !== "style" && !attr.name.startsWith("on")) attrs[attr.name] = attr.value;
     }
+    if (tag === "canvas") attrs["data-dynamic"] = "canvas"; // pixel content isn't in the DOM snapshot; capturePage screenshots it separately
     const rect: DOMRect = node.getBoundingClientRect();
     const result: CaptureNode = { tag, attrs, bbox: bboxOf(rect, offset), style: {}, children: [] };
     const childInHead = inHead || tag === "head";

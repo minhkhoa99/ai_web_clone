@@ -39,6 +39,7 @@
   <p class="mq-note">Responsive note</p>
   <div style="height: 2000px"></div>
   <img class="lazy-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" loading="lazy" width="4" height="4" alt="lazy">
+  <canvas id="chart" width="40" height="20"></canvas>
   <footer id="contact">&copy; Site One</footer>
   <script>
     customElements.define("shadow-card", class extends HTMLElement {
@@ -47,6 +48,9 @@
         this.attachShadow({ mode: "open" }).innerHTML = "<p>Shadow content</p>";
       }
     });
+    var chartCtx = document.getElementById("chart").getContext("2d");
+    chartCtx.fillStyle = "rgb(20, 100, 200)";
+    chartCtx.fillRect(0, 0, 40, 20);
   </script>
 </body>
 </html>

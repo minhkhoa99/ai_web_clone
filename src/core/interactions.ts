@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Page, Route } from "playwright";
+import type { Page } from "playwright";
 import { evalOrCrash } from "./capture";
+import { blockNavigationAway } from "./browser";
 import {
   findCandidatesInPage,
   readStyleInPage,
@@ -180,23 +181,15 @@ async function runScanner(page: Page, c: Candidate, timeoutMs: number): Promise<
   return FAILED;
 }
 
-const stripHash = (url: string) => url.split("#")[0];
-
-// Blocks main-frame navigation to any other URL (triggers may be anchors)
-// and closes popups; returns the teardown.
+// Blocks main-frame navigation away from the current page (triggers may be
+// anchors) and closes popups; returns the teardown.
 async function blockNavigation(page: Page): Promise<() => Promise<void>> {
-  const home = stripHash(page.url());
-  const onRoute = (route: Route) => {
-    const req = route.request();
-    const leaving = req.isNavigationRequest() && req.frame() === page.mainFrame() && stripHash(req.url()) !== home;
-    return leaving ? route.abort() : route.fallback();
-  };
+  const unblockNav = await blockNavigationAway(page, page.url());
   const onPopup = (popup: Page) => void popup.close().catch(() => undefined);
-  await page.route("**/*", onRoute);
   page.on("popup", onPopup);
   return async () => {
     page.off("popup", onPopup);
-    await page.unroute("**/*", onRoute);
+    await unblockNav();
   };
 }
 
