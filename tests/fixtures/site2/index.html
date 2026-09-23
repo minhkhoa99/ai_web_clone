@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Site Two</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .site-header { position: sticky; top: 0; display: flex; justify-content: space-between; padding: 12px 16px; background: rgb(255, 255, 255); z-index: 10; }
+    .site-header.scrolled { background: rgb(20, 20, 20); }
+    .main-nav { display: none; }
+    .main-nav.open { display: block; }
+    section { padding: 24px 16px; }
+    [role=tabpanel][hidden] { display: none; }
+    .card { padding: 16px; background: rgb(240, 240, 240); }
+    .card:hover { background: rgb(0, 120, 255); }
+    .modal { display: none; position: fixed; inset: 20% 20%; background: #fff; border: 1px solid #000; z-index: 20; }
+    .modal.open { display: block; }
+    .carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; width: 300px; }
+    .slide { flex: 0 0 300px; height: 120px; scroll-snap-align: start; }
+    .field:focus { outline: 3px solid rgb(0, 200, 0); }
+    .spacer { height: 1500px; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <span class="logo">SiteTwo</span>
+    <button id="menu-btn" aria-expanded="false" aria-controls="main-nav">Menu</button>
+    <nav id="main-nav" class="main-nav"><a href="#tabs">Tabs</a> <a href="#faq">FAQ</a></nav>
+  </header>
+
+  <section id="tabs">
+    <div role="tablist">
+      <button role="tab" id="tab-1" aria-selected="true" aria-controls="panel-1">One</button>
+      <button role="tab" id="tab-2" aria-selected="false" aria-controls="panel-2">Two</button>
+      <button role="tab" id="tab-3" aria-selected="false" aria-controls="panel-3">Three</button>
+    </div>
+    <div role="tabpanel" id="panel-1">Panel one</div>
+    <div role="tabpanel" id="panel-2" hidden>Panel two</div>
+    <div role="tabpanel" id="panel-3" hidden>Panel three</div>
+  </section>
+
+  <section>
+    <div class="card">Hover card</div>
+    <button id="open-modal" aria-haspopup="dialog" data-modal="#dialog">Open dialog</button>
+    <div id="dialog" class="modal" role="dialog"><p>Dialog body</p></div>
+  </section>
+
+  <section id="faq">
+    <details><summary>Question</summary><p>Answer text</p></details>
+  </section>
+
+  <section>
+    <div class="carousel" id="carousel">
+      <div class="slide" style="background: rgb(200, 0, 0)">1</div>
+      <div class="slide" style="background: rgb(0, 200, 0)">2</div>
+      <div class="slide" style="background: rgb(0, 0, 200)">3</div>
+    </div>
+    <button class="carousel-next" aria-label="Next slide">Next</button>
+  </section>
+
+  <section>
+    <form><input class="field" name="email" placeholder="you@example.com"></form>
+  </section>
+  <div class="spacer"></div>
+
+  <script>
+    const menuBtn = document.getElementById("menu-btn");
+    const nav = document.getElementById("main-nav");
+    menuBtn.addEventListener("click", () => {
+      const open = nav.classList.toggle("open");
+      menuBtn.setAttribute("aria-expanded", String(open));
+    });
+
+    const tabs = document.querySelectorAll("[role=tab]");
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      tabs.forEach((t) => {
+        const selected = t === tab;
+        t.setAttribute("aria-selected", String(selected));
+        document.getElementById(t.getAttribute("aria-controls")).hidden = !selected;
+      });
+    }));
+
+    const dialog = document.getElementById("dialog");
+    document.getElementById("open-modal").addEventListener("click", () => dialog.classList.add("open"));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") dialog.classList.remove("open"); });
+
+    const carousel = document.getElementById("carousel");
+    document.querySelector(".carousel-next").addEventListener("click", () => carousel.scrollBy({ left: 300 }));
+
+    const header = document.querySelector(".site-header");
+    addEventListener("scroll", () => header.classList.toggle("scrolled", scrollY > 50));
+  </script>
+</body>
+</html>

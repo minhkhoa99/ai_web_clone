@@ -6,7 +6,7 @@ import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, re
 // Runs `run` (a page.evaluate call) and rethrows any failure (crashed page,
 // detached frame, throw inside the page) as AppError(BROWSER_CRASH, …) with
 // url context — the same wrapping every evaluate call in this file needs.
-async function evalOrCrash<R>(page: Page, what: string, run: () => Promise<R>): Promise<R> {
+export async function evalOrCrash<R>(page: Page, what: string, run: () => Promise<R>): Promise<R> {
   try {
     return await run();
   } catch (err) {
