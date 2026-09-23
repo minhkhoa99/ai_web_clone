@@ -89,5 +89,9 @@ test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async
   expect(await page.getByText("private.html").count()).toBe(0);
   await expect.poll(() => page.getByRole("button", { name: "Bắt đầu clone" }).isVisible()).toBe(true);
   await expectNoDrift(page);
+  // progress screen renders the stepper from the task rows (the discover task is done)
+  await page.goto(page.url().replace(/\/sitemap$/, ""));
+  await expect.poll(() => page.getByRole("list", { name: "Các pha" }).innerText()).toContain("✓ discover");
+  await expectNoDrift(page);
   await page.close();
 });

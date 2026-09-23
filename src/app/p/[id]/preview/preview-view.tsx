@@ -40,14 +40,19 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
 
   const fileUrl = (rel: string) => `/api/projects/${projectId}/files/${rel.split("/").map(encodeURIComponent).join("/")}`;
   const page = data?.pages.find((p) => p.pageId === pageId);
-  const scale = Math.min(1, (overlay ? 1100 : 540) / bp);
+  const scale = Math.min(1, (overlay ? 880 : 440) / bp); // fits both panes (or the overlay) in the compare box at 1440
   const names = new Map(data?.sections.map((s) => [s.id, s]));
   const scores = data?.scores.filter((s) => s.pageId === pageId && s.bp === bp) ?? [];
   const passing = scores.filter((s) => s.score >= threshold).length;
 
   const measure = () => {
-    const doc = frameRef.current?.contentDocument;
-    if (doc) setFrameH(Math.min(MAX_FRAME_H, Math.max(doc.documentElement.scrollHeight, 200)));
+    const frame = frameRef.current;
+    const doc = frame?.contentDocument;
+    if (!frame || !doc) return;
+    frame.style.height = "0px"; // measure the content, not the previous frame height
+    const h = Math.min(MAX_FRAME_H, Math.max(doc.documentElement.scrollHeight, 200));
+    frame.style.height = `${h}px`; // React skips the style write when h equals the previous state
+    setFrameH(h);
   };
 
   // The clone iframe is same-origin (files route), so its section roots ([data-ir-id]) can be located directly.

@@ -9,9 +9,10 @@ const MAX_TASKS = 2_000; // pages (<=100) x phases + fix tasks per failing secti
 export default async function ProgressPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const project = loadProject(id);
-  const tasks = getDb()
-    .prepare("SELECT phase,key,status,error_code AS errorCode FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?")
-    .all(id, MAX_TASKS) as TaskView[];
+  // node:sqlite rows have a null prototype, which can't cross into a client component: copy to plain objects
+  const tasks = (
+    getDb().prepare("SELECT phase,key,status,error_code AS errorCode FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?").all(id, MAX_TASKS) as TaskView[]
+  ).map((t) => ({ ...t }));
   const auth = project.status === "needs_auth" ? await authUrl(getDb(), project) : null;
   return (
     <>

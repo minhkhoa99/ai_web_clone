@@ -40,7 +40,7 @@ main.page { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .muted { color: var(--muted); }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .spread { justify-content: space-between; }
-.stack { display: grid; gap: var(--gap); }
+.stack { display: grid; gap: var(--gap); align-content: start; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
 .alert { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--bad); color: #fca5a5; background: #ef44441a; }
 .notice { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--ok); color: #86efac; background: #22c55e1a; }
