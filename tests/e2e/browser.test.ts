@@ -16,6 +16,26 @@ test("withPage navigates, returns a result, and closes the page after", async ()
   }
 });
 
+test("timeout bounds non-navigation page operations too, not just goto", async () => {
+  const handle = await openBrowser({ headed: false });
+  try {
+    const start = Date.now();
+    await expect(
+      withPage(
+        handle,
+        async (page) => {
+          await page.goto("data:text/html,<h1>no button here</h1>");
+          await page.waitForSelector("#does-not-exist");
+        },
+        { timeout: 500 },
+      ),
+    ).rejects.toThrow();
+    expect(Date.now() - start).toBeLessThan(5000);
+  } finally {
+    await handle.close();
+  }
+});
+
 test("caps concurrent open pages at maxPages", async () => {
   const handle = await openBrowser({ headed: false, maxPages: 2 });
   try {

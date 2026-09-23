@@ -77,7 +77,9 @@ export async function withPage<T>(
   await semaphore.acquire();
   try {
     const page = await handle.context.newPage();
-    page.setDefaultNavigationTimeout(opts?.timeout ?? DEFAULT_NAV_TIMEOUT_MS);
+    const timeout = opts?.timeout ?? DEFAULT_NAV_TIMEOUT_MS;
+    page.setDefaultNavigationTimeout(timeout);
+    page.setDefaultTimeout(timeout);
     try {
       return await fn(page);
     } finally {
