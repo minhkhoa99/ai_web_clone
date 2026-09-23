@@ -187,6 +187,7 @@ type Run = {
 };
 
 const paused = new Set<string>();
+const running = new Set<string>(); // projects with a live runProject in this process
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
 const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message });
 
@@ -225,10 +226,26 @@ async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
   return scores;
 }
 
-// auth mode auto: log in once on the start URL with in-memory credentials. false => run stopped.
+// auth mode auto: task `login:<start url>`, run only when credentials are supplied (in memory, never stored).
+// A LOGIN_FAILED login is never retried with the same (absent) credentials. false => run stopped.
 async function autoLoginIfNeeded(run: Run): Promise<boolean> {
   const creds = run.credentials;
-  if (run.cfg.auth.mode !== "auto" || !creds) return true;
+  if (run.cfg.auth.mode !== "auto") return true;
+  const find = () => tasksOf(run.db, run.projectId, "login").find((x) => x.key === run.url);
+  if (!creds) {
+    const prior = find();
+    if (prior?.error_code === Codes.LOGIN_FAILED) {
+      setStatus(run.db, run.projectId, "failed", Codes.LOGIN_FAILED);
+      log(run, "error", "login failed earlier: resume with new credentials");
+      return false;
+    }
+    // needs_auth -> pending on resume: the user logged in by hand in the browser window.
+    if (prior?.status === "pending") finishTask(run.db, run.projectId, prior, "profile");
+    return true;
+  }
+  insertTask(run.db, run.projectId, "login", run.url);
+  const t = find()!;
+  startTask(run.db, run.projectId, t);
   try {
     await withPage(run.handle, async (page) => {
       await page.goto(run.url, { waitUntil: "domcontentloaded" });
@@ -236,9 +253,11 @@ async function autoLoginIfNeeded(run: Run): Promise<boolean> {
       if (state === "captcha") throw new AppError(Codes.CAPTCHA_REQUIRED, `captcha on login page ${run.url}`, { url: run.url });
       if (state === "auth") await autoLogin(page, { user: creds.user, pass: creds.pass, selectors: run.cfg.auth.selectors });
     });
+    finishTask(run.db, run.projectId, t, "profile"); // the session lives in the persistent profile
     return true;
   } catch (e) {
     const code = codeOf(e);
+    failTask(run.db, run.projectId, t, e, code === Codes.CAPTCHA_REQUIRED ? "needs_auth" : "failed");
     if (code === Codes.CAPTCHA_REQUIRED) {
       setStatus(run.db, run.projectId, "needs_auth", code);
       emit(run.projectId, { type: "needs_auth", url: run.url, code });
@@ -321,8 +340,9 @@ async function runNames(run: Run): Promise<boolean> {
     if (paused.has(run.projectId)) return true;
     startTask(run.db, run.projectId, t);
     const ir = await loadIr(run);
-    if (run.budgetHit) {
-      finishTask(run.db, run.projectId, t, "ir.json", Codes.BUDGET_EXCEEDED);
+    if (run.budgetHit || !ir.pages.some((p) => p.id === t.key)) {
+      // budget spent, or the page's capture was skipped: nothing to name, no AI call, no breaker count
+      finishTask(run.db, run.projectId, t, "ir.json", run.budgetHit ? Codes.BUDGET_EXCEEDED : undefined);
       continue;
     }
     const { names, error } = await run.deps.nameSections(run.db, run.projectId, ir, t.key);
@@ -421,16 +441,17 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   const ws = workspaceOf(projectId);
   const deps = { openBrowser, capturePage, nameSections, fixAll, ...opts.deps };
   setStatus(db, projectId, "running");
+  running.add(projectId);
   let handle: BrowserHandle | undefined;
   try {
     const pages = JSON.parse(await readFile(join(ws, "pages.json"), "utf8").catch(() => "[]")) as PageRef[];
     handle = await deps.openBrowser({ profileDir: join(ws, "profile"), maxPages: cfg.concurrency });
     const run: Run = { db, projectId, url, cfg, ws, handle, deps, credentials: opts.credentials, pages, aiFailures: 0, budgetHit: false };
     for (const phase of PHASES) {
-      if (paused.delete(projectId)) return setStatus(db, projectId, "paused");
+      if (paused.has(projectId)) return setStatus(db, projectId, "paused");
       if (!(await phase(run))) return;
     }
-    if (paused.delete(projectId)) return setStatus(db, projectId, "paused");
+    if (paused.has(projectId)) return setStatus(db, projectId, "paused");
     tx(db, () => db.prepare("UPDATE projects SET status='completed',progress=100,updated_at=unixepoch() WHERE id=?").run(projectId));
     emit(projectId, { type: "progress", progress: 100 });
     emit(projectId, { type: "status", status: "completed" });
@@ -441,18 +462,28 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     setStatus(db, projectId, "failed", codeOf(e) ?? messageOf(e));
     throw e;
   } finally {
+    running.delete(projectId);
+    paused.delete(projectId);
     await handle?.close();
   }
 }
 
-// No new task starts; running ones finish; then the run sets `paused`.
+// Running: no new task starts, running ones finish, then the run sets `paused`. Waiting in the queue:
+// leaves the queue and becomes `paused` now. Otherwise a no-op (never a stale flag for a later run).
 export function pauseProject(projectId: string): void {
-  paused.add(projectId);
+  if (running.has(projectId)) {
+    paused.add(projectId);
+    return;
+  }
+  const i = waiting.findIndex((j) => j.projectId === projectId);
+  if (i < 0) return;
+  const [job] = waiting.splice(i, 1);
+  queued.delete(projectId);
+  setStatus(job!.db, projectId, "paused");
 }
 
 // needs_auth tasks go back to pending (the user handled the login window); done tasks are never re-run.
 export async function resumeProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): Promise<void> {
-  paused.delete(projectId);
   db.prepare("UPDATE tasks SET status='pending',updated_at=unixepoch() WHERE project_id=? AND status='needs_auth'").run(projectId);
   await runProject(db, projectId, opts);
 }
@@ -469,7 +500,7 @@ export function recoverOnStartup(db: DatabaseSync): void {
 
 // --- queue -----------------------------------------------------------------------------
 
-const waiting: { projectId: string; run: () => Promise<void> }[] = [];
+const waiting: { projectId: string; db: DatabaseSync; run: () => Promise<void> }[] = [];
 const queued = new Set<string>(); // running + waiting
 let active: string | null = null;
 
@@ -478,7 +509,7 @@ export function startProject(db: DatabaseSync, projectId: string, opts: RunOpts 
   if (queued.has(projectId)) return;
   if (active && waiting.length >= MAX_WAITING) throw new AppError(Codes.QUEUE_FULL, `job queue full (${MAX_WAITING} waiting)`, { projectId });
   queued.add(projectId);
-  waiting.push({ projectId, run: () => resumeProject(db, projectId, opts) });
+  waiting.push({ projectId, db, run: () => resumeProject(db, projectId, opts) });
   drain();
 }
 

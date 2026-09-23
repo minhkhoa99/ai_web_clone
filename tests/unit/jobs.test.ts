@@ -1,8 +1,11 @@
 import { expect, test } from "vitest";
 import { openDb } from "@/core/db";
 import { AppError } from "@/core/errors";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { BrowserHandle } from "@/core/browser";
-import { createProject, enqueue, pageIdsFor, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
+import { config } from "@/core/config";
+import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
 
 test("pageIdsFor: / -> home, /a/b -> a-b, .html stripped, unsafe chars sanitized, dupes get -2 in URL order", () => {
   expect(
@@ -94,6 +97,15 @@ test("queue: 1 running + 5 waiting; the 7th start throws QUEUE_FULL; a duplicate
     expect(e).toBeInstanceOf(AppError);
     expect((e as AppError).code).toBe("QUEUE_FULL");
   }
+
+  // Pausing a waiting job takes it out of the queue now (status paused), freeing a slot; pausing a
+  // project that is neither running nor queued changes nothing.
+  const statusOf = (id: string) => (db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status;
+  pauseProject(ids[5]!);
+  expect(statusOf(ids[5]!)).toBe("paused");
+  startProject(db, ids[6]!, { deps: hang });
+  expect(statusOf(ids[6]!)).toBe("draft"); // waiting, not started
+  pauseProject("not-a-project");
 });
 
 test("subscribe: listeners get events for their project only and are removed on unsubscribe", () => {
@@ -120,4 +132,27 @@ test("an unexpected throw mid-phase leaves that task failed (retryable), never r
   const ir = db.prepare("SELECT status,attempts FROM tasks WHERE project_id=? AND phase='ir'").get(id) as { status: string; attempts: number };
   expect(ir).toEqual({ status: "failed", attempts: 1 });
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("failed");
+});
+
+test("name:<pageId> of a page whose capture was skipped finishes without an AI call", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/", "http://x.test/gone"]);
+  const set = db.prepare("UPDATE tasks SET status=?,error_code=?,attempts=1,output_path=? WHERE project_id=? AND phase=? AND key=?");
+  set.run("done", null, "pages/home/capture.json", id, "capture", "home");
+  set.run("failed", "NODE_LIMIT", null, id, "capture", "gone");
+  for (const phase of ["ir", "emit", "qa"]) set.run("done", null, "x", id, phase, "all");
+  const ws = join(config.workspaceRoot, id);
+  await mkdir(ws, { recursive: true });
+  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", sectionIds: [] }], sections: [] }));
+  const calls: string[] = [];
+  const deps = {
+    openBrowser: async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} }),
+    nameSections: async (_db: unknown, _p: string, _ir: unknown, pageId: string) => (calls.push(pageId), { names: {} }),
+  };
+  await runProject(db, id, { deps });
+  expect(calls).toEqual(["home"]);
+  const gone = db.prepare("SELECT status,error_code FROM tasks WHERE project_id=? AND phase='name' AND key='gone'").get(id);
+  expect(gone).toEqual({ status: "done", error_code: null });
+  expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
 });

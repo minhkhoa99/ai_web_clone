@@ -245,10 +245,10 @@ test("sharedLayouts: returns the shared layout", () => {
   expect(layouts).toEqual(ir.layouts);
 });
 
-test("writeGraph: an interaction id repeated across pages (shared header) and two URLs of one asset file store one node each", () => {
+test("writeGraph: an interaction id repeated across pages (shared header) and two URLs of one asset file store one node / one edge each", () => {
   const interactions: Interaction[] = [{ id: "i1", kind: "menu", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > nav:nth-of-type(1)", status: "captured" }];
   const ir = buildIR([
-    capture("p1", "https://x.test/", doc([el("nav", {})]), { interactions }),
+    capture("p1", "https://x.test/", doc([el("nav", {}), el("div", {}, [el("img", { src: "https://x.test/a.png" }), el("img", { src: "https://x.test/a.png?v=2" })])]), { interactions }),
     capture("p2", "https://x.test/about", doc([el("nav", {})]), { interactions }),
   ]);
   const d = db();
@@ -256,4 +256,6 @@ test("writeGraph: an interaction id repeated across pages (shared header) and tw
   const count = (type: string) => (d.prepare("SELECT COUNT(*) n FROM nodes WHERE project_id='proj1' AND type=?").get(type) as { n: number }).n;
   expect(count("Interaction")).toBe(1);
   expect(count("Asset")).toBe(1);
+  const assetEdges = d.prepare("SELECT src,dst FROM edges WHERE project_id='proj1' AND type='USES_ASSET'").all();
+  expect(assetEdges).toEqual([{ src: expect.any(String), dst: "asset:assets/aa.png" }]);
 });

@@ -11,9 +11,10 @@ import type { IR, IRNode } from "@/core/ir";
 import type { SectionNames } from "@/core/naming";
 import type { FixResult } from "@/core/qa-fix";
 import { serveDir } from "@/core/serve";
-import { createProject, discoverPages, enqueue, recoverOnStartup, resumeProject, runProject, subscribe, type JobDeps, type JobEvent } from "@/core/jobs";
+import { createProject, discoverPages, enqueue, pauseProject, recoverOnStartup, resumeProject, runProject, startProject, subscribe, type JobDeps, type JobEvent } from "@/core/jobs";
 
 const site3Dir = fileURLToPath(new URL("../fixtures/site3", import.meta.url));
+const authDir = fileURLToPath(new URL("../fixtures/auth", import.meta.url));
 
 // No network AI: naming keeps IR defaults, fixing reports every section red without patching.
 const offline: JobDeps = {
@@ -23,16 +24,17 @@ const offline: JobDeps = {
 };
 
 let server: { url: string; close(): Promise<void> };
+let authServer: { url: string; close(): Promise<void> };
 let db: DatabaseSync;
 const projects: string[] = [];
 
 beforeAll(async () => {
-  server = await serveDir(site3Dir);
+  [server, authServer] = await Promise.all([serveDir(site3Dir), serveDir(authDir)]);
   db = openDb(":memory:");
 });
 
 afterAll(async () => {
-  await server.close();
+  await Promise.all([server.close(), authServer.close()]);
   for (const id of projects) await rm(join(config.workspaceRoot, id), { recursive: true, force: true, maxRetries: 3 });
 });
 
@@ -105,4 +107,62 @@ test("site3: killed during capture of page 2 -> recover + resume completes with 
   expect(await irNodeCount(id)).toBe(refNodes);
   const open = db.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND status<>'done'").get(id) as { n: number };
   expect(open.n).toBe(0);
+});
+
+const statusEvent = (projectId: string, status: string) =>
+  new Promise<void>((resolve) => {
+    const off = subscribe(projectId, (e) => {
+      if (e.type !== "status" || e.status !== status) return;
+      off();
+      resolve();
+    });
+  });
+
+test("pause from inside a capture: the run ends paused with the rest pending; startProject resumes to completed", { timeout: 240_000 }, async () => {
+  const id = createProject(db, { url: `${server.url}/index.html`, mode: "crawl", config: { delayMs: 0, concurrency: 1 } });
+  projects.push(id);
+  await enqueue(db, id, ["index", "about", "pricing"].map((p) => `${server.url}/${p}.html`));
+  await runProject(db, id, {
+    deps: {
+      ...offline,
+      capturePage: (handle, opts) => {
+        if (opts.pageId === "index") pauseProject(id);
+        return capturePage(handle, opts);
+      },
+    },
+  });
+  expect(statusOf(id).status).toBe("paused");
+  expect(["index", "about", "pricing"].map((k) => task(id, "capture", k)!.status)).toEqual(["done", "pending", "pending"]);
+  expect(task(id, "ir", "all")!.status).toBe("pending");
+
+  const completed = statusEvent(id, "completed");
+  startProject(db, id, { deps: offline });
+  await completed;
+  expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
+  expect(task(id, "capture", "index")!.attempts).toBe(1);
+});
+
+test("auto login with a wrong password: LOGIN_FAILED is recorded on the login task, resume without credentials never retries", { timeout: 240_000 }, async () => {
+  const loginUrl = `${authServer.url}/login.html`;
+  const id = createProject(db, { url: loginUrl, mode: "single", config: { auth: { mode: "auto" } } });
+  projects.push(id);
+  await enqueue(db, id, [`${authServer.url}/dashboard.html`]);
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  await runProject(db, id, { deps: offline, credentials: { user: "demo@example.com", pass: "wrong-secret-9" } });
+  expect(statusOf(id).status).toBe("failed");
+  const login = () => db.prepare("SELECT status,attempts,error_code FROM tasks WHERE project_id=? AND phase='login' AND key=?").get(id, loginUrl);
+  expect(login()).toEqual({ status: "failed", attempts: 1, error_code: "LOGIN_FAILED" });
+  expect(task(id, "capture", "dashboard")!.status).toBe("pending");
+
+  await resumeProject(db, id, { deps: offline });
+  expect(statusOf(id).status).toBe("failed");
+  expect(login()).toEqual({ status: "failed", attempts: 1, error_code: "LOGIN_FAILED" });
+  expect(task(id, "capture", "dashboard")!.status).toBe("pending");
+
+  await resumeProject(db, id, { deps: offline, credentials: { user: "demo@example.com", pass: "pass123" } });
+  off();
+  expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
+  expect(login()).toMatchObject({ status: "done", attempts: 2, error_code: null });
+  expect(JSON.stringify(events)).not.toMatch(/wrong-secret-9|pass123/);
 });

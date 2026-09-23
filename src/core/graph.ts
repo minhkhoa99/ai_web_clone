@@ -98,9 +98,13 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
       for (const [name, value] of Object.entries(ir.tokens)) {
         if (declVals.includes(value)) insertEdge.run(projectId, section.id, `token:${name}`, "USES_TOKEN");
       }
+      const usedAssets = new Set<string>(); // several URLs can share one deduped file
       for (const [url, relPath] of Object.entries(assets)) {
+        if (usedAssets.has(relPath)) continue;
         const used = idx.attrValues.includes(url) || declVals.some((v) => v.includes(url));
-        if (used) insertEdge.run(projectId, section.id, `asset:${relPath}`, "USES_ASSET");
+        if (!used) continue;
+        usedAssets.add(relPath);
+        insertEdge.run(projectId, section.id, `asset:${relPath}`, "USES_ASSET");
       }
       for (const interaction of interactions) {
         if (idx.behaviors.has(interaction.id)) {
