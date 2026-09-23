@@ -77,6 +77,16 @@ test("irToGrapes: page body with sections substituted, ids in data-ir-id, text e
   ]);
 });
 
+test("canvas: based on the original page url (percent-encoded); <script>/<meta> never shown, and not diffed either", () => {
+  const ir = sampleIr();
+  const hero = ir.sections[0]!.root;
+  hero.children.push(el("m", "meta", [], { "http-equiv": "refresh", content: "0;url=https://evil.test" }), el("sc", "script", [txt("sc.0", "x()")]));
+  const project = irToGrapes(ir, "p1", { assetMap: {}, pageUrls: { p1: 'https://x.test/a b"<' } });
+  expect(project.baseUrl).toBe("https://x.test/a%20b%22%3C");
+  expect(kids(project.components[0]!).map((c) => c.tagName)).toEqual(["h1", "p", "a"]);
+  expect(grapesToPatch(ir, "p1", grapesJson(ir)).ops).toEqual([]);
+});
+
 test("roundtrip with no edits -> zero ops", () => {
   const ir = sampleIr();
   expect(grapesToPatch(ir, "p1", grapesJson(ir))).toEqual({ ops: [], keyframes: [] });
@@ -166,6 +176,17 @@ test("added children: unsafe tags and attrs dropped, new nodes get <parentId>~<n
     children: [{ id: "p1-s1~1~1", tag: "#text", attrs: {}, text: "New", cls: [], children: [] }],
   });
   expect(root.children[4]).toMatchObject({ tag: "img", attrs: { src: "https://x.test/i.png" } });
+});
+
+test("a component carrying a placeholder or text id is a new element, never a second placeholder", () => {
+  const ir = sampleIr();
+  const json = grapesJson(ir);
+  kids(json.components[0]!).push({ tagName: "div", attributes: { "data-ir-id": "p1:ph2" }, classes: [] }, { tagName: "span", attributes: { "data-ir-id": "h.0" }, classes: [] });
+  const root = applyPatch(ir, grapesToPatch(ir, "p1", json).ops).sections[0]!.root;
+  expect(root.children.slice(3).map((c) => [c.id, c.tag])).toEqual([
+    ["p1-s1~1", "div"],
+    ["p1-s1~2", "span"],
+  ]);
 });
 
 test("reordering sections in the body -> replaceSubtree of the body keeping the placeholders", () => {

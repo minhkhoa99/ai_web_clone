@@ -22,6 +22,7 @@ const STATUS: Partial<Record<Code, number>> = {
   AUTH_REQUIRED: 409,
   CAPTCHA_REQUIRED: 409,
   LOGIN_FAILED: 409,
+  IR_PATCH_INVALID: 400,
 };
 
 // Messages come from our own code (never from request bodies), so they carry no secrets.
@@ -93,6 +94,9 @@ export async function optionalJson(req: Request): Promise<unknown> {
   const text = await req.text();
   return text ? (JSON.parse(text) as unknown) : {};
 }
+
+// The editor works on a finished or stopped clone, never while a job runs.
+export const EDITABLE_STATUSES = ["completed", "paused", "interrupted"] as const;
 
 export function requireStatus(project: ProjectRow, allowed: readonly string[], action: string): void {
   if (!allowed.includes(project.status)) throw new ApiError(409, "BAD_STATE", `cannot ${action} a ${project.status} project`);

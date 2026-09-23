@@ -13,5 +13,5 @@ const merged = mergeConfig(
 
 export default defineConfig({
   ...merged,
-  test: { ...merged.test, include: ["tests/e2e/**/*.test.ts"] },
+  test: { ...merged.test, include: ["tests/e2e/**/*.test.ts"], globalSetup: ["tests/e2e/global-setup.ts"] },
 });

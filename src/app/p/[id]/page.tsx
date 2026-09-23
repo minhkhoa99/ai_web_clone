@@ -21,6 +21,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
         <nav className="row" aria-label="Dự án">
           <Link href={`/p/${id}/sitemap`}>Sitemap</Link>
           <Link href={`/p/${id}/preview`}>Preview</Link>
+          <Link href={`/p/${id}/editor`}>Editor</Link>
           <Link href={`/p/${id}/code`}>Code</Link>
         </nav>
       </div>

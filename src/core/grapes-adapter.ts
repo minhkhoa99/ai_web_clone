@@ -19,6 +19,7 @@ export type GrapesComponent = {
 };
 export type GrapesProject = {
   pageId: string;
+  baseUrl?: string; // the original page url: relative urls in the canvas resolve like on the source page
   components: GrapesComponent[];
   styles: string; // the clone's stylesheet + effect presets, for the canvas
   bodyClasses: string[];
@@ -47,8 +48,10 @@ type Rule = { selectors?: unknown; style?: unknown; mediaText?: unknown; state?:
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const safeAttr = (name: string, value: string) =>
   !SKIP_ATTRS.has(name) && !isJavascriptUrl(value) && attrsSchema.safeParse({ [name]: value }).success;
-// Same rule as the emitter: an unsafe tag name or a script is never written.
-const shown = (n: IRNode) => n.tag === "#text" || n.tag === "#section" || (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(n.tag) && n.tag.toLowerCase() !== "script");
+// The emitter's rule (an unsafe tag name or a script is never written), plus no <meta>/<base> in the canvas:
+// they would redirect or re-base the editor frame.
+const HIDDEN_TAGS = new Set(["script", "meta", "base"]);
+const shown = (n: IRNode) => n.tag === "#text" || n.tag === "#section" || (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(n.tag) && !HIDDEN_TAGS.has(n.tag.toLowerCase()));
 const bodyOf = (shell: IRNode) => shell.children.find((c) => c.tag === "body") ?? shell;
 
 function pageOf(ir: IR, pageId: string) {
@@ -83,8 +86,10 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
   const body = bodyOf(page.shell);
   const presets = Object.keys(PRESETS);
   const captured = ir.cssom.keyframes.map((k) => /@keyframes\s+([^\s{]+)/.exec(k)?.[1]).filter((n) => n !== undefined);
+  const baseUrl = opts.pageUrls[pageId];
   return {
     pageId,
+    ...(baseUrl ? { baseUrl: new URL(baseUrl).href } : {}),
     components: body.children.map((c) => toComponent(c, false)).filter((c) => c !== null),
     styles: [renderStylesheet(ir, opts), ...Object.values(PRESETS)].join("\n"),
     bodyClasses: body.cls,
@@ -241,8 +246,9 @@ export function grapesToPatch(before: IR, pageId: string, json: GrapesJson): { o
     const used = new Set([parent.id]);
     const convert = (c: Comp, parentId: string): IRNode | null => {
       if (isTextnode(c)) return { id: fresh(parentId), tag: "#text", attrs: {}, text: textOf(c), cls: [], children: [] };
-      const srcId = idOf(c);
-      const src = srcId ? index.get(srcId) : undefined;
+      // the source must be an element the editor showed (not a text/placeholder/script id pasted onto a component)
+      const found = index.get(idOf(c) ?? "");
+      const src = found && found.tag[0] !== "#" && shown(found) ? found : undefined;
       const slot = src && inShell ? placeholderOf.get(src.id) : undefined;
       if (src && slot && own.has(slot.id) && !used.has(slot.id)) {
         used.add(slot.id);

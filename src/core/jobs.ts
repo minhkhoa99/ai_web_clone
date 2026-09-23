@@ -192,7 +192,10 @@ const running = new Set<string>(); // projects with a live runProject in this pr
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
 const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message });
 
-async function loadCaptures(run: Run): Promise<PageCapture[]> {
+// What loading captures and re-emitting needs: a run, or the editor's view of a finished project.
+type EmitSource = Pick<Run, "db" | "projectId" | "ws" | "pages" | "captures">;
+
+async function loadCaptures(run: EmitSource): Promise<PageCapture[]> {
   if (run.captures) return run.captures;
   const done = new Map(tasksOf(run.db, run.projectId, "capture").filter((t) => t.status === "done").map((t) => [t.key, t.output_path!]));
   const paths = run.pages.filter((p) => done.has(p.pageId)).map((p) => join(run.ws, done.get(p.pageId)!));
@@ -205,7 +208,7 @@ async function loadIr(run: Run): Promise<IR> {
   return run.ir;
 }
 
-async function emitOpts(run: Run): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
+async function emitOpts(run: EmitSource): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
   const captures = await loadCaptures(run);
   return {
     assetMap: Object.assign({}, ...captures.map((c) => c.assets)) as Record<string, string>,
@@ -214,10 +217,31 @@ async function emitOpts(run: Run): Promise<Pick<RenderOpts, "assetMap" | "pageUr
 }
 
 // out/ (wiped + rewritten by emitHtml) and the graph, from `ir`.
-async function emitOut(run: Run, ir: IR): Promise<void> {
+async function emitOut(run: EmitSource, ir: IR): Promise<void> {
   const opts = await emitOpts(run);
   await emitHtml(ir, { ...opts, outDir: join(run.ws, "out"), workspaceDir: run.ws });
   writeGraph(run.db, run.projectId, ir, opts.assetMap);
+}
+
+// --- editor (spec §10): same ir.json checkpoint, emit and graph write as the pipeline ------------
+
+async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSource> {
+  const ws = workspaceOf(projectId);
+  return { db, projectId, ws, pages: JSON.parse(await readFile(join(ws, "pages.json"), "utf8")) as PageRef[] };
+}
+
+export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ ir: IR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
+  const src = await editSource(db, projectId);
+  const [ir, emit] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR), emitOpts(src)]);
+  return { ir, emit };
+}
+
+// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR.
+export async function saveEdited(db: DatabaseSync, projectId: string, edit: (ir: IR) => IR): Promise<void> {
+  const src = await editSource(db, projectId);
+  const ir = edit(JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8")) as IR);
+  await writeJsonAtomic(join(src.ws, "ir.json"), ir);
+  await emitOut(src, ir);
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).

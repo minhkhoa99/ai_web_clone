@@ -1,42 +1,21 @@
 // UI smoke: a real `next build` + `next start` (tmp db/workspace/key), driven by Playwright.
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { request } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { chromium, type Browser, type Page } from "playwright";
 import { serveDir } from "@/core/serve";
+import { startNextApp } from "./next-app";
 
-const root = fileURLToPath(new URL("../..", import.meta.url));
-const nextBin = join(root, "node_modules", "next", "dist", "bin", "next");
 const DRIFT = /Turnstile|Telemetry|Deploy|Inject Auth|Stealth|Auto-reconcile|claude-3|gpt-4o/i;
 
-let server: ChildProcess;
+let app: { base: string; stop(): void } | undefined;
 let browser: Browser;
 let site: { url: string; close(): Promise<void> };
 let base = "";
 let tmp = "";
-
-const freePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-    s.on("error", reject);
-  });
-
-async function waitReady(url: string, deadline = Date.now() + 60_000): Promise<void> {
-  while (Date.now() < deadline) {
-    if (await fetch(url).then((r) => r.ok, () => false)) return;
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`next start not ready at ${url}`);
-}
 
 async function expectNoDrift(page: Page): Promise<void> {
   expect(await page.locator("body").innerText()).not.toMatch(DRIFT);
@@ -44,19 +23,15 @@ async function expectNoDrift(page: Page): Promise<void> {
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "ui-smoke-"));
-  const env = { ...process.env, DB_PATH: join(tmp, "sp1.db"), WORKSPACE_ROOT: join(tmp, "workspace"), KEY_PATH: join(tmp, "secret.key") };
-  await promisify(execFile)(process.execPath, [nextBin, "build"], { cwd: root, env, maxBuffer: 64 * 1024 * 1024 });
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], { cwd: root, env, stdio: "ignore" });
-  [site, browser] = await Promise.all([serveDir(fileURLToPath(new URL("../fixtures/site3", import.meta.url))), chromium.launch()]);
-  await waitReady(`${base}/api/providers`);
+  const env = { DB_PATH: join(tmp, "sp1.db"), WORKSPACE_ROOT: join(tmp, "workspace"), KEY_PATH: join(tmp, "secret.key") };
+  [app, site, browser] = await Promise.all([startNextApp(env), serveDir(fileURLToPath(new URL("../fixtures/site3", import.meta.url))), chromium.launch()]);
+  base = app.base;
 }, 600_000);
 
 afterAll(async () => {
   await browser?.close();
   await site?.close();
-  server?.kill();
+  app?.stop();
   if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 

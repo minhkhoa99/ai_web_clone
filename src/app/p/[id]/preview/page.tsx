@@ -13,6 +13,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
         <h1>Preview &amp; QA</h1>
         <nav className="row" aria-label="Dự án">
           <Link href={`/p/${id}`}>Tiến độ</Link>
+          <Link href={`/p/${id}/editor`}>Editor</Link>
           <Link href={`/p/${id}/code`}>Code</Link>
         </nav>
       </div>
