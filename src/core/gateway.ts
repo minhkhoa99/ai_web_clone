@@ -44,7 +44,7 @@ interface ProviderRoles {
   design?: string;
 }
 
-export interface Request {
+export interface ProviderRequest {
   url: string;
   headers: Record<string, string>;
   body: unknown;
@@ -75,7 +75,7 @@ type AnthropicContentBlock =
   | { type: "text"; text: string }
   | { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } };
 
-function toAnthropicRequest(baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): Request {
+function toAnthropicRequest(baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): ProviderRequest {
   const { system, rest } = splitSystemAndMessages(opts.messages);
   let systemText = system;
   if (opts.jsonSchema) {
@@ -120,7 +120,7 @@ function toAnthropicRequest(baseUrl: string, apiKey: string, opts: GenerateOptio
 
 type OpenAiContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-function toOpenAiRequest(baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): Request {
+function toOpenAiRequest(baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): ProviderRequest {
   const messages: { role: string; content: string | OpenAiContentPart[] }[] = opts.messages.map((m) => ({
     role: m.role,
     content: m.content,
@@ -157,7 +157,7 @@ function toOpenAiRequest(baseUrl: string, apiKey: string, opts: GenerateOptions 
   };
 }
 
-export function toRequest(kind: ProviderKind, baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): Request {
+export function toRequest(kind: ProviderKind, baseUrl: string, apiKey: string, opts: GenerateOptions & { model?: string }): ProviderRequest {
   return kind === "anthropic" ? toAnthropicRequest(baseUrl, apiKey, opts) : toOpenAiRequest(baseUrl, apiKey, opts);
 }
 

@@ -1,5 +1,5 @@
 import { expect, test, vi, afterEach } from "vitest";
-import { toRequest, parseResponse, saveProvider, generate } from "@/core/gateway";
+import { toRequest, parseResponse, saveProvider, generate, fetchModels } from "@/core/gateway";
 import { openDb } from "@/core/db";
 
 afterEach(() => {
@@ -99,6 +99,22 @@ test("generate throws AI_BAD_CONFIG when no provider has the requested role", as
   await expect(generate(db, { role: "vision", messages: [{ role: "user", content: "hi" }] }, async () => {})).rejects.toMatchObject({
     code: "AI_BAD_CONFIG",
   });
+});
+
+test("fetchModels returns ids from a happy-path /models response", async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "x" }] }), { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const ids = await fetchModels("openai", "https://o/v1", "sk-secret-key");
+  expect(ids).toEqual(["x"]);
+  expect(fetchMock).toHaveBeenCalledWith("https://o/v1/models", expect.objectContaining({ headers: { Authorization: "Bearer sk-secret-key" } }));
+});
+
+test("fetchModels maps a non-2xx status the same way generate does", async () => {
+  const fetchMock = vi.fn(async () => new Response("nope", { status: 401 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(fetchModels("anthropic", "https://a/v1", "sk-secret-key")).rejects.toMatchObject({ code: "AI_AUTH" });
 });
 
 test("generate accumulates tokens_used and throws BUDGET_EXCEEDED past project's tokenBudget", async () => {
