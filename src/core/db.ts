@@ -16,6 +16,9 @@ export function openDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
   for (const m of MIGRATIONS) db.exec(m);
+  // idempotent column add (SQLite has no ADD COLUMN IF NOT EXISTS): remembered login credentials, encrypted
+  const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "auth_enc")) db.exec("ALTER TABLE projects ADD COLUMN auth_enc TEXT");
   return db;
 }
 

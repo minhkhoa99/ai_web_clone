@@ -7,3 +7,4 @@ workspace/
 secret.key
 test-results/
 sp1.db*
+*.tsbuildinfo
