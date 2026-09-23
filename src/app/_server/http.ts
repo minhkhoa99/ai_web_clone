@@ -1,4 +1,5 @@
 // Route-handler plumbing: error -> JSON response mapping and the project lookup every [id] route needs.
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
@@ -77,6 +78,17 @@ export function requireProject(db: DatabaseSync, id: string): ProjectRow {
 }
 
 export const workspaceOf = (projectId: string) => join(config.workspaceRoot, projectId);
+
+// The page behind the auth wall: a login task's key is its URL, a capture task's key is a pageId (pages.json).
+export async function authUrl(db: DatabaseSync, project: ProjectRow): Promise<string> {
+  const task = db.prepare("SELECT phase,key FROM tasks WHERE project_id=? AND status='needs_auth' ORDER BY rowid LIMIT 1").get(project.id) as
+    | { phase: string; key: string }
+    | undefined;
+  if (!task) return project.url;
+  if (task.phase !== "capture") return task.key;
+  const pages = JSON.parse(await readFile(join(workspaceOf(project.id), "pages.json"), "utf8")) as { pageId: string; url: string }[];
+  return pages.find((p) => p.pageId === task.key)?.url ?? project.url;
+}
 
 // JSON body that may be omitted entirely (e.g. resume without new credentials).
 export async function optionalJson(req: Request): Promise<unknown> {

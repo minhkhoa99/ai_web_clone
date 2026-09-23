@@ -6,7 +6,8 @@ import base from "./vitest.config.ts";
 const merged = mergeConfig(
   base,
   defineConfig({
-    test: { testTimeout: 60_000 },
+    // hookTimeout: browser launch/close in hooks slows down while ui-smoke runs `next build` in parallel
+    test: { testTimeout: 60_000, hookTimeout: 60_000 },
   }),
 );
 

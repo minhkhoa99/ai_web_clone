@@ -28,7 +28,8 @@ export function POST(req: Request) {
   });
 }
 
-// History list: 20 per page, newest update first, `q` = URL substring, `phase` = first unfinished task's phase.
+// History list: 20 per page, newest update first, `q` = URL substring, `phase` = first unfinished task's phase,
+// `thumbPage` = first captured pageId (its shots/1440.png is the row thumbnail).
 export function GET(req: Request) {
   return handle(req, () => {
     const { group, q, page } = listSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
@@ -42,7 +43,8 @@ export function GET(req: Request) {
     const projects = db
       .prepare(
         `SELECT id,url,mode,status,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,
-           (SELECT phase FROM tasks t WHERE t.project_id=p.id AND t.status<>'done' ORDER BY rowid LIMIT 1) AS phase
+           (SELECT phase FROM tasks t WHERE t.project_id=p.id AND t.status<>'done' ORDER BY rowid LIMIT 1) AS phase,
+           (SELECT key FROM tasks t WHERE t.project_id=p.id AND t.phase='capture' AND t.status='done' ORDER BY rowid LIMIT 1) AS thumbPage
          FROM projects p WHERE ${where} ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
       .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE);

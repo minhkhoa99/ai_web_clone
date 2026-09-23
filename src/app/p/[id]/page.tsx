@@ -1,0 +1,29 @@
+import Link from "next/link";
+import { getDb } from "@/app/_server/db";
+import { authUrl } from "@/app/_server/http";
+import { loadProject } from "./data";
+import { ProgressView, type TaskView } from "./progress-view";
+
+const MAX_TASKS = 2_000; // pages (<=100) x phases + fix tasks per failing section: far above any real run
+
+export default async function ProgressPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const project = loadProject(id);
+  const tasks = getDb()
+    .prepare("SELECT phase,key,status,error_code AS errorCode FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?")
+    .all(id, MAX_TASKS) as TaskView[];
+  const auth = project.status === "needs_auth" ? await authUrl(getDb(), project) : null;
+  return (
+    <>
+      <div className="row spread">
+        <h1>Tiến độ clone</h1>
+        <nav className="row" aria-label="Dự án">
+          <Link href={`/p/${id}/sitemap`}>Sitemap</Link>
+          <Link href={`/p/${id}/preview`}>Preview</Link>
+          <Link href={`/p/${id}/code`}>Code</Link>
+        </nav>
+      </div>
+      <ProgressView projectId={id} url={project.url} initial={{ status: project.status, progress: project.progress, tasks, authUrl: auth }} />
+    </>
+  );
+}

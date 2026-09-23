@@ -20,7 +20,8 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
   }
 }
 
-// Pages (each with its out/ file, servable via /files/out/<file>), QA scores (qa.json) and interaction coverage.
+// Pages (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the
+// clone), QA scores (qa.json), interaction rows and per-page coverage — the preview screen's data.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -28,12 +29,14 @@ export function GET(req: Request, { params }: IdCtx) {
     requireProject(db, id);
     const ws = workspaceOf(id);
     const [ir, scores] = await Promise.all([
-      readJsonIfExists<Pick<IR, "pages"> | null>(join(ws, "ir.json"), null),
+      readJsonIfExists<Pick<IR, "pages" | "sections" | "interactions"> | null>(join(ws, "ir.json"), null),
       readJsonIfExists<SectionScore[]>(join(ws, "qa.json"), []),
     ]);
     const irPages = ir?.pages ?? [];
     const files = pageFileNames(irPages);
     const pages = irPages.map((p) => ({ pageId: p.id, path: p.path, file: files.get(p.id) }));
-    return Response.json({ pages, scores, coverage: coverage(db, id) });
+    const sections = (ir?.sections ?? []).map((s) => ({ id: s.id, pageId: s.pageId, name: s.name, rootId: s.root.id }));
+    const interactions = (ir?.interactions ?? []).map((i) => ({ id: i.id, pageId: i.pageId, kind: i.kind, trigger: i.trigger, status: i.status }));
+    return Response.json({ pages, sections, scores, interactions, coverage: coverage(db, id) });
   });
 }
