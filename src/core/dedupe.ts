@@ -118,7 +118,7 @@ export function structuralHash(node: StyledNode): string {
   return hash6(structuralKey(node));
 }
 
-type TokenCategory = "color" | "font" | "size" | "space" | "radius" | "shadow";
+export type TokenCategory = "color" | "font" | "size" | "space" | "radius" | "shadow";
 
 const SKIP_VALUES = new Set(["0px", "none", "normal", "transparent", "rgba(0, 0, 0, 0)"]);
 
@@ -140,7 +140,7 @@ function isSpacing(prop: string): boolean {
   );
 }
 
-function categoryOf(prop: string): TokenCategory | null {
+export function categoryOf(prop: string): TokenCategory | null {
   if (prop === "color" || prop === "background-color" || prop === "outline-color" || prop === "fill" || prop === "stroke" || isBorderColor(prop)) {
     return "color";
   }
