@@ -64,6 +64,34 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
     round(rect.height),
   ];
 
+  // Computed width/height are always used px; emitting them as fixed sizes breaks margin
+  // collapse and reflow. Drop them where `auto` yields the same box (probed via inline
+  // !important, then the style attribute is restored exactly so the page is unchanged).
+  const XHTML = "http://www.w3.org/1999/xhtml";
+  const REPLACED = new Set(["img", "video", "canvas", "iframe", "svg", "input", "select", "textarea", "object", "embed"]);
+  const BLOCK_LEVEL = new Set(["block", "flex", "grid", "list-item", "table", "flow-root"]);
+  const SIZE_TOLERANCE = 0.5;
+  const sameWithAuto = (el: any, prop: "height" | "width"): boolean => {
+    const original: string | null = el.getAttribute("style");
+    const before: number = el.getBoundingClientRect()[prop];
+    el.style.setProperty(prop, "auto", "important");
+    const after: number = el.getBoundingClientRect()[prop];
+    if (original === null) el.removeAttribute("style");
+    else el.setAttribute("style", original);
+    return Math.abs(before - after) <= SIZE_TOLERANCE;
+  };
+  const dropAutoSize = (el: any, cs: CSSStyleDeclaration, style: Record<string, string>) => {
+    if (el.namespaceURI !== XHTML || REPLACED.has(el.localName)) return;
+    if ((style.height || style["block-size"]) && sameWithAuto(el, "height")) {
+      delete style.height;
+      delete style["block-size"];
+    }
+    if ((style.width || style["inline-size"]) && BLOCK_LEVEL.has(cs.display) && sameWithAuto(el, "width")) {
+      delete style.width;
+      delete style["inline-size"];
+    }
+  };
+
   let count = 0;
   let limitExceeded = false;
 
@@ -113,6 +141,7 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
     const cs: CSSStyleDeclaration = win.getComputedStyle(node);
     const base = defaultsFor(node);
     result.style = diff(cs, base.el);
+    if (cs.display !== "none") dropAutoSize(node, cs, result.style);
     const before: CSSStyleDeclaration = win.getComputedStyle(node, "::before");
     const after: CSSStyleDeclaration = win.getComputedStyle(node, "::after");
     const pseudo: NonNullable<CaptureNode["pseudo"]> = {};

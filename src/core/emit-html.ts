@@ -1,6 +1,6 @@
 // IR -> out/. renderSite/emitSection are pure (string in, string out); emitHtml is the thin writer.
-import { copyFile, mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { categoryOf, type Decl } from "./dedupe";
 import type { Interaction } from "./interactions";
@@ -84,9 +84,9 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
     case "xlink:href":
       return node.tag === "a" ? pageLink(value, base, ctx) : assetUrl(value, base, ctx);
     case "srcset":
-      if (value.includes("data:")) return value; // data: URIs contain commas; leave the whole list alone
+      // Candidates are separated by comma + whitespace; bare commas belong to the URL (CDN params, data: URIs).
       return value
-        .split(",")
+        .split(/,\s+/)
         .map((candidate) => {
           const [url = "", ...descriptors] = candidate.trim().split(/\s+/);
           return [assetUrl(url, base, ctx), ...descriptors].join(" ");
@@ -97,10 +97,17 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
   }
 }
 
+// Browsers strip whitespace/control chars before reading the scheme ("java\tscript:" still runs).
+const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
+
 function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
   for (const [name, value] of Object.entries(node.attrs)) {
-    if (name === "class" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
+    if (name === "class" || name === "srcdoc" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
+    if (isJavascriptUrl(value)) {
+      if (name === "href") out += ` href="#"`;
+      continue;
+    }
     out += ` ${name}="${escAttr(rewriteAttr(node, name, value, base, ctx))}"`;
   }
   const cls = new Set(node.cls);
@@ -300,6 +307,13 @@ async function writeAtomic(path: string, write: (tmp: string) => Promise<void>):
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).
 export async function emitHtml(ir: IR, opts: EmitOpts): Promise<void> {
   const files = renderSite(ir, opts);
+  // outDir is wiped first so pages/assets from an earlier emit never survive a re-emit.
+  // Refuse when outDir is (or contains) the workspace, which holds the captures and assets.
+  const fromOut = relative(resolve(opts.outDir), resolve(opts.workspaceDir));
+  if (!fromOut.startsWith("..") && !/^[a-zA-Z]:/.test(fromOut)) {
+    throw new Error(`emit: outDir ${opts.outDir} must not contain workspaceDir ${opts.workspaceDir}`);
+  }
+  await rm(opts.outDir, { recursive: true, force: true });
   const assets = new Set<string>();
   for (const text of Object.values(files)) for (const [ref] of text.matchAll(ASSET_REF)) assets.add(ref);
 

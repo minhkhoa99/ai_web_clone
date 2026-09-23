@@ -241,3 +241,43 @@ test("emitSection renders one section; unknown id throws", () => {
   expect(html).toBe(`<footer class="${ir.sections[1]!.root.cls[0] ?? ""}" data-ir-id="p1:0.1.1">f</footer>`.replace(' class=""', ""));
   expect(() => emitSection(ir, "nope", noUrls)).toThrow(/nope/);
 });
+
+test("javascript: URLs neutralised (href -> #, other attrs dropped), srcdoc dropped", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", {}, [
+          el("a", { href: " JavaScript:alert(1)" }, [txt("js")]),
+          el("a", { href: "java\tscript:alert(2)" }, [txt("js2")]),
+          el("iframe", { src: "javascript:alert(3)", srcdoc: "<script>alert(4)</script>" }),
+          el("form", { action: "javascript:alert(5)" }),
+        ]),
+      ]),
+    ),
+  ]);
+  const html = renderSite(ir, noUrls)["index.html"]!;
+  expect(html).not.toMatch(/script:|alert|srcdoc/i);
+  expect(html.match(/<a href="#"/g)).toHaveLength(2);
+  expect(html).toMatch(/<iframe data-ir-id=/);
+  expect(html).toMatch(/<form data-ir-id=/);
+});
+
+test("srcset splits candidates on comma+whitespace only (commas inside URLs survive)", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", {}, [
+          el("img", { srcset: "https://cdn.test/w_100,h_50/a.png 1x, /img/b.png 2x" }),
+          el("img", { srcset: "data:image/png;base64,AAAA 1x, /img/b.png 2x" }),
+        ]),
+      ]),
+    ),
+  ]);
+  const html = renderSite(ir, { ...noUrls, assetMap: { "https://cdn.test/w_100,h_50/a.png": "assets/aaa.png", "https://x.test/img/b.png": "assets/bbb.png" } })["index.html"]!;
+  expect(html).toContain('srcset="assets/aaa.png 1x, assets/bbb.png 2x"');
+  expect(html).toContain('srcset="data:image/png;base64,AAAA 1x, assets/bbb.png 2x"');
+});

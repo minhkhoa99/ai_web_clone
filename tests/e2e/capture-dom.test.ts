@@ -125,3 +125,22 @@ test("works under Trusted Types CSP and removes the sandbox iframe", async () =>
   expect(hasText(snap, "Trusted types page")).toBe(true);
   expect(iframes).toBe(0);
 });
+
+test("auto-sized boxes drop width/height, explicit sizes are kept, page left unchanged", async () => {
+  const { snap, styles } = await withPage(handle, async (page) => {
+    await page.goto(`${site.url}/sizes.html`, { waitUntil: "load" });
+    const read = () => page.evaluate(() => [...document.querySelectorAll("body > div")].map((d) => d.getAttribute("style")));
+    const before = await read();
+    const snap = await snapshotDom(page);
+    return { snap, styles: [before, await read()] };
+  });
+  const auto = find(snap, (n) => n.attrs.id === "auto")!;
+  const fixed = find(snap, (n) => n.attrs.id === "fixed")!;
+  expect(auto.style.height).toBeUndefined();
+  expect(auto.style["block-size"]).toBeUndefined();
+  expect(auto.style.width).toBeUndefined();
+  expect(auto.style["padding-top"]).toBe("8px");
+  expect(fixed.style.height).toBe("200px");
+  expect(fixed.style.width).toBe("300px");
+  expect(styles[1]).toEqual(styles[0]);
+});

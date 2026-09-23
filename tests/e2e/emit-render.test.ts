@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
@@ -36,6 +36,14 @@ afterAll(async () => {
 
 function el(tag: string, attrs: Record<string, string>, children: CaptureNode[], style: Record<string, string> = {}): CaptureNode {
   return { tag, attrs, bbox: [0, 0, 100, 20], style, children };
+}
+function findById(node: CaptureNode, id: string): CaptureNode | undefined {
+  if (node.attrs.id === id) return node;
+  for (const child of node.children) {
+    const found = findById(child, id);
+    if (found) return found;
+  }
+  return undefined;
 }
 const txt = (text: string): CaptureNode => ({ tag: "#text", text, attrs: {}, bbox: [0, 0, 10, 10], style: {}, children: [] });
 
@@ -98,6 +106,17 @@ test("emitted menu page: no console errors (http + file://), runtime toggles the
   });
 });
 
+test("re-emit replaces outDir: stale files from a previous emit are gone", async () => {
+  const outDir = join(tmp, "stale-out");
+  await mkdir(join(outDir, "assets"), { recursive: true });
+  await writeFile(join(outDir, "old-page.html"), "stale");
+  await writeFile(join(outDir, "assets", "old.png"), "stale");
+  await emitHtml(buildIR([menuCapture()]), { outDir, workspaceDir: tmp, assetMap: {}, pageUrls: { home: "https://x.test/" } });
+  expect((await readdir(outDir)).sort()).toEqual(["css", "index.html", "js"]);
+  const wipesWorkspace = { outDir: tmp, workspaceDir: join(tmp, "ws"), assetMap: {}, pageUrls: {} };
+  await expect(emitHtml(buildIR([menuCapture()]), wipesWorkspace)).rejects.toThrow(/must not contain workspaceDir/);
+});
+
 test("round trip: capture site1 -> buildIR -> emitHtml renders with no console errors", async () => {
   const workspaceDir = join(tmp, "ws");
   const outDir = join(tmp, "site1-out");
@@ -114,5 +133,13 @@ test("round trip: capture site1 -> buildIR -> emitHtml renders with no console e
     expect(await page.locator("h1").evaluate((h) => getComputedStyle(h).color)).toBe("rgb(200, 30, 60)");
     expect(await page.getByText("Hidden promo").isVisible()).toBe(false);
     expect(await page.locator("img[data-dynamic=canvas]").evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+    // Post-hero blocks sit where the original put them (no margin-collapse shift).
+    const dom = cap.breakpoints.find((b) => b.bp === 1440)!.dom;
+    for (const id of ["features", "contact"]) {
+      const [x, y, w, h] = findById(dom, id)!.bbox;
+      const clone = (await page.locator(`#${id}`).boundingBox())!;
+      for (const [a, b] of [[x, clone.x], [y, clone.y], [w, clone.width], [h, clone.height]] as const) expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
+    }
   });
 });
