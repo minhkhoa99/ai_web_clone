@@ -82,6 +82,7 @@ test("next start killed mid-capture -> restart marks interrupted, nothing auto-r
     return doneRow && rows.some((r) => r.status === "pending" || r.status === "running") ? doneRow : undefined;
   });
   app.stop("SIGKILL");
+  await sleep(200); // let the kill land before the snapshot
   const capturedAt = (await readJson<PageCapture>(ws(id, "pages", done.key, "capture.json"))).capturedAt;
   const frozen = JSON.stringify(captures(id));
   expect(projectOf(id).status).toBe("running"); // nobody got to write anything else

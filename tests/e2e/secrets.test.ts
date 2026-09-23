@@ -2,7 +2,7 @@
 // (auto login with remembered credentials, AI naming through a local mock provider) is grepped byte-wise:
 // every workspace file, the raw SQLite files, graph rows, SSE events and everything written to the console.
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
@@ -23,7 +23,9 @@ const SECRETS = [API_KEY, PASSWORD];
 
 let tmp = "";
 let db: DatabaseSync;
-let site: { url: string; close(): Promise<void> };
+let fixtures: { url: string; close(): Promise<void> };
+let site: Server & { url?: string };
+const referers: { path: string; referer: string }[] = [];
 let ai: Server;
 const aiRequests: { auth: string; body: string }[] = [];
 let projectId = "";
@@ -31,7 +33,19 @@ let projectId = "";
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "secrets-"));
   db = openDb(join(tmp, "sp1.db"));
-  site = await serveDir(fileURLToPath(new URL("../fixtures/auth", import.meta.url)));
+  fixtures = await serveDir(fileURLToPath(new URL("../fixtures/auth", import.meta.url)));
+  // Recording pass-through: a dashboard request referred by login.html = the form was submitted with the
+  // right password (the fixture redirects only on success), i.e. autoLogin really typed it.
+  site = createServer((req, res) => {
+    referers.push({ path: req.url ?? "", referer: req.headers.referer ?? "" });
+    const up = request(`${fixtures.url}${req.url}`, { method: req.method, headers: req.headers }, (r) => {
+      res.writeHead(r.statusCode ?? 502, r.headers);
+      r.pipe(res);
+    });
+    req.pipe(up);
+  });
+  await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+  site.url = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
   // OpenAI-compatible mock: records what reached the provider, answers "no names" (fallback names kept).
   ai = createServer((req, res) => {
     let body = "";
@@ -46,7 +60,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   db?.close();
-  await site?.close();
+  site?.closeAllConnections();
+  await new Promise((r) => site?.close(r));
+  await fixtures?.close();
   await new Promise((r) => ai?.close(r));
   if (projectId) await rm(join(config.workspaceRoot, projectId), { recursive: true, force: true, maxRetries: 3 });
   if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 3 });
@@ -87,7 +103,8 @@ test("api key + password: absent from workspace files, raw db bytes, graph, SSE 
   const status = db.prepare("SELECT status FROM projects WHERE id=?").get(projectId) as { status: string };
   expect(status.status).toBe("completed");
   const login = db.prepare("SELECT status FROM tasks WHERE project_id=? AND phase='login'").get(projectId) as { status: string };
-  expect(login.status).toBe("done"); // the password was really used
+  expect(login.status).toBe("done");
+  expect(referers).toContainEqual({ path: "/dashboard.html", referer: `${site.url}/login.html` }); // the password was really used
   expect(aiRequests.length).toBeGreaterThan(0); // the key was really used ...
   expect(aiRequests.every((r) => r.auth === `Bearer ${API_KEY}`)).toBe(true);
   expect(aiRequests.flatMap((r) => leaks(Buffer.from(r.body)))).toEqual([]); // ... but never sent in a prompt
