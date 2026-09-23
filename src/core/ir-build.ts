@@ -91,9 +91,11 @@ export function sectionPlaceholder(id: string, sectionId: string): Draft {
   return { id, tag: "#section", attrs: { "data-section": sectionId }, style: { base: {} }, children: [] };
 }
 
-// Tag + attrs + text over the subtree (no styles, bbox or ids): equal only for identical content.
-export function contentHash(node: Draft): string {
-  const content = (n: Draft): unknown => [n.tag, n.attrs, n.text ?? null, n.children.map(content)];
+type ContentNode = { tag: string; attrs: Record<string, string>; text?: string; children: ContentNode[] };
+
+// Tag + attrs + text over the subtree (no styles, bbox or ids): equal only for identical content. Drafts and IR nodes alike.
+export function contentHash(node: ContentNode): string {
+  const content = (n: ContentNode): unknown => [n.tag, n.attrs, n.text ?? null, n.children.map(content)];
   return hash6(JSON.stringify(content(node)));
 }
 

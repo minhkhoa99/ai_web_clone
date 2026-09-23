@@ -287,3 +287,36 @@ function applyOp(ir: IR, op: PatchOp): IR {
 export function applyPatch(ir: IR, ops: PatchOp[]): IR {
   return ops.reduce(applyOp, ir);
 }
+
+// "Gộp thành layout" (spec §10): the first selected section becomes a shared layout (stored once, like
+// buildIR's layouts); every other selected section, one per page, is dropped and the placeholders that
+// showed it now show the layout.
+export function promoteLayout(ir: IR, sectionIds: string[]): IR {
+  const invalid = (message: string) => new AppError(Codes.IR_PATCH_INVALID, message, { sectionIds });
+  const byId = new Map(ir.sections.map((s) => [s.id, s]));
+  const selected = sectionIds.map((id) => {
+    const section = byId.get(id);
+    if (!section) throw invalid(`unknown section: ${id}`);
+    return section;
+  });
+  if (selected.length < 2) throw invalid("a layout needs at least 2 sections");
+  if (new Set(selected.map((s) => s.pageId)).size !== selected.length) throw invalid("selected sections must be on different pages");
+  const [first, ...rest] = selected as [Section, ...Section[]];
+  const dropped = new Set(rest.map((s) => s.id));
+  const layoutId = `layout-${contentHash(first.root)}`;
+  const layouts = ir.layouts.filter((l) => l.sectionId !== first.id && !dropped.has(l.sectionId));
+  if (layouts.some((l) => l.id === layoutId)) throw invalid(`layout id already used: ${layoutId}`);
+
+  const repoint = (node: IRNode): IRNode =>
+    node.tag === "#section" && dropped.has(node.attrs["data-section"] ?? "")
+      ? { ...node, attrs: { ...node.attrs, "data-section": first.id } }
+      : { ...node, children: node.children.map(repoint) };
+  const pages = ir.pages.map((p) => ({ ...p, sectionIds: p.sectionIds.map((id) => (dropped.has(id) ? first.id : id)), shell: repoint(p.shell) }));
+  const pageIds = pages.filter((p) => p.sectionIds.includes(first.id)).map((p) => p.id);
+  return {
+    ...ir,
+    pages,
+    sections: ir.sections.filter((s) => !dropped.has(s.id)).map((s) => (s === first ? { ...s, layoutId } : s)),
+    layouts: [...layouts, { id: layoutId, hash: first.hash, sectionId: first.id, pageIds }],
+  };
+}

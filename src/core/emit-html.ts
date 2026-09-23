@@ -99,7 +99,7 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
 }
 
 // Browsers strip whitespace/control chars before reading the scheme ("java\tscript:" still runs).
-const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
+export const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
 
 function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
@@ -289,6 +289,11 @@ export function renderSite(ir: IR, opts: RenderOpts): Record<string, string> {
   for (const page of ir.pages) files[fileByPage.get(page.id)!] = renderPage(page, ctx);
   files["css/styles.css"] = renderCss(ir, ctx);
   return files;
+}
+
+// css/styles.css on its own (the editor canvas stylesheet).
+export function renderStylesheet(ir: IR, opts: RenderOpts): string {
+  return renderCss(ir, makeCtx(ir, opts, pageFileNames(ir.pages)));
 }
 
 // HTML of one section (same renderer as the pages), for QA re-emit.
