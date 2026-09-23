@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, posix } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
+import type { Page } from "playwright";
 import { withPage, type BrowserHandle } from "./browser";
 import { lazyLoadScroll, type CaptureNode, type PageCapture } from "./capture";
 import { pageFileNames } from "./emit-html";
@@ -94,7 +95,7 @@ function sectionPaths(shell: IRNode, out: Map<string, string> = new Map()): Map<
 
 // Pure. sectionId -> capture node of that section at bp (1440 node when the path doesn't resolve at bp;
 // undefined when it resolves in neither).
-function sectionNodes(capture: PageCapture, ir: IR, pageId: string, bp: Bp): Map<string, CaptureNode | undefined> {
+export function sectionNodes(capture: PageCapture, ir: IR, pageId: string, bp: Bp): Map<string, CaptureNode | undefined> {
   const page = ir.pages.find((p) => p.id === pageId);
   if (!page) throw new Error(`qa: unknown page ${pageId}`);
   const dom = (at: number) => capture.breakpoints.find((b) => b.bp === at)?.dom;
@@ -127,14 +128,19 @@ async function writePng(path: string, png: PNG): Promise<void> {
   await rename(`${path}.tmp`, path);
 }
 
+// Loads the clone at bp the way it is scored: lazy content scrolled in, animations frozen, fonts ready.
+export async function prepareClonePage(page: Page, url: string, bp: Bp): Promise<void> {
+  await page.setViewportSize({ width: bp, height: VIEWPORT_HEIGHT });
+  await page.goto(url, { waitUntil: "load" });
+  await lazyLoadScroll(page); // same pass as capture, so lazy content is loaded like in the original shot
+  await page.addStyleTag({ content: FREEZE_CSS });
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
 // Full-page screenshot of the clone at bp with animations frozen, plus each root's document bbox.
 async function shootClone(handle: BrowserHandle, url: string, bp: Bp, rootIds: string[]): Promise<{ shot: PNG; boxes: (Bbox | null)[] }> {
   return withPage(handle, async (page) => {
-    await page.setViewportSize({ width: bp, height: VIEWPORT_HEIGHT });
-    await page.goto(url, { waitUntil: "load" });
-    await lazyLoadScroll(page); // same pass as capture, so lazy content is loaded like in the original shot
-    await page.addStyleTag({ content: FREEZE_CSS });
-    await page.evaluate(() => document.fonts.ready.then(() => true));
+    await prepareClonePage(page, url, bp);
     const shot = PNG.sync.read(await page.screenshot({ fullPage: true, animations: "disabled", caret: "hide" }));
     const boxes = await page.evaluate((ids) =>
       ids.map((id): [number, number, number, number] | null => {
