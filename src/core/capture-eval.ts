@@ -140,3 +140,157 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
     sandbox.remove();
   }
 }
+
+// Runs inside the page via page.evaluate: scrolls to the bottom in bounded
+// steps (letting lazy-load observers fire), decodes every <img> with a
+// per-image timeout so a broken image can't hang the pass, then scrolls back
+// to the top. `truncated` is true only when the step/px cap was hit before
+// the page actually reached its bottom (i.e. infinite scroll).
+export async function lazyLoadInPage(opts: {
+  maxSteps: number;
+  maxPx: number;
+  stepDelayMs: number;
+  decodeTimeoutMs: number;
+}): Promise<{ truncated: boolean }> {
+  const { maxSteps, maxPx, stepDelayMs, decodeTimeoutMs } = opts;
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const viewportH = window.innerHeight;
+
+  let steps = 0;
+  let scrolledPx = 0;
+  let reachedBottom = viewportH >= document.documentElement.scrollHeight;
+
+  while (!reachedBottom && steps < maxSteps && scrolledPx < maxPx) {
+    window.scrollBy(0, viewportH);
+    await delay(stepDelayMs);
+    steps++;
+    scrolledPx += viewportH;
+    reachedBottom = window.scrollY + viewportH >= document.documentElement.scrollHeight - 1;
+  }
+
+  await Promise.all(
+    Array.from(document.images).map((img) => Promise.race([img.decode().catch(() => undefined), delay(decodeTimeoutMs)])),
+  );
+  window.scrollTo(0, 0);
+  return { truncated: !reachedBottom };
+}
+
+export type CssomExtract = {
+  keyframes: string[];
+  fontFace: string[];
+  media: string[];
+  varNames: string[];
+  stateSelectors: string[];
+};
+
+// Both eval entry points below inline their own copy of the rule walk and
+// dedupe logic: page.evaluate serializes only the passed function's own
+// source, so nothing at module scope (helper functions, regex constants) is
+// visible to it at runtime.
+
+// Runs inside the page: reads every same-origin document.styleSheets entry.
+// Sheets that throw on .cssRules (cross-origin, no CORS) are reported by
+// href instead so the caller can fetch + parse them in a follow-up pass.
+export function readCssomInPage(): CssomExtract & { crossOriginHrefs: string[] } {
+  const out: CssomExtract = { keyframes: [], fontFace: [], media: [], varNames: [], stateSelectors: [] };
+  const statePseudo = /:hover|:focus-visible|:focus|:active/;
+
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSMediaRule) {
+        out.media.push(rule.cssText);
+        walk(rule.cssRules);
+      } else if (rule instanceof CSSSupportsRule) {
+        walk(rule.cssRules);
+      } else if (rule instanceof CSSKeyframesRule) {
+        out.keyframes.push(rule.cssText);
+      } else if (rule instanceof CSSFontFaceRule) {
+        out.fontFace.push(rule.cssText);
+      } else if (rule instanceof CSSStyleRule) {
+        for (let i = 0; i < rule.style.length; i++) {
+          const prop = rule.style[i]!;
+          if (prop.startsWith("--")) out.varNames.push(prop);
+        }
+        for (const part of rule.selectorText.split(",")) {
+          const trimmed = part.trim();
+          if (statePseudo.test(trimmed)) {
+            const base = trimmed.replace(new RegExp(statePseudo, "g"), "").trim();
+            if (base) out.stateSelectors.push(base);
+          }
+        }
+      }
+    }
+  };
+
+  const crossOriginHrefs: string[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      if (sheet.href) crossOriginHrefs.push(sheet.href);
+      continue;
+    }
+    walk(rules);
+  }
+  return {
+    keyframes: [...new Set(out.keyframes)],
+    fontFace: [...new Set(out.fontFace)],
+    media: [...new Set(out.media)],
+    varNames: [...new Set(out.varNames)],
+    stateSelectors: [...new Set(out.stateSelectors)],
+    crossOriginHrefs: [...new Set(crossOriginHrefs)],
+  };
+}
+
+// Runs inside the page: parses raw CSS text (fetched in Node for sheets that
+// were cross-origin) via a constructable stylesheet, then extracts the same
+// shape as readCssomInPage. Malformed text is skipped, not thrown.
+export function parseCssTextInPage(cssTexts: string[]): CssomExtract {
+  const out: CssomExtract = { keyframes: [], fontFace: [], media: [], varNames: [], stateSelectors: [] };
+  const statePseudo = /:hover|:focus-visible|:focus|:active/;
+
+  const walk = (rules: CSSRuleList) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSMediaRule) {
+        out.media.push(rule.cssText);
+        walk(rule.cssRules);
+      } else if (rule instanceof CSSSupportsRule) {
+        walk(rule.cssRules);
+      } else if (rule instanceof CSSKeyframesRule) {
+        out.keyframes.push(rule.cssText);
+      } else if (rule instanceof CSSFontFaceRule) {
+        out.fontFace.push(rule.cssText);
+      } else if (rule instanceof CSSStyleRule) {
+        for (let i = 0; i < rule.style.length; i++) {
+          const prop = rule.style[i]!;
+          if (prop.startsWith("--")) out.varNames.push(prop);
+        }
+        for (const part of rule.selectorText.split(",")) {
+          const trimmed = part.trim();
+          if (statePseudo.test(trimmed)) {
+            const base = trimmed.replace(new RegExp(statePseudo, "g"), "").trim();
+            if (base) out.stateSelectors.push(base);
+          }
+        }
+      }
+    }
+  };
+
+  for (const text of cssTexts) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(text);
+      walk(sheet.cssRules);
+    } catch {
+      // malformed CSS text from a cross-origin fetch: skip it
+    }
+  }
+  return {
+    keyframes: [...new Set(out.keyframes)],
+    fontFace: [...new Set(out.fontFace)],
+    media: [...new Set(out.media)],
+    varNames: [...new Set(out.varNames)],
+    stateSelectors: [...new Set(out.stateSelectors)],
+  };
+}

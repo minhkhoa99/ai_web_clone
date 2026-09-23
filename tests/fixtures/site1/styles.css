@@ -1,0 +1,22 @@
+:root {
+  --brand-color: #ff6600;
+}
+
+@font-face {
+  font-family: "LocalFont";
+  src: local("Arial");
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (min-width: 700px) {
+  .mq-note { color: rgb(10, 100, 200); }
+}
+
+.card:hover,
+.card:focus {
+  transform: scale(1.05);
+}

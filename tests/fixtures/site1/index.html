@@ -5,6 +5,7 @@
   <title>Site One</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="data:text/css,">
+  <link rel="stylesheet" href="styles.css">
   <style>
     body { margin: 0; font-family: sans-serif; }
     header { display: flex; justify-content: space-between; padding: 16px; background: #222; }
@@ -35,6 +36,9 @@
   <iframe class="xorigin" src="data:text/html,<p>opaque</p>">Fallback text</iframe>
   <shadow-card></shadow-card>
   <iframe src="frame.html" width="300" height="100"></iframe>
+  <p class="mq-note">Responsive note</p>
+  <div style="height: 2000px"></div>
+  <img class="lazy-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" loading="lazy" width="4" height="4" alt="lazy">
   <footer id="contact">&copy; Site One</footer>
   <script>
     customElements.define("shadow-card", class extends HTMLElement {

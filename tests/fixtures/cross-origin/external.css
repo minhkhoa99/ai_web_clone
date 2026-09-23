@@ -1,0 +1,13 @@
+@keyframes cross-spin {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@font-face {
+  font-family: "CrossFont";
+  src: local("Georgia");
+}
+
+@media (min-width: 500px) {
+  .cross-note { color: rgb(1, 2, 3); }
+}
