@@ -145,6 +145,11 @@ test("auto-sized boxes drop width/height, explicit sizes are kept, page left unc
   expect(styles[1]).toEqual(styles[0]);
 });
 
+test("equal-height flex items keep their height: each alone probes the same with auto (stretched by the sibling)", async () => {
+  const snap = await snapshotOf("sizes.html");
+  for (const id of ["row-a", "row-b"]) expect(find(snap, (n) => n.attrs.id === id)!.style.height, id).toBe("50px");
+});
+
 test("whitespace-only text between inline siblings is kept: one space, verbatim under pre", async () => {
   const snap = await withPage(handle, async (page) => {
     await page.goto(`${site.url}/sizes.html`, { waitUntil: "load" });

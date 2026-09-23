@@ -81,9 +81,16 @@ export function snapshotInPage(maxNodes: number): SnapshotResult {
     else el.setAttribute("style", original);
     return Math.abs(before - after) <= SIZE_TOLERANCE;
   };
+  // A flex/grid item's auto height can be stretched by its siblings' sizes: probed one at a time, every
+  // equal-height item looks auto, yet dropping them all collapses the row. Such items keep their height.
+  const STRETCHING = /flex|grid/;
+  const inStretchingParent = (el: any): boolean => {
+    const parent = el.parentElement;
+    return parent !== null && STRETCHING.test(el.ownerDocument.defaultView.getComputedStyle(parent).display);
+  };
   const dropAutoSize = (el: any, cs: CSSStyleDeclaration, style: Record<string, string>) => {
     if (el.namespaceURI !== XHTML || REPLACED.has(el.localName)) return;
-    if ((style.height || style["block-size"]) && sameWithAuto(el, "height")) {
+    if ((style.height || style["block-size"]) && !inStretchingParent(el) && sameWithAuto(el, "height")) {
       delete style.height;
       delete style["block-size"];
     }
