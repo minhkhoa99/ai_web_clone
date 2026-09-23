@@ -48,12 +48,12 @@ export default function EditorPage() {
           blocks: data.sections.map((s) => ({ id: s.id, label: s.name, category: pathOf.get(s.pageId) ?? s.pageId, content: s.component })),
         },
       });
-      // relative urls in the page resolve like on the source page: <base> before the body renders
-      editor.on("canvas:frame:load:head", ({ window }: { window: Window }) => {
-        if (!data.baseUrl) return;
-        const base = window.document.createElement("base");
-        base.href = data.baseUrl;
-        window.document.head.prepend(base);
+      // the canvas resolves urls like the emitted page (local assets in out/): <base> before the body renders
+      const baseHref = new URL(`/api/projects/${id}/files/out/${encodeURIComponent(data.pageFile)}`, window.location.href).href;
+      editor.on("canvas:frame:load:head", ({ window: frame }: { window: Window }) => {
+        const base = frame.document.createElement("base");
+        base.href = baseHref;
+        frame.document.head.prepend(base);
       });
       editor.setComponents(data.components);
       editor.getWrapper()?.addClass(data.bodyClasses);

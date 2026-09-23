@@ -7,9 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import { chromium, type Browser } from "playwright";
-import { config } from "@/core/config";
-import { openDb } from "@/core/db";
-import { createProject, enqueue, runProject, type JobDeps } from "@/core/jobs";
+import type { JobDeps } from "@/core/jobs";
 import type { SectionNames } from "@/core/naming";
 import type { FixResult } from "@/core/qa-fix";
 import { serveDir } from "@/core/serve";
@@ -29,10 +27,13 @@ let db: DatabaseSync | undefined;
 let tmp = "";
 let projectId = "";
 
-// The app shares this process's workspace root (the project lives there) and a tmp db both processes open.
-async function seedCompleted(dbPath: string): Promise<string> {
+// The pipeline runs in this process against the app's tmp workspace + db. core/config reads WORKSPACE_ROOT at
+// import, so the core modules are imported only after it is set.
+async function seedCompleted(env: { DB_PATH: string; WORKSPACE_ROOT: string }): Promise<string> {
+  process.env.WORKSPACE_ROOT = env.WORKSPACE_ROOT;
+  const [{ openDb }, { createProject, enqueue, runProject }] = await Promise.all([import("@/core/db"), import("@/core/jobs")]);
   site = await serveDir(fileURLToPath(new URL("../fixtures/site1", import.meta.url)));
-  db = openDb(dbPath);
+  db = openDb(env.DB_PATH);
   const id = createProject(db, { url: `${site.url}/index.html`, mode: "single", config: { delayMs: 0 } });
   await enqueue(db, id, [`${site.url}/index.html`]);
   await runProject(db, id, { deps: offline });
@@ -41,8 +42,8 @@ async function seedCompleted(dbPath: string): Promise<string> {
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "editor-smoke-"));
-  const env = { DB_PATH: join(tmp, "sp1.db"), WORKSPACE_ROOT: config.workspaceRoot, KEY_PATH: join(tmp, "secret.key") };
-  [projectId, app, browser] = await Promise.all([seedCompleted(env.DB_PATH), startNextApp(env), chromium.launch()]);
+  const env = { DB_PATH: join(tmp, "sp1.db"), WORKSPACE_ROOT: join(tmp, "workspace"), KEY_PATH: join(tmp, "secret.key") };
+  [projectId, app, browser] = await Promise.all([seedCompleted(env), startNextApp(env), chromium.launch()]);
 }, 600_000);
 
 afterAll(async () => {
@@ -50,7 +51,6 @@ afterAll(async () => {
   await site?.close();
   app?.stop();
   db?.close();
-  if (projectId) await rm(join(config.workspaceRoot, projectId), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
@@ -61,8 +61,11 @@ test("editor: edit one heading in the canvas, save -> exactly one patch op, out/
   await page.getByRole("link", { name: "Editor" }).click();
   await page.waitForURL(/\/editor$/);
 
-  const heading = page.frameLocator("iframe.gjs-frame").locator("h1");
+  const canvas = page.frameLocator("iframe.gjs-frame");
+  const heading = canvas.locator("h1");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
+  // the canvas resolves urls like the emitted page: based on out/index.html via the files route
+  expect(await heading.evaluate(() => document.baseURI)).toBe(`${base}/api/projects/${projectId}/files/out/index.html`);
   await heading.dblclick(); // GrapesJS rich-text editing
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Edited headline");
@@ -74,18 +77,24 @@ test("editor: edit one heading in the canvas, save -> exactly one patch op, out/
   expect(html).not.toContain("Build faster sites");
   // the editor reloaded from the saved IR
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
+  // QA scores are not recomputed after an edit: flagged stale
+  const preview = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { stale: boolean; scores: unknown[] };
+  expect(preview.stale).toBe(true);
+  expect(preview.scores.length).toBeGreaterThan(0);
   await page.close();
 });
 
-test("editor API: a running-state guard and an invalid patch are refused", async () => {
+test("editor API: only completed projects are editable; an invalid patch is refused", async () => {
   const base = app!.base;
   const post = (path: string, body: unknown) =>
     fetch(`${base}/api/projects/${projectId}/editor/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   expect((await post("save", { pageId: "nope", project: { components: [] } })).status).toBe(400);
   expect((await post("promote-layout", { sectionIds: ["x"] })).status).toBe(400);
-  db!.prepare("UPDATE projects SET status='running' WHERE id=?").run(projectId);
   try {
-    expect((await fetch(`${base}/api/projects/${projectId}/editor`)).status).toBe(409);
+    for (const status of ["running", "paused", "interrupted"]) {
+      db!.prepare("UPDATE projects SET status=? WHERE id=?").run(status, projectId);
+      expect((await fetch(`${base}/api/projects/${projectId}/editor`)).status).toBe(409);
+    }
   } finally {
     db!.prepare("UPDATE projects SET status='completed' WHERE id=?").run(projectId);
   }

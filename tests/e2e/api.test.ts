@@ -173,10 +173,11 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
   await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", path: "/" }, { id: "about", path: "/about" }] }));
-  await writeFile(join(ws, "qa.json"), JSON.stringify([{ pageId: "home", sectionId: "s1", bp: 375, score: 0.9 }]));
-  const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; coverage: unknown[] };
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ pageId: "home", sectionId: "s1", bp: 375, score: 0.9 }], stale: true }));
+  const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; stale: boolean; coverage: unknown[] };
   expect(body.pages).toEqual([{ pageId: "home", path: "/", file: "index.html" }, { pageId: "about", path: "/about", file: "about.html" }]);
   expect(body.scores).toHaveLength(1);
+  expect(body.stale).toBe(true);
   expect(body.coverage).toEqual([]);
 });
 

@@ -7,6 +7,7 @@ type Data = {
   pages: { pageId: string; path: string; file?: string }[];
   sections: { id: string; pageId: string; name: string; rootId: string }[];
   scores: SectionScore[];
+  stale: boolean; // edited in the editor after scoring
   interactions: { id: string; pageId: string; kind: string; trigger: string; status: string }[];
   coverage: { page: string; captured: number; failed: number; skipped: number }[];
 };
@@ -170,6 +171,7 @@ export function PreviewView({ projectId, threshold }: { projectId: string; thres
           </div>
           {tab === "sections" ? (
             <div className="card stack">
+              {data?.stale && <p className="notice">Điểm QA chưa cập nhật sau chỉnh sửa</p>}
               <p className="muted">
                 {passing}/{scores.length} section đạt ngưỡng {pct(threshold)}
               </p>

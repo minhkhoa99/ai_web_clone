@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { grapesToPatch } from "@/core/grapes-adapter";
-import { applyPatch } from "@/core/ir";
+import { applyGrapesSave } from "@/core/grapes-adapter";
 import { saveEdited } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { EDITABLE_STATUSES, handle, requireProject, requireStatus, type IdCtx } from "@/app/_server/http";
@@ -14,7 +13,8 @@ const bodySchema = z
   .object({ pageId: z.string().min(1).max(200), project: z.object({ components: z.array(z.unknown()), styles: z.array(z.unknown()).optional() }) })
   .strict();
 
-// Editor JSON -> PatchOps -> applyPatch (+ effect keyframes) -> ir.json, out/ and graph rewritten. Bad patch -> 400.
+// Editor JSON -> PatchOps -> applyPatch (+ effect keyframes, section references) -> ir.json, out/ and graph
+// rewritten, qa.json marked stale. Bad patch -> 400.
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -23,11 +23,10 @@ export function POST(req: Request, { params }: IdCtx) {
     requireStatus(requireProject(db, id), EDITABLE_STATUSES, "edit");
     let ops = 0;
     await exclusive(id, () =>
-      saveEdited(db, id, (ir) => {
-        const patch = grapesToPatch(ir, pageId, project);
-        ops = patch.ops.length;
-        const next = applyPatch(ir, patch.ops);
-        return { ...next, cssom: { ...next.cssom, keyframes: [...new Set([...next.cssom.keyframes, ...patch.keyframes])] } };
+      saveEdited(db, id, (ir, emit) => {
+        const saved = applyGrapesSave(ir, pageId, project, emit);
+        ops = saved.ops;
+        return saved.ir;
       }),
     );
     return Response.json({ ok: true, ops });

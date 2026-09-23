@@ -17,6 +17,7 @@ import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
 import { mapLimit } from "./limit";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
+import { attrsSchema, tagSchema } from "./safe-names";
 import { serveDir } from "./serve";
 
 export type FixCtx = {
@@ -58,13 +59,6 @@ Reply with JSON only: {"ops": [...]} with at most ${MAX_OPS} ops, each one of
 Only node ids inside this section are allowed. Before answering you may call the inspector tools on the clone (target "clone", at most 5 calls).`;
 
 const str = z.string();
-// AI- and editor-authored markup only: plain element names outside the denylist, no event-handler attrs.
-const DENIED_TAGS = new Set(["script", "style", "iframe", "object", "embed", "base", "meta", "link", "#section"]);
-export const tagSchema = str.regex(/^(#text|[a-z][a-z0-9-]*)$/).refine((t) => !DENIED_TAGS.has(t), "tag not allowed");
-export const attrsSchema = z.record(
-  str.regex(/^[a-zA-Z_:][-a-zA-Z0-9_:.]*$/).refine((n) => !/^on/i.test(n), "event handler attrs not allowed"),
-  str,
-);
 const nodeSchema: z.ZodType<IRNode> = z.lazy(() =>
   z.object({
     id: str.min(1),

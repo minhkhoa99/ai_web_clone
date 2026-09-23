@@ -37,6 +37,8 @@ const NO_RETRY = new Set<string>([...SKIP, Codes.LOGIN_FAILED]);
 type TaskRow = { id: string; phase: string; key: string; status: TaskStatus; attempts: number; error_code: string | null; output_path: string | null };
 type ProjectRow = { url: string; mode: "single" | "crawl"; config_json: string };
 type PageRef = { pageId: string; url: string };
+// qa.json: the last scores; stale once the IR was edited after scoring
+export type QaFile = { scores: SectionScore[]; stale?: true };
 
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -236,18 +238,35 @@ export async function loadEditable(db: DatabaseSync, projectId: string): Promise
   return { ir, emit };
 }
 
-// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR.
-export async function saveEdited(db: DatabaseSync, projectId: string, edit: (ir: IR) => IR): Promise<void> {
+// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR. The QA scores are not
+// recomputed: qa.json is marked stale.
+export async function saveEdited(
+  db: DatabaseSync,
+  projectId: string,
+  edit: (ir: IR, emit: Pick<RenderOpts, "assetMap" | "pageUrls">) => IR,
+): Promise<void> {
   const src = await editSource(db, projectId);
-  const ir = edit(JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8")) as IR);
+  const [before, emit, qa] = await Promise.all([
+    readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR),
+    emitOpts(src),
+    readFile(join(src.ws, "qa.json"), "utf8").then(
+      (t) => JSON.parse(t) as QaFile,
+      (e: unknown) => {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return { scores: [] } as QaFile;
+        throw e;
+      },
+    ),
+  ]);
+  const ir = edit(before, emit);
   await writeJsonAtomic(join(src.ws, "ir.json"), ir);
   await emitOut(src, ir);
+  await writeJsonAtomic(join(src.ws, "qa.json"), { scores: qa.scores, stale: true } satisfies QaFile);
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).
 async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
   const scores = await scoreSections(run.handle, { workspaceDir: run.ws, outDir: join(run.ws, "out"), ir, captures: await loadCaptures(run) });
-  await writeJsonAtomic(join(run.ws, "qa.json"), scores);
+  await writeJsonAtomic(join(run.ws, "qa.json"), { scores } satisfies QaFile);
   return scores;
 }
 

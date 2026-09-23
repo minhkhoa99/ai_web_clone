@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pageFileNames } from "@/core/emit-html";
 import { coverage } from "@/core/graph";
 import type { IR } from "@/core/ir";
-import type { SectionScore } from "@/core/qa";
+import type { QaFile } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
 
@@ -21,22 +21,22 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
 }
 
 // Pages (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the
-// clone), QA scores (qa.json), interaction rows and per-page coverage — the preview screen's data.
+// clone), QA scores (qa.json, `stale` after an editor save), interaction rows and per-page coverage — the preview screen's data.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     requireProject(db, id);
     const ws = workspaceOf(id);
-    const [ir, scores] = await Promise.all([
+    const [ir, qa] = await Promise.all([
       readJsonIfExists<Pick<IR, "pages" | "sections" | "interactions"> | null>(join(ws, "ir.json"), null),
-      readJsonIfExists<SectionScore[]>(join(ws, "qa.json"), []),
+      readJsonIfExists<QaFile>(join(ws, "qa.json"), { scores: [] }),
     ]);
     const irPages = ir?.pages ?? [];
     const files = pageFileNames(irPages);
     const pages = irPages.map((p) => ({ pageId: p.id, path: p.path, file: files.get(p.id) }));
     const sections = (ir?.sections ?? []).map((s) => ({ id: s.id, pageId: s.pageId, name: s.name, rootId: s.root.id }));
     const interactions = (ir?.interactions ?? []).map((i) => ({ id: i.id, pageId: i.pageId, kind: i.kind, trigger: i.trigger, status: i.status }));
-    return Response.json({ pages, sections, scores, interactions, coverage: coverage(db, id) });
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, interactions, coverage: coverage(db, id) });
   });
 }

@@ -300,7 +300,15 @@ export function promoteLayout(ir: IR, sectionIds: string[]): IR {
     return section;
   });
   if (selected.length < 2) throw invalid("a layout needs at least 2 sections");
-  if (new Set(selected.map((s) => s.pageId)).size !== selected.length) throw invalid("selected sections must be on different pages");
+  // a layout section is shown on every page of its layout: no page may show two of the selected sections
+  const seen = new Set<string>();
+  for (const s of selected) {
+    for (const page of ir.pages) {
+      if (!page.sectionIds.includes(s.id)) continue;
+      if (seen.has(page.id)) throw invalid(`selected sections must be on different pages (page ${page.id} shows two)`);
+      seen.add(page.id);
+    }
+  }
   const [first, ...rest] = selected as [Section, ...Section[]];
   const dropped = new Set(rest.map((s) => s.id));
   const layoutId = `layout-${contentHash(first.root)}`;
@@ -318,5 +326,26 @@ export function promoteLayout(ir: IR, sectionIds: string[]): IR {
     pages,
     sections: ir.sections.filter((s) => !dropped.has(s.id)).map((s) => (s === first ? { ...s, layoutId } : s)),
     layouts: [...layouts, { id: layoutId, hash: first.hash, sectionId: first.id, pageIds }],
+  };
+}
+
+// Pure. Section references follow the page shells after an editor save: a page's sectionIds are its placeholders
+// (shell order), a layout's pageIds the pages still showing it; a section no page shows is dropped with its layout.
+export function syncSections(ir: IR): IR {
+  const known = new Set(ir.sections.map((s) => s.id));
+  const slots = (node: IRNode, out: Set<string>): Set<string> => {
+    const id = node.attrs["data-section"] ?? "";
+    if (node.tag === "#section" && known.has(id)) out.add(id);
+    for (const child of node.children) slots(child, out);
+    return out;
+  };
+  const pages = ir.pages.map((p) => ({ ...p, sectionIds: [...slots(p.shell, new Set())] }));
+  const shownOn = (sectionId: string) => pages.filter((p) => p.sectionIds.includes(sectionId)).map((p) => p.id);
+  const shown = new Set(pages.flatMap((p) => p.sectionIds));
+  return {
+    ...ir,
+    pages,
+    sections: ir.sections.filter((s) => shown.has(s.id)),
+    layouts: ir.layouts.filter((l) => shown.has(l.sectionId)).map((l) => ({ ...l, pageIds: shownOn(l.sectionId) })),
   };
 }

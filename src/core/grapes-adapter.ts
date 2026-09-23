@@ -1,12 +1,13 @@
 // IR <-> GrapesJS editor JSON (spec §10). Pure, plain JSON shapes: no grapesjs import.
 // irToGrapes: a page's body (section placeholders replaced by the section roots), IR ids carried in
-// attributes["data-ir-id"]. grapesToPatch: diffs what the editor sends back by those ids into PatchOps,
-// which the caller applies with the same applyPatch as the fix loop.
+// attributes["data-ir-id"], attribute values shown as the emitter writes them (local assets). grapesToPatch:
+// diffs what the editor sends back by those ids into PatchOps (display values mapped back to the raw IR ones),
+// applied with the same applyPatch as the fix loop (applyGrapesSave).
 import type { Decl } from "./dedupe";
-import { renderStylesheet, isJavascriptUrl, type RenderOpts } from "./emit-html";
+import { attrRewriter, isScriptValue, pageFileNames, renderStylesheet, type RenderOpts } from "./emit-html";
 import { AppError, Codes } from "./errors";
-import type { IR, IRNode, PatchOp } from "./ir";
-import { attrsSchema, tagSchema } from "./qa-fix";
+import { applyPatch, syncSections, type IR, type IRNode, type PatchOp } from "./ir";
+import { attrsSchema, tagSchema } from "./safe-names";
 
 export type GrapesComponent = {
   tagName?: string;
@@ -19,7 +20,7 @@ export type GrapesComponent = {
 };
 export type GrapesProject = {
   pageId: string;
-  baseUrl?: string; // the original page url: relative urls in the canvas resolve like on the source page
+  pageFile: string; // the page's out/ file: the canvas is based on it, like the emitted page
   components: GrapesComponent[];
   styles: string; // the clone's stylesheet + effect presets, for the canvas
   bodyClasses: string[];
@@ -41,13 +42,32 @@ const CSS_PROP = /^-?[a-z][a-z0-9-]*$/;
 const CSS_BREAKOUT = /[{};<]/;
 const MAX_NODES = 60_000; // 3x the capture node limit: room for edits, bounded work
 const MAX_DEPTH = 400;
+// GrapesJS omits a tagName equal to its type's default
+const TYPE_TAGS: Record<string, string> = {
+  link: "a",
+  image: "img",
+  video: "video",
+  iframe: "iframe",
+  map: "iframe",
+  label: "label",
+  script: "script",
+  svg: "svg",
+  table: "table",
+  thead: "thead",
+  tbody: "tbody",
+  tfoot: "tfoot",
+  row: "tr",
+  cell: "td",
+};
+// renderStylesheet writes asset urls relative to out/css/; the canvas stylesheet sits beside the page in out/
+const CSS_ASSET = /\.\.\/(assets\/[0-9a-f]{64}\.[a-z0-9]{1,8})/g;
 
 type Comp = { tagName?: unknown; type?: unknown; attributes?: unknown; classes?: unknown; components?: unknown; content?: unknown };
 type Rule = { selectors?: unknown; style?: unknown; mediaText?: unknown; state?: unknown; atRuleType?: unknown; selectorsAdd?: unknown };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const safeAttr = (name: string, value: string) =>
-  !SKIP_ATTRS.has(name) && !isJavascriptUrl(value) && attrsSchema.safeParse({ [name]: value }).success;
+const safeAttr = (tag: string, name: string, value: string) =>
+  !SKIP_ATTRS.has(name) && !isScriptValue(tag, name, value) && attrsSchema.safeParse({ [name]: value }).success;
 // The emitter's rule (an unsafe tag name or a script is never written), plus no <meta>/<base> in the canvas:
 // they would redirect or re-base the editor frame.
 const HIDDEN_TAGS = new Set(["script", "meta", "base"]);
@@ -65,19 +85,21 @@ function pageOf(ir: IR, pageId: string) {
 export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProject {
   const page = pageOf(ir, pageId);
   const sections = new Map(ir.sections.map((s) => [s.id, s]));
-  const toComponent = (node: IRNode, inSvg: boolean): GrapesComponent | null => {
+  const rewrite = attrRewriter(ir, opts);
+  // base: the url the node's relative urls resolve against (its section's page, else this page), as in the emitter
+  const toComponent = (node: IRNode, inSvg: boolean, base: string | undefined): GrapesComponent | null => {
     if (node.tag === "#text") return { type: "textnode", content: node.text ?? "", attributes: {}, classes: [] };
     if (node.tag === "#section") {
       const section = sections.get(node.attrs["data-section"] ?? "");
       if (!section) throw new Error(`grapes: page ${pageId} references unknown section (placeholder ${node.id})`);
-      const root = toComponent(section.root, false);
+      const root = toComponent(section.root, false, opts.pageUrls[section.pageId]);
       return root && { ...root, name: section.layoutId ? `Layout chung · ${section.name}` : section.name };
     }
     if (!shown(node)) return null;
     const attributes: Record<string, string> = { [ID]: node.id };
-    for (const [name, value] of Object.entries(node.attrs)) if (safeAttr(name, value)) attributes[name] = value;
+    for (const [name, value] of Object.entries(node.attrs)) if (safeAttr(node.tag, name, value)) attributes[name] = rewrite(node, name, value, base);
     const svg = inSvg || node.tag === "svg";
-    const components = node.children.map((c) => toComponent(c, svg)).filter((c) => c !== null);
+    const components = node.children.map((c) => toComponent(c, svg, base)).filter((c) => c !== null);
     const isText = node.children.length > 0 && node.children.every((c) => c.tag === "#text");
     const type = inSvg ? "svg-in" : node.tag === "svg" ? "svg" : isText ? "text" : undefined;
     const classes = [...node.cls, ...Object.values(node.states ?? {}).map((c) => `st-${c}`)];
@@ -86,12 +108,11 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
   const body = bodyOf(page.shell);
   const presets = Object.keys(PRESETS);
   const captured = ir.cssom.keyframes.map((k) => /@keyframes\s+([^\s{]+)/.exec(k)?.[1]).filter((n) => n !== undefined);
-  const baseUrl = opts.pageUrls[pageId];
   return {
     pageId,
-    ...(baseUrl ? { baseUrl: new URL(baseUrl).href } : {}),
-    components: body.children.map((c) => toComponent(c, false)).filter((c) => c !== null),
-    styles: [renderStylesheet(ir, opts), ...Object.values(PRESETS)].join("\n"),
+    pageFile: pageFileNames(ir.pages).get(pageId)!,
+    components: body.children.map((c) => toComponent(c, false, opts.pageUrls[pageId])).filter((c) => c !== null),
+    styles: [renderStylesheet(ir, opts).replace(CSS_ASSET, "$1"), ...Object.values(PRESETS)].join("\n"),
     bodyClasses: body.cls,
     pages: ir.pages.map((p) => ({ id: p.id, path: p.path })),
     sections: ir.sections.map((s) => ({
@@ -99,7 +120,7 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
       pageId: s.pageId,
       name: s.name,
       ...(s.layoutId ? { layoutId: s.layoutId } : {}),
-      component: toComponent(s.root, false)!,
+      component: toComponent(s.root, false, opts.pageUrls[s.pageId])!,
     })),
     effects: [...new Set([...captured, ...presets])],
   };
@@ -123,7 +144,8 @@ function checkBounds(components: unknown[]): void {
 
 const isTextnode = (c: Comp) => c.type === "textnode";
 const textOf = (c: Comp) => (typeof c.content === "string" ? c.content : "");
-const tagOf = (c: Comp) => (typeof c.tagName === "string" && c.tagName ? c.tagName.toLowerCase() : c.type === "svg" ? "svg" : "div"); // GrapesJS omits default tagNames
+const tagOf = (c: Comp) =>
+  typeof c.tagName === "string" && c.tagName ? c.tagName.toLowerCase() : ((typeof c.type === "string" && Object.hasOwn(TYPE_TAGS, c.type) && TYPE_TAGS[c.type]) || "div");
 const kidsOf = (c: Comp): Comp[] =>
   Array.isArray(c.components) ? c.components.filter(isObject) : textOf(c) ? [{ type: "textnode", content: c.content }] : [];
 const classesOf = (c: Comp) =>
@@ -139,7 +161,6 @@ function attrsOf(c: Comp): Record<string, string> {
   return out;
 }
 const idOf = (c: Comp) => attrsOf(c)[ID];
-const safeAttrsOf = (c: Comp) => Object.fromEntries(Object.entries(attrsOf(c)).filter(([n, v]) => safeAttr(n, v)));
 
 // Component styles (selectorManager.componentFirst): plain `#<grapes id>` rules, no media/state.
 function rulesById(styles: unknown[]): Map<string, Decl> {
@@ -160,16 +181,29 @@ function rulesById(styles: unknown[]): Map<string, Decl> {
   return out;
 }
 
-export function grapesToPatch(before: IR, pageId: string, json: GrapesJson): { ops: PatchOp[]; keyframes: string[] } {
+export function grapesToPatch(before: IR, pageId: string, json: GrapesJson, opts: RenderOpts): { ops: PatchOp[]; keyframes: string[] } {
   const page = pageOf(before, pageId);
   checkBounds(json.components);
   const index = new Map<string, IRNode>();
-  const indexTree = (n: IRNode): void => {
+  const baseOf = new Map<string, string | undefined>(); // node id -> base url, as irToGrapes rewrote its attrs
+  const indexTree = (n: IRNode, base: string | undefined): void => {
     index.set(n.id, n);
-    n.children.forEach(indexTree);
+    baseOf.set(n.id, base);
+    for (const c of n.children) indexTree(c, base);
   };
-  for (const s of before.sections) indexTree(s.root);
-  for (const p of before.pages) indexTree(p.shell);
+  for (const s of before.sections) indexTree(s.root, opts.pageUrls[s.pageId]);
+  for (const p of before.pages) indexTree(p.shell, opts.pageUrls[p.id]);
+  const rewrite = attrRewriter(before, opts);
+  // The component's safe attrs; a value still equal to the canvas display of the source's attr maps back to the raw one.
+  const attrsFrom = (c: Comp, src: IRNode | undefined, tag: string) => {
+    const out: Record<string, string> = {};
+    for (const [name, value] of Object.entries(attrsOf(c))) {
+      if (!safeAttr(tag, name, value)) continue;
+      const raw = src && Object.hasOwn(src.attrs, name) ? src.attrs[name] : undefined;
+      out[name] = src && raw !== undefined && rewrite(src, name, raw, baseOf.get(src.id)) === value ? raw : value;
+    }
+    return out;
+  };
   const sections = new Map(before.sections.map((s) => [s.id, s]));
   // this page's section roots -> the shell placeholder that shows them
   const placeholderOf = new Map<string, IRNode>();
@@ -228,7 +262,7 @@ export function grapesToPatch(before: IR, pageId: string, json: GrapesJson): { o
   };
   const diffNode = (node: IRNode, c: Comp, inShell: boolean) => {
     diffKids(node, kidsOf(c), inShell);
-    const attrs = Object.fromEntries(Object.entries(safeAttrsOf(c)).filter(([n, v]) => node.attrs[n] !== v));
+    const attrs = Object.fromEntries(Object.entries(attrsFrom(c, node, node.tag)).filter(([n, v]) => node.attrs[n] !== v));
     if (Object.keys(attrs).length > 0) ops.push({ op: "setAttr", id: node.id, attrs });
     styleFor(node.id, node.cls, c);
   };
@@ -261,7 +295,7 @@ export function grapesToPatch(before: IR, pageId: string, json: GrapesJson): { o
       const id = keep ? src.id : fresh(parentId);
       used.add(id);
       const cls = src?.cls ?? classesOf(c).filter((k) => Object.hasOwn(before.classes, k));
-      const node: IRNode = { id, tag, attrs: { ...src?.attrs, ...safeAttrsOf(c) }, cls, children: [] };
+      const node: IRNode = { id, tag, attrs: { ...src?.attrs, ...attrsFrom(c, src, tag) }, cls, children: [] };
       if (src?.states) node.states = src.states;
       if (src?.behavior) node.behavior = src.behavior;
       if (src?.hidden) node.hidden = src.hidden;
@@ -278,4 +312,12 @@ export function grapesToPatch(before: IR, pageId: string, json: GrapesJson): { o
   const top = json.components.filter(isObject).filter((c: Comp) => isTextnode(c) || idOf(c) !== undefined);
   diffKids(body, top, true);
   return { ops: [...ops, ...styleOps], keyframes: [...keyframes] };
+}
+
+// Save: patch, merge the referenced effect keyframes (deduped), then drop the section references the edit removed.
+export function applyGrapesSave(before: IR, pageId: string, json: GrapesJson, opts: RenderOpts): { ir: IR; ops: number } {
+  const { ops, keyframes } = grapesToPatch(before, pageId, json, opts);
+  const patched = applyPatch(before, ops);
+  const ir = { ...patched, cssom: { ...patched.cssom, keyframes: [...new Set([...patched.cssom.keyframes, ...keyframes])] } };
+  return { ir: syncSections(ir), ops: ops.length };
 }

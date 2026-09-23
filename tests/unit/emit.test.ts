@@ -264,6 +264,28 @@ test("javascript: URLs neutralised (href -> #, other attrs dropped), srcdoc drop
   expect(html).toMatch(/<form data-ir-id=/);
 });
 
+test("SVG <animate>/<set> value lists with a javascript: entry dropped; xlink:href javascript: dropped on any element", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("svg", {}, [
+          el("a", { "xlink:href": "javascript:alert(1)" }, [
+            el("animate", { attributeName: "href", values: "#ok; javascript:alert(2)" }),
+            el("set", { attributeName: "href", to: " javascript:alert(3)" }),
+            el("animate", { attributeName: "x", from: "0", to: "10", by: "1", values: "0;5;10" }),
+          ]),
+        ]),
+      ]),
+    ),
+  ]);
+  const html = renderSite(ir, noUrls)["index.html"]!;
+  expect(html).not.toMatch(/script:|alert/i);
+  expect(html).toMatch(/<animate attributeName="x" from="0" to="10" by="1" values="0;5;10"/);
+  expect(html).toMatch(/<animate attributeName="href" data-ir-id=/);
+});
+
 test("srcset splits candidates on comma+whitespace only (commas inside URLs survive)", () => {
   const ir = buildIR([
     capture(

@@ -6,9 +6,6 @@ import { ApiError, EDITABLE_STATUSES, handle, requireProject, requireStatus, typ
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// emitted stylesheet paths (relative to out/css/) of downloaded assets
-const CSS_ASSET = /\.\.\/(assets\/[0-9a-f]{64}\.[a-z0-9]{1,8})/g;
-
 // One page of the IR as GrapesJS JSON (?page=<pageId>, default the first page), plus the project's sections as blocks.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
@@ -21,9 +18,6 @@ export function GET(req: Request, { params }: IdCtx) {
     });
     const pageId = new URL(req.url).searchParams.get("page") ?? ir.pages[0]?.id ?? "";
     if (!ir.pages.some((p) => p.id === pageId)) throw new ApiError(404, "NOT_FOUND", `page ${pageId} not found`);
-    const project = irToGrapes(ir, pageId, emit);
-    // the canvas is based on the original page url: downloaded assets need absolute files-route urls
-    project.styles = project.styles.replace(CSS_ASSET, `${new URL(req.url).origin}/api/projects/${id}/files/out/$1`);
-    return Response.json(project);
+    return Response.json(irToGrapes(ir, pageId, emit));
   });
 }

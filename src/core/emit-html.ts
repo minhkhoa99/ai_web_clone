@@ -99,13 +99,22 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
 }
 
 // Browsers strip whitespace/control chars before reading the scheme ("java\tscript:" still runs).
-export const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
+const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
+const SVG_ANIMATION = new Set(["animate", "set"]);
+const ANIMATION_VALUES = new Set(["values", "to", "from", "by"]);
+
+// A javascript: URL in any attribute, or inside an SVG <animate>/<set> value list ("a;javascript:…"): those can
+// animate an href into a script URL.
+export function isScriptValue(tag: string, name: string, value: string): boolean {
+  if (isJavascriptUrl(value)) return true;
+  return SVG_ANIMATION.has(tag.toLowerCase()) && ANIMATION_VALUES.has(name.toLowerCase()) && value.split(";").some(isJavascriptUrl);
+}
 
 function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
   for (const [name, value] of Object.entries(node.attrs)) {
     if (name === "class" || name === "srcdoc" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
-    if (isJavascriptUrl(value)) {
+    if (isScriptValue(node.tag, name, value)) {
       if (name === "href") out += ` href="#"`;
       continue;
     }
@@ -289,6 +298,12 @@ export function renderSite(ir: IR, opts: RenderOpts): Record<string, string> {
   for (const page of ir.pages) files[fileByPage.get(page.id)!] = renderPage(page, ctx);
   files["css/styles.css"] = renderCss(ir, ctx);
   return files;
+}
+
+// An attribute value as renderSite writes it (asset -> local path, page link -> local file), for the editor canvas.
+export function attrRewriter(ir: IR, opts: RenderOpts): (node: IRNode, name: string, value: string, base: string | undefined) => string {
+  const ctx = makeCtx(ir, opts, pageFileNames(ir.pages));
+  return (node, name, value, base) => rewriteAttr(node, name, value, base, ctx);
 }
 
 // css/styles.css on its own (the editor canvas stylesheet).
