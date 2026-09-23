@@ -13,8 +13,9 @@
 document.getElementById("login-form").addEventListener("submit", function (e) {
   e.preventDefault();
   var email = document.querySelector('input[name="email"]').value;
+  // second account password stored base64 only: the secrets e2e greps the browser cache for its plaintext
   var password = document.querySelector('input[name="password"]').value;
-  if (email === "demo@example.com" && password === "pass123") {
+  if (email === "demo@example.com" && (password === "pass123" || btoa(password) === "UEBzcy1TRUNSRVQtNDQxMQ==")) {
     window.location.href = "dashboard.html";
   } else {
     document.getElementById("error").style.display = "block";

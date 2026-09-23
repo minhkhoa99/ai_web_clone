@@ -54,7 +54,8 @@ async function buildOnce(env: NextEnv): Promise<void> {
   throw new Error("timed out waiting for another test file's next build");
 }
 
-export async function startNextApp(env: NextEnv): Promise<{ base: string; stop(): void }> {
+// stop("SIGKILL") = a crash: no shutdown hook runs (on Windows every kill is TerminateProcess anyway).
+export async function startNextApp(env: NextEnv): Promise<{ base: string; stop(signal?: NodeJS.Signals): void }> {
   await buildOnce(env);
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
@@ -65,5 +66,5 @@ export async function startNextApp(env: NextEnv): Promise<{ base: string; stop()
     server.kill();
     throw e;
   }
-  return { base, stop: () => server.kill() };
+  return { base, stop: (signal) => server.kill(signal) };
 }
