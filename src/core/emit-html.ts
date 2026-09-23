@@ -26,6 +26,7 @@ const BEHAVIOR_ATTR: Partial<Record<Interaction["kind"], string>> = {
 };
 const STATES = ["hover", "focus", "active"] as const;
 const SAFE_ATTR_NAME = /^[^\s"'<>/=]+$/;
+const SAFE_TAG = /^[a-zA-Z][a-zA-Z0-9-]*$/;
 const PROPERTY_META = /^(og|fb|article):/;
 const HEAD_META_SKIP = new Set(["viewport", "charset"]);
 const MEDIA_768 = "@media (max-width: 1439.98px)";
@@ -134,6 +135,8 @@ function renderNode(node: IRNode, base: string | undefined, ctx: Ctx, out: strin
     renderNode(section.root, ctx.opts.pageUrls[section.pageId], ctx, out);
     return;
   }
+  // Defense in depth (tags can come from AI patches): an unsafe tag name or a script is never written.
+  if (!SAFE_TAG.test(node.tag) || node.tag.toLowerCase() === "script") return;
   out.push(`<${node.tag}${renderAttrs(node, base, ctx)}>`);
   if (VOID_TAGS.has(node.tag)) return;
   // iframe children are the captured inner document; the HTML parser would show them as text.

@@ -67,6 +67,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   generateMock.mockReset();
+  writeGraph(db, "p1", broken, cap.assets); // accepted patches rewrite the graph
 });
 
 test("a patch restoring the background passes the gate in one round; inspector evidence precedes the AI call", async () => {
@@ -102,6 +103,17 @@ test("a harmful patch is reverted every round: score never drops, section ends r
   expect(res.finalScore).toBeCloseTo(baseline.finalScore, 3);
 });
 
+test("an accepted patch is written to the graph: the next round's context shows it", async () => {
+  generateMock.mockResolvedValue(reply([restore(hero)]));
+  const ctx = { ...newCtx(), threshold: 1.01 }; // unreachable: round 1 is accepted, rounds 2-3 re-send it
+  const res = await fixSection(ctx, hero.id, "home");
+  expect(res).toMatchObject({ rounds: 3, patched: true, status: "red" });
+  const fixedCls = ctx.ir.sections.find((s) => s.id === hero.id)!.root.cls[0]!;
+  const contextOf = (call: number) => userText(call).slice(userText(call).indexOf("CONTEXT "));
+  expect(contextOf(0)).not.toContain(fixedCls);
+  expect(contextOf(1)).toContain(fixedCls);
+});
+
 test("non-JSON and out-of-section ops each burn a round; the next good patch still lands", async () => {
   generateMock
     .mockResolvedValueOnce({ text: "sure, here is a fix", tokens: 1 })
@@ -119,6 +131,8 @@ test("tool calls are fed back as TOOL_RESULTS; the 6th call wastes the round", a
   generateMock.mockResolvedValueOnce(calls(3)).mockResolvedValueOnce(calls(3)).mockResolvedValueOnce(reply([restore(hero)]));
   const res = await fixSection(newCtx(), hero.id, "home");
   expect(res).toMatchObject({ rounds: 2, patched: true, status: "pass" });
+  expect(generateMock.mock.calls[0]![1].images).toHaveLength(3);
+  expect(generateMock.mock.calls[1]![1].images).toBeUndefined(); // images only on the first call of a round
   const fed = generateMock.mock.calls[1]![1].messages.at(-1)!;
   expect(fed.role).toBe("user");
   expect(fed.content.startsWith("TOOL_RESULTS ")).toBe(true);

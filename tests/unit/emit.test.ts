@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
-import { buildIR } from "@/core/ir";
+import { applyPatch, buildIR, type IRNode } from "@/core/ir";
 import { emitSection, renderSite, type RenderOpts } from "@/core/emit-html";
 
 type Opts = { style?: Record<string, string>; bbox?: [number, number, number, number] };
@@ -285,4 +285,22 @@ test("srcset splits candidates on comma+whitespace only (commas inside URLs surv
 test("whitespace text between inline siblings is emitted as-is", () => {
   const ir = buildIR([capture("p1", "https://x.test/", doc([el("p", {}, [el("a", {}, [txt("x")]), txt(" "), el("a", {}, [txt("y")])])]))]);
   expect(renderSite(ir, { ...noUrls, stripIds: true })["index.html"]).toContain("<p><a>x</a> <a>y</a></p>");
+});
+
+test("unsafe tags from patched IR are skipped, unsafe attr names dropped, never written verbatim", () => {
+  const ir = buildIR([capture("p1", "https://x.test/", doc([header()]))]);
+  const root = ir.sections[0]!.root;
+  const node = (id: string, tag: string, attrs: Record<string, string> = {}): IRNode => ({ id, tag, attrs, cls: [], children: [] });
+  const patched = applyPatch(ir, [
+    {
+      op: "replaceSubtree",
+      id: root.id,
+      node: {
+        ...node(root.id, "header", { 'x"><b': "1", onmouseover: "alert(1)", title: "ok" }),
+        children: [node("n1", "script"), node("n2", "SCRIPT"), node("n3", 'img src=x onerror="alert(1)"'), node("n4", "p")],
+      },
+    },
+  ]);
+  const html = emitSection(patched, ir.sections[0]!.id, noUrls);
+  expect(html).toBe(`<header title="ok" data-ir-id="${root.id}"><p data-ir-id="n4"></p></header>`);
 });

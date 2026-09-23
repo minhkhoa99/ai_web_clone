@@ -12,7 +12,7 @@ import type { CaptureNode, PageCapture } from "./capture";
 import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
 import { generate, type ChatMessage } from "./gateway";
-import { contextForFix } from "./graph";
+import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
 import { mapLimit } from "./limit";
@@ -58,11 +58,18 @@ Reply with JSON only: {"ops": [...]} with at most ${MAX_OPS} ops, each one of
 Only node ids inside this section are allowed. Before answering you may call the inspector tools on the clone (target "clone", at most 5 calls).`;
 
 const str = z.string();
+// AI-authored markup only: plain element names outside the denylist, no event-handler attrs.
+const DENIED_TAGS = new Set(["script", "style", "iframe", "object", "embed", "base", "meta", "link", "#section"]);
+const tagSchema = str.regex(/^(#text|[a-z][a-z0-9-]*)$/).refine((t) => !DENIED_TAGS.has(t), "tag not allowed");
+const attrsSchema = z.record(
+  str.regex(/^[a-zA-Z_:][-a-zA-Z0-9_:.]*$/).refine((n) => !/^on/i.test(n), "event handler attrs not allowed"),
+  str,
+);
 const nodeSchema: z.ZodType<IRNode> = z.lazy(() =>
   z.object({
     id: str.min(1),
-    tag: str.min(1),
-    attrs: z.record(str, str),
+    tag: tagSchema,
+    attrs: attrsSchema,
     text: str.optional(),
     cls: z.array(str),
     hidden: z.boolean().optional(),
@@ -76,7 +83,7 @@ const replySchema = z.object({
     .array(
       z.discriminatedUnion("op", [
         z.object({ op: z.literal("setStyle"), id: str, style: z.record(str, str) }),
-        z.object({ op: z.literal("setAttr"), id: str, attrs: z.record(str, str) }),
+        z.object({ op: z.literal("setAttr"), id: str, attrs: attrsSchema }),
         z.object({ op: z.literal("setText"), id: str, text: str }),
         z.object({ op: z.literal("replaceSubtree"), id: str, node: nodeSchema }),
         z.object({ op: z.literal("setBehavior"), id: str, behavior: str }),
@@ -163,6 +170,8 @@ function cloneBoxesInPage(rootId: string): [string, number, number, number, numb
 }
 
 // Captured node for an IR id under the section root: the id's tree-path suffix walked from the root.
+// ponytail: walks the same tree path at every bp, so a bp whose structure differs under the root yields the
+// wrong (or no) captured node; match per bp by content hash if that shows up on real sites.
 function capturedNode(root: CaptureNode | undefined, rootId: string, id: string): CaptureNode | undefined {
   if (id === rootId) return root;
   if (!id.startsWith(`${rootId}.`)) return undefined; // e.g. a node an earlier replaceSubtree invented
@@ -205,7 +214,7 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
 async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
   const inspector = asTools({ clone: page });
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
-    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, images, tools: inspector.tools });
+    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(i === 0 ? { images } : {}) }); // images once per round
     if (!res.toolCalls?.length) return res.text;
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
@@ -264,6 +273,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
   let diskIsBest = true;
   let rounds = 0;
   let patched = false;
+  let failed = false;
   try {
     best = await scoreIr(ctx, ctx.ir, t, bestDir);
     const result = (status: FixResult["status"]): FixResult => ({ ...t, finalScore: best!.min, scores: best!.scores, rounds, patched, status });
@@ -295,14 +305,22 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         continue;
       }
       ctx.ir = merged;
+      writeGraph(ctx.db, ctx.projectId, ctx.ir, ctx.emit.assetMap); // next round's contextForFix sees the accepted patch
       await rm(bestDir, RM_OPTS);
       [bestDir, best, diskIsBest, patched] = [candidateDir, candidate, true, true];
     }
     return result(best.min >= threshold ? "pass" : "red");
+  } catch (e) {
+    failed = true;
+    throw e;
   } finally {
-    // A reverted candidate left its crops under qa/; put the best's back.
-    if (best && !diskIsBest) await Promise.all([...best.files].map(([rel, buf]) => writeFile(join(ctx.workspaceDir, rel), buf)));
-    for (const dir of new Set([bestDir, candidateDir])) await rm(dir, RM_OPTS);
+    try {
+      // A reverted candidate left its crops under qa/; put the best's back.
+      if (best && !diskIsBest) await Promise.all([...best.files].map(([rel, buf]) => writeFile(join(ctx.workspaceDir, rel), buf)));
+      for (const dir of new Set([bestDir, candidateDir])) await rm(dir, RM_OPTS);
+    } catch (cleanupErr) {
+      if (!failed) throw cleanupErr; // never mask the error that got us here
+    }
   }
 }
 
