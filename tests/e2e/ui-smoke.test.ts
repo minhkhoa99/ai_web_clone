@@ -1,8 +1,7 @@
 // UI smoke: a real `next build` + `next start` (tmp db/workspace/key), driven by Playwright.
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { request } from "node:http";
+import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,6 +69,7 @@ test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, fi
     const form = page.getByRole("form", { name: "Cấu hình provider" });
     await expectUi(page, ["ui_settings_ai_display_name", "ui_settings_ai_protocol", "ui_settings_ai_base_url", "ui_settings_ai_api_key", "ui_settings_ai_fetch_models", "ui_settings_ai_test_endpoint", "ui_settings_ai_role_matrix", "ui_settings_ai_save_provider"]);
     expect(await form.locator('[data-ui="ui_settings_ai_protocol"]').innerText()).toContain("OpenAI Chat Completions API");
+    await expectNoDrift(page); // also checked with the config panel form open, not just the empty screen
     await form.getByLabel("Tên hiển thị").fill("Local OpenAI");
     await form.getByLabel("Base URL").fill(modelsUrl);
     const key = form.getByLabel("API key", { exact: true });
@@ -97,11 +97,13 @@ test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, fi
     // row Test: latency on the row
     await row.getByRole("button", { name: "Test", exact: true }).click();
     await expect.poll(() => row.innerText()).toMatch(/\d+ ms/);
+    await parityShot(page, "settings-ai-rows"); // a saved, tested row: dot + name + kind badge, latency + masked key
 
     // filter is a literal, client-side substring over name / base URL / models
     const filter = page.getByRole("searchbox", { name: "Lọc endpoint" });
     await filter.fill("(");
     expect(await rows.count()).toBe(0);
+    expect(await page.locator('[data-ui="ui_settings_ai_endpoint_list"]').innerText()).toContain("Không có endpoint khớp.");
     await filter.fill("LOCAL open");
     expect(await rows.count()).toBe(1);
     await filter.fill("");
