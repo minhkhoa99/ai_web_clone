@@ -3,7 +3,7 @@ import { createProject } from "@/core/jobs";
 import { createSchema } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle } from "@/app/_server/http";
-import { credentialsSchema, holdCredentials } from "@/app/_server/session";
+import { credentialsSchema, holdCredentials, needsCredentials } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,8 @@ export function POST(req: Request) {
 }
 
 // History list: 20 per page, newest update first, `q` = URL substring, `phase` = first unfinished task's phase,
-// `thumbPage` = first captured pageId (its shots/1440.png is the row thumbnail).
+// `thumbPage` = first captured pageId (its shots/1440.png is the row thumbnail), `needsCredentials` = resume must ask
+// for a login first (the progress screen does).
 export function GET(req: Request) {
   return handle(req, () => {
     const { group, q, page } = listSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
@@ -47,7 +48,8 @@ export function GET(req: Request) {
            (SELECT key FROM tasks t WHERE t.project_id=p.id AND t.phase='capture' AND t.status='done' ORDER BY rowid LIMIT 1) AS thumbPage
          FROM projects p WHERE ${where} ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
-      .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE);
+      .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
+      .map((p) => ({ ...p, needsCredentials: needsCredentials(db, p.id as string) }));
     return Response.json({ projects, total, page, pageSize: PAGE_SIZE });
   });
 }

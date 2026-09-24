@@ -5,7 +5,16 @@ import { api, errorText } from "@/app/_ui/api";
 import { StatusPill } from "@/app/_ui/StatusPill";
 
 type Group = "incomplete" | "completed";
-type Row = { id: string; url: string; status: string; progress: number; phase: string | null; updatedAt: number; thumbPage: string | null };
+type Row = {
+  id: string;
+  url: string;
+  status: string;
+  progress: number;
+  phase: string | null;
+  updatedAt: number;
+  thumbPage: string | null;
+  needsCredentials: boolean;
+};
 type List = { projects: Row[]; total: number; page: number; pageSize: number };
 
 const RESUMABLE = new Set(["paused", "interrupted", "failed", "needs_auth"]);
@@ -111,11 +120,17 @@ export function History() {
               <td className="muted">{new Date(r.updatedAt * 1000).toLocaleString("vi-VN")}</td>
               <td>
                 <div className="row">
-                  {RESUMABLE.has(r.status) && (
-                    <button className="btn" onClick={() => void act(() => api(`/api/projects/${r.id}/resume`, { method: "POST" }))}>
-                      Tiếp tục
-                    </button>
-                  )}
+                  {RESUMABLE.has(r.status) &&
+                    (r.needsCredentials ? (
+                      // the progress screen asks for the account before resuming
+                      <Link className="btn" href={`/p/${r.id}`}>
+                        Tiếp tục
+                      </Link>
+                    ) : (
+                      <button className="btn" onClick={() => void act(() => api(`/api/projects/${r.id}/resume`, { method: "POST" }))}>
+                        Tiếp tục
+                      </button>
+                    ))}
                   {r.status === "running" && (
                     <button className="btn" onClick={() => void act(() => api(`/api/projects/${r.id}/pause`, { method: "POST" }))}>
                       Tạm dừng

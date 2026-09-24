@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDb } from "@/app/_server/db";
 import { authUrl } from "@/app/_server/http";
+import { needsCredentials } from "@/app/_server/credentials";
 import { loadProject } from "./data";
 import { ProgressView, type TaskView } from "./progress-view";
 
@@ -25,7 +26,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
           <Link href={`/p/${id}/code`}>Code</Link>
         </nav>
       </div>
-      <ProgressView projectId={id} url={project.url} initial={{ status: project.status, progress: project.progress, tasks, authUrl: auth }} />
+      <ProgressView projectId={id} url={project.url} initial={{ status: project.status, progress: project.progress, tasks, authUrl: auth, needsCredentials: needsCredentials(getDb(), id) }} />
     </>
   );
 }

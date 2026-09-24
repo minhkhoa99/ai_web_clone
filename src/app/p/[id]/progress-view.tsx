@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { JobEvent } from "@/core/jobs-base";
 import { api, errorText } from "@/app/_ui/api";
 import { StatusPill } from "@/app/_ui/StatusPill";
@@ -7,7 +7,7 @@ import { PhaseStepper, phaseStates } from "./phase-stepper";
 
 export type TaskView = { phase: string; key: string; status: string; errorCode: string | null };
 type LogLine = { n: number; level: "info" | "warn" | "error"; text: string };
-type Initial = { status: string; progress: number; tasks: TaskView[]; authUrl: string | null };
+type Initial = { status: string; progress: number; tasks: TaskView[]; authUrl: string | null; needsCredentials: boolean };
 
 const MAX_LOG = 500; // the log view keeps the newest lines only
 const RESUMABLE = new Set(["paused", "interrupted", "failed"]);
@@ -41,6 +41,8 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
   const [log, setLog] = useState<LogLine[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [needsCreds, setNeedsCreds] = useState(initial.needsCredentials);
+  const [askFor, setAskFor] = useState<string | null>(null); // resume / auth/continue waiting for credentials
   const logRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -51,6 +53,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       if (e.type === "status") setStatus(e.status);
       if (e.type === "progress") setProgress(e.progress);
       if (e.type === "needs_auth") setAuthUrl(e.url);
+      if (e.type === "task" && e.phase === "login" && e.errorCode === "LOGIN_FAILED") setNeedsCreds(true);
       if (e.type === "task")
         setTasks((prev) => new Map(prev).set(taskKey(e), { phase: e.phase, key: e.key, status: e.status, errorCode: e.errorCode ?? null }));
       const line = describe(e);
@@ -63,15 +66,29 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [log]);
 
-  const call = async (path: string) => {
+  const call = async (path: string, body?: unknown) => {
     setBusy(true);
     setMsg("");
     try {
-      await api(`/api/projects/${projectId}/${path}`, { method: "POST" });
+      await api(`/api/projects/${projectId}/${path}`, body === undefined ? { method: "POST" } : { body });
+      return true;
     } catch (e) {
       setMsg(errorText(e));
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Resume paths: auth mode auto without usable credentials asks for them first (spec §3).
+  const resume = (path: string) => (needsCreds ? setAskFor(path) : void call(path));
+  const submitCreds = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const credentials = { user: String(f.get("user")), pass: String(f.get("pass")), remember: f.get("remember") === "on" };
+    if (askFor && (await call(askFor, { credentials }))) {
+      setAskFor(null);
+      setNeedsCreds(false);
     }
   };
 
@@ -93,7 +110,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
             </button>
           )}
           {RESUMABLE.has(status) && (
-            <button className="btn primary" disabled={busy} onClick={() => void call("resume")}>
+            <button className="btn primary" disabled={busy} onClick={() => resume("resume")}>
               Tiếp tục
             </button>
           )}
@@ -109,11 +126,38 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
             <button className="btn" disabled={busy} onClick={() => void call("auth/open")}>
               Mở cửa sổ
             </button>
-            <button className="btn warn" disabled={busy} onClick={() => void call("auth/continue")}>
+            <button className="btn warn" disabled={busy} onClick={() => resume("auth/continue")}>
               Tiếp tục
             </button>
           </div>
         </div>
+      )}
+      {askFor && (
+        <form className="card stack" aria-label="Đăng nhập lại" onSubmit={(e) => void submitCreds(e)}>
+          <span>Cần tài khoản để đăng nhập tự động (lần đăng nhập trước thất bại hoặc chưa có tài khoản).</span>
+          <div className="grid-3">
+            <label className="field">
+              Tài khoản
+              <input name="user" required autoComplete="off" />
+            </label>
+            <label className="field">
+              Mật khẩu
+              <input name="pass" required type="password" autoComplete="off" />
+            </label>
+            <label className="row">
+              <input name="remember" type="checkbox" />
+              Ghi nhớ
+            </label>
+          </div>
+          <div className="row">
+            <button className="btn primary" disabled={busy}>
+              Tiếp tục với tài khoản này
+            </button>
+            <button type="button" className="btn" onClick={() => setAskFor(null)}>
+              Hủy
+            </button>
+          </div>
+        </form>
       )}
       {msg && <p className="alert" role="alert">{msg}</p>}
 

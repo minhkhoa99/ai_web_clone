@@ -75,6 +75,30 @@ test("POST /api/projects rejects an invalid body with 400 and never stores crede
   expect(list).not.toContain(row.auth_enc as string);
 });
 
+test("needsCredentials (list): auto mode without held/remembered creds or after LOGIN_FAILED; not once logged in or in other modes", async () => {
+  const make = async (config: unknown, credentials?: unknown) => {
+    const url = uniqueUrl();
+    const res = await projects.POST(post({ url, mode: "single", config, ...(credentials ? { credentials } : {}) }));
+    const { id } = (await res.json()) as { id: string };
+    created.push(id);
+    return { id, url };
+  };
+  const flag = async (p: { url: string }) =>
+    ((await (await projects.GET(new Request(`http://127.0.0.1/api/projects?q=${encodeURIComponent(p.url)}`))).json()) as { projects: { needsCredentials: boolean }[] }).projects[0]!
+      .needsCredentials;
+  const bare = await make({ auth: { mode: "auto" } });
+  const held = await make({ auth: { mode: "auto" } }, { user: "u", pass: "p", remember: true });
+  const manual = await make({ auth: { mode: "manual" } });
+  expect([await flag(bare), await flag(held), await flag(manual)]).toEqual([true, false, false]);
+
+  const db = getDb();
+  const login = (id: string, status: string, code: string | null) =>
+    db.prepare("INSERT INTO tasks(id,project_id,phase,key,status,error_code) VALUES(?,?,?,?,?,?)").run(crypto.randomUUID(), id, "login", "k", status, code);
+  login(held.id, "failed", "LOGIN_FAILED"); // a wrong password is never retried: ask even though creds are remembered
+  login(bare.id, "done", null); // the session lives in the profile: nothing to ask
+  expect([await flag(bare), await flag(held)]).toEqual([false, true]);
+});
+
 test("providers: GET masks the key; /test decrypts it server-side and counts models", async () => {
   let seen: IncomingHttpHeaders = {};
   const server = createServer((req, res) => {
