@@ -24,6 +24,8 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
   const [maxPages, setMaxPages] = useState(cfg?.maxPages ?? 20);
   const [depth, setDepth] = useState(cfg?.depth ?? 2);
   const [concurrency, setConcurrency] = useState(cfg?.concurrency ?? 3);
+  const [delayMs, setDelayMs] = useState(cfg?.delayMs ?? 500);
+  const [selectors, setSelectors] = useState({ user: cfg?.auth.selectors?.user ?? "", pass: cfg?.auth.selectors?.pass ?? "", submit: cfg?.auth.selectors?.submit ?? "" });
   const [authMode, setAuthMode] = useState<AuthMode>(cfg?.auth.mode ?? "none");
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
@@ -58,13 +60,16 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
     setBusy(true);
     setMsg("");
     try {
+      // only the selectors the user filled in; none -> the login form is found heuristically
+      const filled = Object.fromEntries(Object.entries(selectors).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()]));
       const config = {
         maxPages,
         depth,
         concurrency,
+        delayMs,
         threshold: threshold / 100,
         ...(tokenBudget ? { tokenBudget: Number(tokenBudget) } : {}),
-        auth: { mode: authMode, ...(cfg?.auth.selectors ? { selectors: cfg.auth.selectors } : {}) },
+        auth: { mode: authMode, ...(authMode === "auto" && Object.keys(filled).length > 0 ? { selectors: filled } : {}) },
       };
       const credentials = authMode === "auto" ? { credentials: { user, pass, remember } } : {};
       const { id } = await api<{ id: string }>("/api/projects", { body: { url, mode, config, ...credentials } });
@@ -113,6 +118,10 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
             </label>
           </div>
         )}
+        <label className="field" style={{ maxWidth: 260 }}>
+          Delay giữa các request (ms)
+          <input type="number" min={0} max={10000} step={100} required value={delayMs} onChange={(e) => setDelayMs(e.target.valueAsNumber)} />
+        </label>
       </fieldset>
 
       <fieldset>
@@ -140,6 +149,19 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
               Ghi nhớ
             </label>
           </div>
+        )}
+        {authMode === "auto" && (
+          <details>
+            <summary>Selector form đăng nhập (tùy chọn)</summary>
+            <div className="grid-3">
+              {(["user", "pass", "submit"] as const).map((k) => (
+                <label key={k} className="field">
+                  Selector {k === "user" ? "ô tài khoản" : k === "pass" ? "ô mật khẩu" : "nút gửi"}
+                  <input className="mono" maxLength={500} placeholder="CSS selector" value={selectors[k]} onChange={(e) => setSelectors({ ...selectors, [k]: e.target.value })} />
+                </label>
+              ))}
+            </div>
+          </details>
         )}
       </fieldset>
 

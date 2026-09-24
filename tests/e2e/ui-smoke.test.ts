@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
 import { openDb } from "@/core/db";
+import type { ProjectConfig } from "@/core/jobs-base";
 import { serveDir } from "@/core/serve";
 import { startNextApp } from "./next-app";
 
@@ -122,6 +123,31 @@ test("new (manual login): after create the login step comes before the crawl; Qu
   page.once("dialog", (d) => void d.accept());
   await session.getByRole("button", { name: "Xóa phiên" }).click();
   await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã xóa phiên.");
+  await page.close();
+});
+
+test("new: delay and optional login selectors are saved in the project config", async () => {
+  const page = await browser.newPage();
+  await page.goto(`${base}/new`);
+  await page.getByLabel("URL").fill(`${site.url}/index.html`);
+  await page.getByLabel("Delay giữa các request (ms)").fill("0");
+  await page.getByLabel(/^Tự động/).check();
+  await page.getByLabel("Tài khoản", { exact: true }).fill("u");
+  await page.getByLabel("Mật khẩu", { exact: true }).fill("p");
+  await page.getByText("Selector form đăng nhập (tùy chọn)").click();
+  await page.getByLabel("Selector ô mật khẩu").fill("#pw");
+  await page.getByLabel("Selector nút gửi").fill("button.go");
+  await page.getByRole("button", { name: "Quét trang" }).click();
+  await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
+  const id = /\/p\/([^/]+)\/sitemap$/.exec(page.url())![1]!;
+  const db = openDb(env.DB_PATH);
+  try {
+    const cfg = JSON.parse((db.prepare("SELECT config_json FROM projects WHERE id=?").get(id) as { config_json: string }).config_json) as ProjectConfig;
+    expect(cfg.delayMs).toBe(0);
+    expect(cfg.auth).toEqual({ mode: "auto", selectors: { pass: "#pw", submit: "button.go" } });
+  } finally {
+    db.close();
+  }
   await page.close();
 });
 
