@@ -70,14 +70,17 @@ function setStatus(db: DatabaseSync, projectId: string, status: ProjectStatus, r
 }
 
 // discover is the sitemap step before the page selection: a draft (only discover done) is 0%, not 100%.
-function updateProgress(db: DatabaseSync, projectId: string): number {
+function updateProgress(db: DatabaseSync, projectId: string): { progress: number; tokensUsed: number } {
   const { total, done } = db
     .prepare("SELECT COUNT(*) total, COALESCE(SUM(status='done'),0) done FROM tasks WHERE project_id=? AND phase<>'discover'")
     .get(projectId) as { total: number; done: number };
   const progress = total ? Math.round((done * 100) / total) : 0;
   db.prepare("UPDATE projects SET progress=?,updated_at=unixepoch() WHERE id=?").run(progress, projectId);
-  return progress;
+  return { progress, tokensUsed: tokensUsedOf(db, projectId) };
 }
+
+const tokensUsedOf = (db: DatabaseSync, projectId: string): number =>
+  (db.prepare("SELECT tokens_used FROM projects WHERE id=?").get(projectId) as { tokens_used: number } | undefined)?.tokens_used ?? 0;
 
 function startTask(db: DatabaseSync, projectId: string, t: TaskRow): void {
   db.prepare("UPDATE tasks SET status='running',attempts=attempts+1,error_code=NULL,error_msg=NULL,updated_at=unixepoch() WHERE id=?").run(t.id);
@@ -88,13 +91,13 @@ function startTask(db: DatabaseSync, projectId: string, t: TaskRow): void {
 // The checkpoint: only called once `outputPath` exists (renamed into place). `marker` records a
 // non-fatal code on a done task (BUDGET_EXCEEDED, an AI error answered by fallback names).
 function finishTask(db: DatabaseSync, projectId: string, t: TaskRow, outputPath: string, marker?: string, alsoInTx?: () => void): void {
-  const progress = tx(db, () => {
+  const p = tx(db, () => {
     db.prepare("UPDATE tasks SET status='done',output_path=?,error_code=?,updated_at=unixepoch() WHERE id=?").run(outputPath, marker ?? null, t.id);
     alsoInTx?.();
     return updateProgress(db, projectId);
   });
   emit(projectId, { type: "task", phase: t.phase, key: t.key, status: "done", ...(marker ? { errorCode: marker } : {}) });
-  emit(projectId, { type: "progress", progress });
+  emit(projectId, { type: "progress", ...p });
 }
 
 function failTask(db: DatabaseSync, projectId: string, t: TaskRow, e: unknown, status: "failed" | "needs_auth" = "failed"): void {
@@ -160,6 +163,14 @@ export async function enqueue(db: DatabaseSync, projectId: string, pageUrls: str
     insertTask(db, projectId, "emit", "all");
     insertTask(db, projectId, "qa", "all");
   });
+}
+
+// "Chạy lại QA" (spec parity §4.3): one qa task keyed `rescore` (re-armed on every press), run through the queue like any
+// job. runQa scores and rewrites qa.json (no `stale`) but creates no fix task: a manual edit is never auto-patched.
+export function requeueRescore(db: DatabaseSync, projectId: string): void {
+  db.prepare(
+    "INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'qa','rescore','pending') ON CONFLICT(project_id,phase,key) DO UPDATE SET status='pending',attempts=0,error_code=NULL,error_msg=NULL,updated_at=unixepoch()",
+  ).run(randomUUID(), projectId);
 }
 
 // --- run -----------------------------------------------------------------------------
@@ -434,6 +445,7 @@ async function runQa(run: Run): Promise<boolean> {
   }
   const failing = [...minBy].filter(([, min]) => min < run.cfg.threshold).map(([k]) => k);
   finishTask(run.db, run.projectId, t, "qa.json", undefined, () => {
+    if (t.key === "rescore") return; // the key is in the db: also right after an interrupt + resume
     for (const k of failing) insertTask(run.db, run.projectId, "fix", k);
   });
   return true;
@@ -506,7 +518,7 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     }
     if (paused.has(projectId)) return setStatus(db, projectId, "paused");
     tx(db, () => db.prepare("UPDATE projects SET status='completed',progress=100,updated_at=unixepoch() WHERE id=?").run(projectId));
-    emit(projectId, { type: "progress", progress: 100 });
+    emit(projectId, { type: "progress", progress: 100, tokensUsed: tokensUsedOf(db, projectId) });
     emit(projectId, { type: "status", status: "completed" });
   } catch (e) {
     // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.

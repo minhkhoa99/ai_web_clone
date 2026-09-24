@@ -53,7 +53,7 @@ export type JobEvent =
   | { type: "task"; phase: string; key: string; status: TaskStatus; errorCode?: string; error?: string }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
   | { type: "needs_auth"; url: string; code: string }
-  | { type: "progress"; progress: number };
+  | { type: "progress"; progress: number; tokensUsed: number };
 // Server-stamped (epoch ms) in emit: log times and the run clock are real, not the client's receive time.
 export type StampedEvent = JobEvent & { at: number };
 
