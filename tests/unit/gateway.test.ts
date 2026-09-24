@@ -1,5 +1,5 @@
 import { expect, test, vi, afterEach } from "vitest";
-import { toRequest, parseResponse, saveProvider, generate, fetchModels } from "@/core/gateway";
+import { toRequest, parseResponse, saveProvider, updateProvider, generate, fetchModels } from "@/core/gateway";
 import { openDb } from "@/core/db";
 
 afterEach(() => {
@@ -135,4 +135,57 @@ test("generate accumulates tokens_used and throws BUDGET_EXCEEDED past project's
 test("openai tool call with malformed JSON arguments -> AppError AI_BAD_RESPONSE, not a SyntaxError", () => {
   const raw = { choices: [{ message: { content: "", tool_calls: [{ function: { name: "readStyle", arguments: "{not json" } }] } }] };
   expect(() => parseResponse("openai", raw)).toThrow(expect.objectContaining({ name: "AppError", code: "AI_BAD_RESPONSE" }));
+});
+
+test("provider choice: project config.providerId wins when it serves the role, else the most recently saved/updated one", async () => {
+  const db = openDb(":memory:");
+  const add = (name: string, roles: Record<string, string>) => saveProvider(db, { name, kind: "openai", baseUrl: `https://${name}/v1`, apiKey: "sk-x", roles });
+  const a = add("a", { code: "model-a" });
+  add("b", { code: "model-b" });
+  const c = add("c", { vision: "model-c" });
+  const seen: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init: { body: string }) => {
+    seen.push(`${new URL(url).host}:${(JSON.parse(init.body) as { model: string }).model}`);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200 });
+  }));
+  const ask = (projectId?: string) => generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], ...(projectId ? { projectId } : {}) }, async () => {});
+  const project = (id: string, providerId: string) =>
+    db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES(?,?,?,?,?)").run(id, "http://x", "single", JSON.stringify({ providerId }), "draft");
+
+  await ask(); // newest with the role
+  expect(updateProvider(db, a, { name: "a" })).toBe(true); // updating a makes it the newest
+  await ask();
+  project("p-a", a);
+  project("p-c", c); // c has no code role: ignored
+  expect(updateProvider(db, a, { roles: { vision: "model-a" } })).toBe(true); // a loses the code role
+  await ask("p-a");
+  await ask("p-c");
+  expect(updateProvider(db, "missing", { name: "x" })).toBe(false);
+  expect(seen).toEqual(["b:model-b", "a:model-a", "b:model-b", "b:model-b"]);
+});
+
+test("provider choice: config.providerId pins an older provider for its project only", async () => {
+  const db = openDb(":memory:");
+  const old = saveProvider(db, { name: "old", kind: "openai", baseUrl: "https://old/v1", apiKey: "sk-x", roles: { code: "m-old" } });
+  saveProvider(db, { name: "new", kind: "openai", baseUrl: "https://new/v1", apiKey: "sk-x", roles: { code: "m-new" } });
+  db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES(?,?,?,?,?)").run("p1", "http://x", "single", JSON.stringify({ providerId: old }), "draft");
+  const hosts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    hosts.push(new URL(url).host);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200 });
+  }));
+  await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], projectId: "p1" }, async () => {});
+  await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }] }, async () => {});
+  expect(hosts).toEqual(["old", "new"]);
+});
+
+test("updateProvider re-encrypts a new api key; omitted fields are kept", () => {
+  const db = openDb(":memory:");
+  const id = saveProvider(db, { name: "n", kind: "openai", baseUrl: "https://o/v1", apiKey: "sk-first-key-0000", roles: { code: "m" } });
+  const before = db.prepare("SELECT * FROM providers WHERE id=?").get(id) as Record<string, string>;
+  updateProvider(db, id, { apiKey: "sk-second-key-1111" });
+  const after = db.prepare("SELECT * FROM providers WHERE id=?").get(id) as Record<string, string>;
+  expect(after.api_key_enc).not.toBe(before.api_key_enc);
+  expect(JSON.stringify(after)).not.toContain("sk-second-key-1111");
+  expect([after.name, after.base_url, after.roles_json]).toEqual([before.name, before.base_url, before.roles_json]);
 });

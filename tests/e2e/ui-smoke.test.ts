@@ -63,6 +63,16 @@ test("settings/ai: add a provider, it is listed with a masked key", async () => 
   await expect.poll(() => row.innerText()).toContain("sk-…1234");
   expect(await page.content()).not.toContain("sk-smoke-secret-key-1234");
   await expectNoDrift(page);
+
+  // edit without a new key keeps the stored one; delete asks first
+  await row.getByRole("button", { name: "Sửa" }).click();
+  await page.getByLabel("Tên").fill("Renamed OpenAI");
+  await page.getByRole("button", { name: "Lưu" }).click();
+  const renamed = page.getByRole("listitem").filter({ hasText: "Renamed OpenAI" });
+  await expect.poll(() => renamed.innerText()).toContain("sk-…1234");
+  page.once("dialog", (d) => void d.accept());
+  await renamed.getByRole("button", { name: "Xóa" }).click();
+  await expect.poll(() => page.getByRole("listitem").filter({ hasText: "OpenAI" }).count()).toBe(0);
   await page.close();
 });
 

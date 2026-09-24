@@ -6,6 +6,10 @@ import { ApiError } from "./http";
 
 export const providerIdSchema = z.object({ providerId: z.string().min(1) }).strict();
 
+const model = z.string().min(1).max(200).optional();
+export const rolesSchema = z.object({ vision: model, code: model, design: model }).strict();
+export const baseUrlSchema = z.url({ protocol: /^https?$/ }).transform((u) => u.replace(/\/+$/, ""));
+
 // Decrypts a stored key for a server-side call only; the plaintext never leaves the process.
 export function storedProvider(db: DatabaseSync, id: string): { kind: ProviderKind; baseUrl: string; apiKey: string } {
   const row = db.prepare("SELECT kind,base_url,api_key_enc FROM providers WHERE id=?").get(id) as

@@ -201,12 +201,14 @@ export function parseResponse(kind: ProviderKind, raw: unknown): GenerateResult 
 
 // ---- I/O: saveProvider, fetchModels, generate ----
 
+const NEXT_SEQ = "(SELECT COALESCE(MAX(saved_seq),0)+1 FROM providers)";
+
 export function saveProvider(
   db: DatabaseSync,
   p: { name: string; kind: ProviderKind; baseUrl: string; apiKey: string; roles: ProviderRoles },
 ): string {
   const id = randomUUID();
-  db.prepare("INSERT INTO providers(id,name,kind,base_url,api_key_enc,roles_json) VALUES(?,?,?,?,?,?)").run(
+  db.prepare(`INSERT INTO providers(id,name,kind,base_url,api_key_enc,roles_json,saved_seq) VALUES(?,?,?,?,?,?,${NEXT_SEQ})`).run(
     id,
     p.name,
     p.kind,
@@ -215,6 +217,20 @@ export function saveProvider(
     JSON.stringify(p.roles),
   );
   return id;
+}
+
+// Only the given fields change; a new apiKey is re-encrypted. false = no such provider.
+export function updateProvider(
+  db: DatabaseSync,
+  id: string,
+  p: { name?: string; baseUrl?: string; apiKey?: string; roles?: ProviderRoles },
+): boolean {
+  const { changes } = db
+    .prepare(
+      `UPDATE providers SET name=COALESCE(?,name),base_url=COALESCE(?,base_url),api_key_enc=COALESCE(?,api_key_enc),roles_json=COALESCE(?,roles_json),saved_seq=${NEXT_SEQ} WHERE id=?`,
+    )
+    .run(p.name ?? null, p.baseUrl ?? null, p.apiKey ? encrypt(p.apiKey) : null, p.roles ? JSON.stringify(p.roles) : null, id);
+  return changes > 0;
 }
 
 function modelsHeaders(kind: ProviderKind, apiKey: string): Record<string, string> {
@@ -248,20 +264,27 @@ interface ResolvedProvider {
   model: string;
 }
 
-function findProviderForRole(db: DatabaseSync, role: Role): ResolvedProvider {
-  const rows = db.prepare("SELECT name,kind,base_url,api_key_enc,roles_json FROM providers").all() as {
+// The project's chosen provider (config.providerId) when it serves the role, else the most recently saved
+// provider that does. Deterministic: saved_seq is bumped on every insert/update.
+function findProviderForRole(db: DatabaseSync, role: Role, projectId?: string): ResolvedProvider {
+  const rows = db.prepare("SELECT id,name,kind,base_url,api_key_enc,roles_json FROM providers ORDER BY saved_seq DESC, rowid DESC").all() as {
+    id: string;
     name: string;
     kind: ProviderKind;
     base_url: string;
     api_key_enc: string;
     roles_json: string;
   }[];
-  for (const row of rows) {
+  const project = projectId ? (db.prepare("SELECT config_json FROM projects WHERE id=?").get(projectId) as { config_json: string } | undefined) : undefined;
+  const preferred = project?.config_json ? (JSON.parse(project.config_json) as { providerId?: string }).providerId : undefined;
+  const serving = rows.flatMap((row) => {
     const roles = JSON.parse(row.roles_json) as ProviderRoles;
     const model = roles[role];
-    if (model) return { name: row.name, kind: row.kind, baseUrl: row.base_url, apiKeyEnc: row.api_key_enc, model };
-  }
-  throw new AppError("AI_BAD_CONFIG", `no provider configured for role "${role}"`, { role });
+    return model ? [{ id: row.id, roles, provider: { name: row.name, kind: row.kind, baseUrl: row.base_url, apiKeyEnc: row.api_key_enc, model } }] : [];
+  });
+  const pick = serving.find((r) => r.id === preferred) ?? serving[0];
+  if (!pick) throw new AppError("AI_BAD_CONFIG", `no provider configured for role "${role}"`, { role });
+  return pick.provider;
 }
 
 function applyTokenUsage(db: DatabaseSync, projectId: string | undefined, tokens: number): void {
@@ -280,7 +303,7 @@ function applyTokenUsage(db: DatabaseSync, projectId: string | undefined, tokens
 }
 
 export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: Sleep = defaultSleep): Promise<GenerateResult> {
-  const provider = findProviderForRole(db, opts.role);
+  const provider = findProviderForRole(db, opts.role, opts.projectId);
   const apiKey = decrypt(provider.apiKeyEnc);
   const req = toRequest(provider.kind, provider.baseUrl, apiKey, { ...opts, model: provider.model });
 

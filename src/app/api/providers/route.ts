@@ -3,20 +3,19 @@ import { decrypt } from "@/core/crypto";
 import { saveProvider } from "@/core/gateway";
 import { getDb } from "@/app/_server/db";
 import { handle } from "@/app/_server/http";
-import { maskKey } from "@/app/_server/providers";
+import { baseUrlSchema, maskKey, rolesSchema } from "@/app/_server/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_PROVIDERS = 100;
-const model = z.string().min(1).max(200).optional();
 const providerSchema = z
   .object({
     name: z.string().min(1).max(100),
     kind: z.enum(["anthropic", "openai"]),
-    baseUrl: z.url({ protocol: /^https?$/ }).transform((u) => u.replace(/\/+$/, "")),
+    baseUrl: baseUrlSchema,
     apiKey: z.string().min(1).max(4096),
-    roles: z.object({ vision: model, code: model, design: model }).strict().default({}),
+    roles: rolesSchema.default({}),
   })
   .strict();
 

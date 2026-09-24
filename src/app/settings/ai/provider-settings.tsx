@@ -5,7 +5,8 @@ import { api, errorText } from "@/app/_ui/api";
 type Kind = "anthropic" | "openai";
 type Role = "vision" | "code" | "design";
 type Provider = { id: string; name: string; kind: Kind; baseUrl: string; apiKey: string; roles: Partial<Record<Role, string>> };
-type Draft = { kind: Kind; name: string; baseUrl: string; apiKey: string; roles: Partial<Record<Role, string>> };
+// id set = editing a saved provider (an empty apiKey keeps the stored key)
+type Draft = { id?: string; kind: Kind; name: string; baseUrl: string; apiKey: string; roles: Partial<Record<Role, string>> };
 
 const ROLES: Role[] = ["vision", "code", "design"];
 const KIND_LABEL: Record<Kind, string> = { anthropic: "Anthropic Compatible", openai: "OpenAI Compatible" };
@@ -32,6 +33,12 @@ export function ProviderSettings() {
     setMsg("");
   };
 
+  const editForm = (p: Provider) => {
+    setDraft({ id: p.id, kind: p.kind, name: p.name, baseUrl: p.baseUrl, apiKey: "", roles: p.roles });
+    setModels([...new Set(Object.values(p.roles).filter((m): m is string => !!m))]); // current choices stay selectable
+    setMsg("");
+  };
+
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setMsg("");
@@ -47,7 +54,9 @@ export function ProviderSettings() {
   const fetchModels = () =>
     run(async () => {
       if (!draft) return;
-      const r = await api<{ models: string[] }>("/api/providers/models", { body: { kind: draft.kind, baseUrl: draft.baseUrl, apiKey: draft.apiKey } });
+      // editing without a new key: the saved provider's key (and saved base URL) is used server-side
+      const body = draft.id && !draft.apiKey ? { providerId: draft.id } : { kind: draft.kind, baseUrl: draft.baseUrl, apiKey: draft.apiKey };
+      const r = await api<{ models: string[] }>("/api/providers/models", { body });
       setModels(r.models);
     });
 
@@ -56,7 +65,9 @@ export function ProviderSettings() {
     void run(async () => {
       if (!draft) return;
       const roles = Object.fromEntries(Object.entries(draft.roles).filter(([, m]) => m));
-      await api("/api/providers", { body: { ...draft, roles } });
+      const { id, kind, apiKey, ...rest } = draft;
+      if (id) await api(`/api/providers/${id}`, { method: "PATCH", body: { ...rest, roles, ...(apiKey ? { apiKey } : {}) } });
+      else await api("/api/providers", { body: { ...rest, kind, apiKey, roles } });
       setDraft(null);
       await load();
     });
@@ -70,6 +81,15 @@ export function ProviderSettings() {
     } catch (e) {
       setTests((t) => ({ ...t, [id]: errorText(e) }));
     }
+  };
+
+  const remove = (p: Provider) => {
+    if (!confirm(`Xóa provider ${p.name}?`)) return;
+    void run(async () => {
+      await api(`/api/providers/${p.id}`, { method: "DELETE" });
+      if (draft?.id === p.id) setDraft(null);
+      await load();
+    });
   };
 
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -88,7 +108,9 @@ export function ProviderSettings() {
 
       {draft && (
         <form className="card stack" onSubmit={save}>
-          <h2>{KIND_LABEL[draft.kind]}</h2>
+          <h2>
+            {draft.id ? "Sửa" : "Thêm"} {KIND_LABEL[draft.kind]}
+          </h2>
           <div className="grid-3">
             <label className="field">
               Tên
@@ -100,11 +122,18 @@ export function ProviderSettings() {
             </label>
             <label className="field">
               API key
-              <input required type="password" autoComplete="off" value={draft.apiKey} onChange={(e) => set({ apiKey: e.target.value })} />
+              <input
+                required={!draft.id}
+                type="password"
+                autoComplete="off"
+                placeholder={draft.id ? "để trống = giữ key cũ" : undefined}
+                value={draft.apiKey}
+                onChange={(e) => set({ apiKey: e.target.value })}
+              />
             </label>
           </div>
           <div className="row">
-            <button type="button" className="btn" disabled={busy || !draft.baseUrl || !draft.apiKey} onClick={() => void fetchModels()}>
+            <button type="button" className="btn" disabled={busy || !draft.baseUrl || (!draft.apiKey && !draft.id)} onClick={() => void fetchModels()}>
               Fetch models
             </button>
             <span className="muted">{models.length ? `${models.length} model` : "Chưa có danh sách model"}</span>
@@ -150,6 +179,12 @@ export function ProviderSettings() {
                 <span className="muted" role="status">{tests[p.id]}</span>
                 <button className="btn" onClick={() => void test(p.id)}>
                   Test
+                </button>
+                <button className="btn" disabled={busy} onClick={() => editForm(p)}>
+                  Sửa
+                </button>
+                <button className="btn danger" disabled={busy} onClick={() => remove(p)}>
+                  Xóa
                 </button>
               </div>
             </li>

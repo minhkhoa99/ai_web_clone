@@ -12,6 +12,7 @@ import { emit } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import * as providers from "@/app/api/providers/route";
 import * as providerTest from "@/app/api/providers/test/route";
+import * as providerOne from "@/app/api/providers/[id]/route";
 import * as projects from "@/app/api/projects/route";
 import * as project from "@/app/api/projects/[id]/route";
 import * as start from "@/app/api/projects/[id]/start/route";
@@ -103,6 +104,31 @@ test("providers: GET masks the key; /test decrypts it server-side and counts mod
 });
 
 const FILE_CSP = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; font-src 'self'";
+
+test("providers: PATCH edits fields (a new key re-encrypted, an omitted key kept), DELETE removes; unknown id 404", async () => {
+  const created = await providers.POST(post({ name: "p", kind: "openai", baseUrl: "https://o.test/v1", apiKey: "sk-original-key-1234", roles: { code: "m1" } }));
+  const { id } = (await created.json()) as { id: string };
+  const one = async () =>
+    ((await (await providers.GET(new Request("http://127.0.0.1/api/providers"))).json()) as { providers: { id: string; name: string; baseUrl: string; apiKey: string; roles: Record<string, string> }[] }).providers.find((p) => p.id === id);
+  const patch = (body: unknown, target = id) => {
+    const text = JSON.stringify(body);
+    return providerOne.PATCH(new Request("http://127.0.0.1", { method: "PATCH", body: text, headers: jsonHeaders(text) }), ctx({ id: target }));
+  };
+
+  expect((await patch({ name: "renamed", baseUrl: "https://n.test/v1/", roles: { vision: "v1" } })).status).toBe(200);
+  expect(await one()).toMatchObject({ name: "renamed", baseUrl: "https://n.test/v1", apiKey: "sk-…1234", roles: { vision: "v1" } });
+  expect((await patch({ apiKey: "sk-replaced-key-9999" })).status).toBe(200);
+  expect((await one())?.apiKey).toBe("sk-…9999");
+  const row = getDb().prepare("SELECT * FROM providers WHERE id=?").get(id) as Record<string, unknown>;
+  expect(JSON.stringify(row)).not.toContain("sk-replaced-key-9999");
+  expect((await patch({ kind: "anthropic" })).status).toBe(400); // kind is fixed
+  expect((await patch({ name: "x" }, "missing")).status).toBe(404);
+
+  const del = () => providerOne.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
+  expect((await del()).status).toBe(200);
+  expect(await one()).toBeUndefined();
+  expect((await del()).status).toBe(404);
+});
 
 test("files route: assets and SVG are sandboxed, unknown downloads (.bin) are attachments, pages pin script-src to the runtime", async () => {
   const id = await newProject();
