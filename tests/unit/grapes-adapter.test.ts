@@ -361,3 +361,14 @@ test("promoteLayout rejects sections on the same page, unknown ids and a single 
   expect(code(["p1-s1", "nope"])).toBe("IR_PATCH_INVALID");
   expect(code(["p1-s1"])).toBe("IR_PATCH_INVALID");
 });
+
+test("irToGrapes: markup-looking text stays a textnode (content = raw text, no element), in a text element and bare", () => {
+  const ir = sampleIr();
+  const evil = '<img src=x onerror="alert(1)">';
+  ir.sections[0]!.root.children[0]!.children[0]!.text = evil; // h1 text
+  ir.sections[0]!.root.children.push(txt("bare", evil));
+  const [hero] = irToGrapes(ir, "p1", OPTS).components;
+  expect(kids(kids(hero!)[0]!)).toEqual([{ type: "textnode", content: evil, attributes: {}, classes: [] }]);
+  expect(kids(hero!).at(-1)).toEqual({ type: "textnode", content: evil, attributes: {}, classes: [] });
+  expect(JSON.stringify(hero)).not.toContain('"tagName":"img"');
+});
