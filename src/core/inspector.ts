@@ -171,10 +171,12 @@ export function asTools(
   let count = 0;
   let images: string[] = []; // <= maxCalls screenshots, each <= 800x800
 
+  // Only the pages that exist are advertised as targets (the fix loop has no live original page).
+  const target = { ...targetParam, enum: pages.orig ? ["orig", "clone"] : ["clone"] };
   const tools: ToolDef[] = Object.entries(TOOL_SPECS).map(([name, spec]) => ({
     name,
     description: spec.description,
-    parameters: spec.parameters,
+    parameters: { ...spec.parameters, properties: { ...(spec.parameters.properties as Record<string, unknown>), target } },
   }));
 
   async function call(name: string, args: unknown): Promise<unknown> {

@@ -113,6 +113,15 @@ test("asTools: readStyle succeeds via tool call, target orig not available retur
   expect(result.calls).toBe(2);
 });
 
+test("asTools: target \"orig\" is advertised only when an original page is given", async () => {
+  await onSite1(async (page) => {
+    const enums = (pages: Parameters<typeof asTools>[0]) =>
+      asTools(pages).tools.map((t) => (t.parameters as { properties: { target: { enum: string[] } } }).properties.target.enum);
+    expect(new Set(enums({ clone: page }).map((e) => e.join()))).toEqual(new Set(["clone"]));
+    expect(new Set(enums({ orig: page, clone: page }).map((e) => e.join()))).toEqual(new Set(["orig,clone"]));
+  });
+});
+
 test("asTools: unknown tool name and op errors both return {error} and count as a call", async () => {
   const result = await onSite1(async (page) => {
     const { call, calls } = asTools({ clone: page });
