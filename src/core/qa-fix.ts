@@ -215,7 +215,9 @@ async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: str
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
     for (const call of res.toolCalls) results.push({ name: call.name, result: await inspector.call(call.name, call.args) });
-    messages = [...messages, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
+    const turn = `${res.text}
+TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then the results
+    messages = [...messages, { role: "assistant", content: turn }, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
     attach = inspector.takeImages();
   }
   throw new AppError(Codes.AI_BAD_RESPONSE, `no patch after ${MAX_GENERATE_CALLS} generate calls`, { projectId: ctx.projectId });

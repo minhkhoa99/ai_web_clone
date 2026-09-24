@@ -138,6 +138,11 @@ test("tool calls are fed back as TOOL_RESULTS; the 6th call wastes the round", a
   expect(fed.role).toBe("user");
   expect(fed.content.startsWith("TOOL_RESULTS ")).toBe(true);
   expect(fed.content).toContain("rgb(255, 0, 0)");
+  // the AI's own turn (its tool calls) precedes the results, so the conversation reads in order
+  const turn = generateMock.mock.calls[1]![1].messages.at(-2)!;
+  expect(turn.role).toBe("assistant");
+  expect(turn.content).toContain("TOOL_CALLS ");
+  expect(turn.content).toContain("readStyle");
 });
 
 test("BUDGET_EXCEEDED stops the section without throwing; fixAll starts no AI work after it", async () => {
