@@ -15,6 +15,7 @@ type Row = {
   updatedAt: number;
   thumbPage: string | null;
   needsCredentials: boolean;
+  queued: boolean;
 };
 type List = { projects: Row[]; total: number; page: number; pageSize: number };
 
@@ -106,7 +107,7 @@ export function History() {
               </td>
               <td className="mono">{r.url}</td>
               <td>
-                <StatusPill status={r.status} />
+                <StatusPill status={r.status} queued={r.queued} />
               </td>
               <td>
                 <div className="row">

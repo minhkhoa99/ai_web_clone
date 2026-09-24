@@ -47,7 +47,7 @@ export function pageIdsFor(urls: string[]): string[] {
 export type ProjectStatus = "draft" | "running" | "paused" | "interrupted" | "needs_auth" | "failed" | "completed";
 export type TaskStatus = "pending" | "running" | "done" | "failed" | "needs_auth";
 export type JobEvent =
-  | { type: "status"; status: ProjectStatus; reason?: string }
+  | { type: "status"; status: ProjectStatus; reason?: string; queued?: boolean } // queued: only on the SSE's first event
   | { type: "phase"; phase: string }
   | { type: "task"; phase: string; key: string; status: TaskStatus; errorCode?: string; error?: string }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }

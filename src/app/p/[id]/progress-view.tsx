@@ -42,6 +42,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [needsCreds, setNeedsCreds] = useState(initial.needsCredentials);
+  const [queued, setQueued] = useState(false); // set by the SSE's first event and by resume responses
   const [askFor, setAskFor] = useState<string | null>(null); // resume / auth/continue waiting for credentials
   const logRef = useRef<HTMLPreElement>(null);
 
@@ -50,7 +51,10 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
     const es = new EventSource(`/api/projects/${projectId}/events`);
     es.onmessage = (m: MessageEvent<string>) => {
       const e = JSON.parse(m.data) as JobEvent;
-      if (e.type === "status") setStatus(e.status);
+      if (e.type === "status") {
+        setStatus(e.status);
+        setQueued(e.queued ?? false); // any status the job itself emits means it left the queue
+      }
       if (e.type === "progress") setProgress(e.progress);
       if (e.type === "needs_auth") setAuthUrl(e.url);
       if (e.type === "task" && e.phase === "login" && e.errorCode === "LOGIN_FAILED") setNeedsCreds(true);
@@ -70,7 +74,8 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
     setBusy(true);
     setMsg("");
     try {
-      await api(`/api/projects/${projectId}/${path}`, body === undefined ? { method: "POST" } : { body });
+      const r = await api<{ queued?: boolean }>(`/api/projects/${projectId}/${path}`, body === undefined ? { method: "POST" } : { body });
+      if (r.queued) setQueued(true);
       return true;
     } catch (e) {
       setMsg(errorText(e));
@@ -100,7 +105,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       <div className="row spread card">
         <div className="row">
           <span className="mono">{url}</span>
-          <StatusPill status={status} />
+          <StatusPill status={status} queued={queued} />
           <span className="mono">{progress}%</span>
         </div>
         <div className="row">

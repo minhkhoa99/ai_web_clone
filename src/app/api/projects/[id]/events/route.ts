@@ -1,4 +1,4 @@
-import { subscribe } from "@/core/jobs";
+import { isWaiting, subscribe } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, type IdCtx } from "@/app/_server/http";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const HEARTBEAT_MS = 15_000;
 const MAX_BUFFERED = 1_000; // a client this far behind is gone or stuck: close instead of buffering forever
 
-// SSE: the current status first (a late subscriber starts in sync), then every job event, plus a heartbeat comment.
+// SSE: the current status (+ whether it waits in the queue) first (a late subscriber starts in sync), then every job event, plus a heartbeat comment.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -37,7 +37,7 @@ export function GET(req: Request, { params }: IdCtx) {
           req.signal.removeEventListener("abort", close);
         };
         req.signal.addEventListener("abort", close);
-        send(`data: ${JSON.stringify({ type: "status", status })}\n\n`);
+        send(`data: ${JSON.stringify({ type: "status", status, queued: isWaiting(id) })}\n\n`);
       },
       cancel() {
         cleanup();

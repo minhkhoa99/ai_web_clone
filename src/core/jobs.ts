@@ -561,6 +561,8 @@ export function startProject(db: DatabaseSync, projectId: string, opts: RunOpts 
 }
 
 export const isQueuedOrActive = (projectId: string): boolean => queued.has(projectId);
+// Waiting in the queue behind the active job (not started yet: its status is still the pre-run one).
+export const isWaiting = (projectId: string): boolean => waiting.some((j) => j.projectId === projectId);
 // Whether startProject would accept a new project now (lets callers refuse before doing prep work).
 export const queueHasRoom = (): boolean => !active || waiting.length < MAX_WAITING;
 

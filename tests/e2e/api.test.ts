@@ -324,7 +324,7 @@ test("SSE streams the current status, then job events, and closes on abort", asy
   expect(res.headers.get("content-type")).toBe("text/event-stream");
   const reader = res.body!.getReader();
   const dec = new TextDecoder();
-  expect(dec.decode((await reader.read()).value)).toBe(`data: ${JSON.stringify({ type: "status", status: "draft" })}\n\n`);
+  expect(dec.decode((await reader.read()).value)).toBe(`data: ${JSON.stringify({ type: "status", status: "draft", queued: false })}\n\n`);
   emit(id, { type: "log", level: "info", message: "hello" });
   expect(dec.decode((await reader.read()).value)).toBe(`data: ${JSON.stringify({ type: "log", level: "info", message: "hello" })}\n\n`);
   ac.abort();
@@ -357,6 +357,18 @@ test("start maps a full queue to 429 QUEUE_FULL", async () => {
   expect(again.status).toBe(409);
   expect(((await again.json()) as { code: string }).code).toBe("PROJECT_BUSY");
   expect(existsSync(join(config.workspaceRoot, fillers[1]!, "pages.json"))).toBe(false);
+
+  // waiting projects are flagged queued (list + the SSE's first event); the active one is running, not queued
+  const listed = async (p: string) => {
+    const url = (db.prepare("SELECT url FROM projects WHERE id=?").get(p) as { url: string }).url;
+    return ((await (await projects.GET(new Request(`http://127.0.0.1/api/projects?q=${encodeURIComponent(url)}`))).json()) as { projects: { queued: boolean; status: string }[] }).projects[0]!;
+  };
+  expect(await listed(fillers[0]!)).toMatchObject({ status: "running", queued: false });
+  expect(await listed(fillers[1]!)).toMatchObject({ status: "draft", queued: true });
+  const ac = new AbortController();
+  const sse = await events.GET(new Request("http://127.0.0.1", { signal: ac.signal }), ctx({ id: fillers[1]! }));
+  expect(new TextDecoder().decode((await sse.body!.getReader().read()).value)).toContain('"queued":true');
+  ac.abort();
 
   // a queued project waiting on a login can't get a login window (it would fight the job for the profile)
   db.prepare("UPDATE projects SET status='needs_auth' WHERE id=?").run(fillers[2]!);

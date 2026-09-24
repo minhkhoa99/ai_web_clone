@@ -65,7 +65,7 @@ legend { padding: 0 6px; color: var(--muted); }
 /* status pill: text always present, color is secondary */
 .pill { display: inline-block; font-family: var(--font-mono); font-size: 12px; padding: 1px 8px; border-radius: 4px; border: 1px solid currentColor; }
 .pill-draft, .pill-paused, .pill-interrupted { color: var(--muted); }
-.pill-running { color: #a5b4fc; }
+.pill-running, .pill-queued { color: #a5b4fc; }
 .pill-needs_auth { color: var(--warn); }
 .pill-failed { color: var(--bad); }
 .pill-completed { color: var(--ok); }
