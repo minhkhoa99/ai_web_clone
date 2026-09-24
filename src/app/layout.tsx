@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Shell } from "./_ui/Shell";
 import "./globals.css";
 
 // Self-hosted at build time by next/font: no runtime font CDN.
@@ -14,17 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="vi" className={`${head.variable} ${body.variable} ${mono.variable}`}>
       <body>
-        <header className="topbar">
-          <Link href="/" className="brand">
-            AI Web Clone
-          </Link>
-          <nav aria-label="Chính">
-            <Link href="/">Lịch sử</Link>
-            <Link href="/new">Clone mới</Link>
-            <Link href="/settings/ai">Cài đặt AI</Link>
-          </nav>
-        </header>
-        <main className="page">{children}</main>
+        <Shell>{children}</Shell>
       </body>
     </html>
   );

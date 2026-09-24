@@ -1,7 +1,6 @@
 "use client";
 import "grapesjs/dist/css/grapes.min.css";
 import type { Editor } from "grapesjs";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { GrapesProject } from "@/core/grapes-adapter";
@@ -114,14 +113,7 @@ export default function EditorPage() {
 
   return (
     <>
-      <div className="row spread">
-        <h1>Editor</h1>
-        <nav className="row" aria-label="Dự án">
-          <Link href={`/p/${id}`}>Tiến độ</Link>
-          <Link href={`/p/${id}/preview`}>Preview</Link>
-          <Link href={`/p/${id}/code`}>Code</Link>
-        </nav>
-      </div>
+      <h1>Editor</h1>
       <div className="row" style={{ marginBottom: 12 }}>
         <label className="field">
           Trang

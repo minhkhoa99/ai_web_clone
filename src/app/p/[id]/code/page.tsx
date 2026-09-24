@@ -40,13 +40,7 @@ export default async function CodePage({ params, searchParams }: { params: Promi
   const fileUrl = (f: string) => `/api/projects/${id}/files/out/${f.split("/").map(encodeURIComponent).join("/")}`;
   return (
     <>
-      <div className="row spread">
-        <h1>Mã nguồn</h1>
-        <nav className="row" aria-label="Dự án">
-          <Link href={`/p/${id}`}>Tiến độ</Link>
-          <Link href={`/p/${id}/preview`}>Preview</Link>
-        </nav>
-      </div>
+      <h1>Mã nguồn</h1>
       <ExportPanel projectId={id} disabled={files.length === 0} />
       {files.length === 0 ? (
         <p className="muted">Chưa có output (out/) — chạy clone trước.</p>

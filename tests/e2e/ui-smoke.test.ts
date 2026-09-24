@@ -5,13 +5,14 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { openDb } from "@/core/db";
 import type { ProjectConfig } from "@/core/jobs-base";
 import { serveDir } from "@/core/serve";
 import { startNextApp } from "./next-app";
-
-const DRIFT = /Turnstile|Telemetry|Deploy|Inject Auth|Stealth|Auto-reconcile|claude-3|gpt-4o/i;
+import { expectIconButtonsLabelled, expectNoDrift, expectUi, trackForeignRequests } from "./ui-checks";
+import { pngOf, seedProject, writeWs } from "./ui-seed";
+import { parityShot } from "./parity-shots";
 
 let app: { base: string; stop(): void } | undefined;
 let browser: Browser;
@@ -19,10 +20,6 @@ let site: { url: string; close(): Promise<void> };
 let base = "";
 let tmp = "";
 let env: { DB_PATH: string; WORKSPACE_ROOT: string; KEY_PATH: string };
-
-async function expectNoDrift(page: Page): Promise<void> {
-  expect(await page.locator("body").innerText()).not.toMatch(DRIFT);
-}
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "ui-smoke-"));
@@ -182,4 +179,39 @@ test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resume
   } finally {
     db.close();
   }
+});
+
+test("shell: fixed 56px header; 3 general nav items; under /p/[id] the 5 project links; no request off loopback", async () => {
+  const db = openDb(env.DB_PATH);
+  let id = "";
+  try {
+    id = seedProject(db, { url: "http://shell.test/", status: "draft" });
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/`);
+  await expectUi(page, ["ui_shell_header", "ui_shell_new_clone_cta", "ui_shell_settings_link", "ui_shell_sidebar_nav"]);
+  expect((await page.locator('[data-ui="ui_shell_header"]').boundingBox())?.height).toBe(56);
+  const general = page.getByRole("navigation", { name: "Chung" });
+  expect(await general.getByRole("link").allInnerTexts()).toEqual(["Lịch sử", "Clone mới", "Cài đặt AI"]);
+  expect(await general.getByRole("link", { name: "Lịch sử" }).getAttribute("aria-current")).toBe("page");
+  expect(await page.getByRole("navigation", { name: "Dự án" }).count()).toBe(0);
+
+  await page.goto(`${base}/p/${id}/sitemap`);
+  const project = page.getByRole("navigation", { name: "Dự án" });
+  expect(await project.getByRole("link").allInnerTexts()).toEqual(["Tiến độ", "Sitemap", "Preview", "Editor", "Code"]);
+  expect(await project.getByRole("link").evaluateAll((as) => as.map((a) => a.getAttribute("href")))).toEqual(
+    ["", "/sitemap", "/preview", "/editor", "/code"].map((s) => `/p/${id}${s}`),
+  );
+  expect(await project.getByRole("link", { name: "Sitemap" }).getAttribute("aria-current")).toBe("page");
+
+  for (const path of ["/new", "/settings/ai"]) await page.goto(`${base}${path}`);
+  expect(await page.locator('[data-ui="ui_shell_settings_link"]').getAttribute("aria-current")).toBe("page");
+  await expectIconButtonsLabelled(page);
+  await expectNoDrift(page);
+  expect(foreign).toEqual([]);
+  await parityShot(page, "shell-settings");
+  await page.close();
 });

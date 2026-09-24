@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getDb } from "@/app/_server/db";
 import { authUrl } from "@/app/_server/http";
 import { needsCredentials } from "@/app/_server/credentials";
@@ -18,15 +17,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
   const auth = project.status === "needs_auth" ? await authUrl(getDb(), project) : null;
   return (
     <>
-      <div className="row spread">
-        <h1>Tiến độ clone</h1>
-        <nav className="row" aria-label="Dự án">
-          <Link href={`/p/${id}/sitemap`}>Sitemap</Link>
-          <Link href={`/p/${id}/preview`}>Preview</Link>
-          <Link href={`/p/${id}/editor`}>Editor</Link>
-          <Link href={`/p/${id}/code`}>Code</Link>
-        </nav>
-      </div>
+      <h1>Tiến độ clone</h1>
       <ProgressView projectId={id} url={project.url} initial={{ status: project.status, progress: project.progress, tasks, authUrl: auth, needsCredentials: needsCredentials(getDb(), id) }} />
       <SessionTools projectId={id} />
     </>

@@ -56,7 +56,9 @@ afterAll(async () => {
 
 test("editor: edit one heading in the canvas, save -> exactly one patch op, out/index.html has the new text", async () => {
   const base = app!.base;
-  const page = await browser.newPage();
+  // Taller viewport: the fixed shell header/sidebar leave less room below the fold at the Playwright default
+  // (1280x720), which raced a canvas resize against the dblclick and missed the rich-text edit.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1080 } });
   await page.goto(`${base}/p/${projectId}/preview`);
   await page.getByRole("link", { name: "Editor" }).click();
   await page.waitForURL(/\/editor$/);

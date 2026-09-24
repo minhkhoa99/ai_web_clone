@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { api, errorText } from "@/app/_ui/api";
+import { downloadZip } from "@/app/_ui/download";
 
 export function ExportPanel({ projectId, disabled }: { projectId: string; disabled: boolean }) {
   const [dest, setDest] = useState("");
@@ -21,18 +22,9 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
     }
   };
 
-  // The zip is a POST (JSON body, CSRF guard), so it is downloaded via a blob URL rather than a plain link.
   const zip = () =>
     run(async () => {
-      const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "zip", stripIds }) });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
-        throw new Error(`${err.code ?? res.status}: ${err.message ?? res.statusText}`);
-      }
-      const href = URL.createObjectURL(await res.blob());
-      const a = Object.assign(document.createElement("a"), { href, download: `${projectId}.zip` });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(href), 10_000); // after the download has started
+      await downloadZip(projectId, stripIds);
       return "Đã tải ZIP.";
     });
 
