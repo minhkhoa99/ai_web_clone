@@ -57,7 +57,8 @@ test("auth/open is allowed on a draft (login before crawl) and still refused for
   expect((await open(id)).status).toBe(409);
 });
 
-test("discoverPages crawls on the project profile: a login made there (cookie in the profile) is used", async () => {
+// timeout: ~2s alone, but three persistent-profile launches can crawl while the suite runs `next build` in parallel
+test("discoverPages crawls on the project profile: a login made there (cookie in the profile) is used", { timeout: 180_000 }, async () => {
   const [loggedIn, fresh] = [await newProject(), await newProject()];
   // what the user's login in the window leaves behind: a cookie in <ws>/profile
   const ctx = await chromium.launchPersistentContext(join(config.workspaceRoot, loggedIn, "profile"), { headless: true });

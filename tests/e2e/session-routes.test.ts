@@ -44,7 +44,8 @@ const post = (route: { POST: (req: Request, ctx: { params: Promise<{ id: string 
 };
 const state = { cookies: [{ name: "sid", value: "secret-cookie-value", domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }], origins: [] as unknown[] };
 
-test("import: a storageState (session cookie + localStorage) lands in the persistent profile; the crawl is logged in", async () => {
+// timeouts: each test launches persistent profiles several times, slow while the suite runs `next build` in parallel
+test("import: a storageState (session cookie + localStorage) lands in the persistent profile; the crawl is logged in", { timeout: 180_000 }, async () => {
   const id = newProject();
   const res = await post(importRoute, id, { storageState: { ...state, origins: [{ origin: base, localStorage: [{ name: "theme", value: "dark" }] }] } });
   expect(res.status).toBe(200);
@@ -63,7 +64,7 @@ test("import: a storageState (session cookie + localStorage) lands in the persis
   }
 });
 
-test("clear: removes the profile, the next crawl is logged out", async () => {
+test("clear: removes the profile, the next crawl is logged out", { timeout: 180_000 }, async () => {
   const id = newProject();
   expect((await post(importRoute, id, { storageState: state })).status).toBe(200);
   expect(await discoverPages(getDb(), id)).toEqual([{ url: `${base}/`, needsAuth: false }]);
@@ -72,7 +73,7 @@ test("clear: removes the profile, the next crawl is logged out", async () => {
   expect(await discoverPages(getDb(), id)).toEqual([{ url: `${base}/`, needsAuth: true }]);
 });
 
-test("import: invalid JSON shapes are 400; a second import while one runs is 409 PROJECT_BUSY", async () => {
+test("import: invalid JSON shapes are 400; a second import while one runs is 409 PROJECT_BUSY", { timeout: 180_000 }, async () => {
   const id = newProject();
   expect((await post(importRoute, id, { storageState: { cookies: [{ name: "x", value: "y" }] } })).status).toBe(400); // no url/domain
   expect((await post(importRoute, id, { storageState: { origins: [{ origin: "javascript:alert(1)" }] } })).status).toBe(400);
