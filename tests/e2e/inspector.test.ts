@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { fileURLToPath } from "node:url";
 import type { Page } from "playwright";
+import { PNG } from "pngjs";
 import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { AppError } from "@/core/errors";
@@ -136,13 +137,27 @@ test("asTools: zod rejects bad args and still counts as a call", async () => {
   expect(result.calls).toBe(1);
 });
 
-test("asTools: screenshotSection tool returns base64 PNG string", async () => {
+test("asTools: screenshotSection attaches the PNG (taken once) and returns only a short text", async () => {
   const result = await onSite1(async (page) => {
-    const { call } = asTools({ clone: page });
-    return call("screenshotSection", { target: "clone", bbox: [0, 0, 20, 20] });
+    const { call, takeImages } = asTools({ clone: page });
+    const text = await call("screenshotSection", { target: "clone", bbox: [0, 0, 20, 20] });
+    return { text, images: takeImages(), again: takeImages() };
   });
-  expect(typeof result).toBe("string");
-  expect(Buffer.from(result as string, "base64").subarray(0, 4).toString("hex")).toBe("89504e47");
+  expect(result.text).toBe("image attached");
+  expect(result.images).toHaveLength(1);
+  expect(Buffer.from(result.images[0]!, "base64").subarray(0, 4).toString("hex")).toBe("89504e47");
+  expect(result.again).toEqual([]);
+});
+
+test("asTools: a screenshotSection box larger than 800x800 is clipped to its top-left 800x800 and says so", async () => {
+  const result = await onSite1(async (page) => {
+    const { call, takeImages } = asTools({ clone: page });
+    const text = await call("screenshotSection", { target: "clone", bbox: [0, 0, 5000, 900] });
+    return { text, images: takeImages() };
+  });
+  expect(result.text).toMatch(/clipped to the top-left 800x800 of the requested 5000x900/);
+  const png = PNG.sync.read(Buffer.from(result.images[0]!, "base64"));
+  expect([png.width, png.height]).toEqual([800, 800]);
 });
 
 test("asTools: the 6th call throws, the first 5 count and succeed", async () => {

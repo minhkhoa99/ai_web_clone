@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { PNG } from "pngjs";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { capturePage, type PageCapture } from "@/core/capture";
@@ -182,4 +183,21 @@ test("malformed tool calls (inherited tool name, unparseable args) waste the rou
   generateMock.mockReset();
   generateMock.mockRejectedValueOnce(new AppError("AI_BAD_RESPONSE", "tool call arguments are not JSON")).mockResolvedValueOnce(reply([restore(hero)]));
   expect(await fixSection(newCtx(), hero.id, "home")).toMatchObject({ rounds: 2, patched: true, status: "pass" });
+});
+
+test("a tool screenshot reaches the next generate call as an image, not as TOOL_RESULTS text (< 2KB)", async () => {
+  generateMock
+    .mockResolvedValueOnce({ text: "", tokens: 1, toolCalls: [{ name: "screenshotSection", args: { target: "clone", bbox: [0, 0, 5000, 5000] } }] })
+    .mockResolvedValueOnce(reply([restore(hero)]));
+  const res = await fixSection(newCtx(), hero.id, "home");
+  expect(res).toMatchObject({ rounds: 1, patched: true, status: "pass" });
+  const second = generateMock.mock.calls[1]![1];
+  const fed = second.messages.at(-1)!.content;
+  expect(fed.startsWith("TOOL_RESULTS ")).toBe(true);
+  expect(fed.length).toBeLessThan(2048);
+  expect(fed).toContain("image attached");
+  expect(second.images).toHaveLength(1);
+  const png = PNG.sync.read(Buffer.from(second.images![0]!, "base64"));
+  expect(png.width).toBeLessThanOrEqual(800);
+  expect(png.height).toBeLessThanOrEqual(800);
 });

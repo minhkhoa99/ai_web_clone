@@ -12,6 +12,7 @@ const MAX_A11Y_CHARS = 4000;
 const MAX_STYLE_PROPS = 50;
 const OP_TIMEOUT_MS = 2_000;
 const DEFAULT_MAX_CALLS = 5;
+const MAX_TOOL_SHOT_PX = 800; // a tool screenshot is at most 800x800 CSS px (token bound)
 
 function opFailed(what: string, context: Record<string, unknown>, cause: unknown): AppError {
   return new AppError(Codes.INSPECTOR_OP_FAILED, `${what} failed: ${String(cause)}`, { ...context, cause });
@@ -86,7 +87,8 @@ interface ToolSpec {
   description: string;
   parameters: Record<string, unknown>;
   schema: { safeParse(v: unknown): { success: boolean; data?: unknown; error?: { message: string } } };
-  run(page: Page, args: never): Promise<unknown>;
+  // attach: hands a base64 PNG to the caller, who sends it as an image of the next AI call (never as result text)
+  run(page: Page, args: never, attach: (png: string) => void): Promise<unknown>;
 }
 
 const TOOL_SPECS: Record<string, ToolSpec> = {
@@ -101,7 +103,7 @@ const TOOL_SPECS: Record<string, ToolSpec> = {
     run: (page, args: z.infer<typeof selectorArgs>) => snapshotA11y(page, args.selector),
   },
   screenshotSection: {
-    description: "PNG screenshot (base64) of the given [x,y,w,h] bounding box.",
+    description: `Screenshot of the given [x,y,w,h] bounding box (at most ${MAX_TOOL_SHOT_PX}x${MAX_TOOL_SHOT_PX}: larger boxes are clipped to their top-left part), attached as an image to the next message.`,
     parameters: {
       type: "object",
       properties: {
@@ -111,7 +113,13 @@ const TOOL_SPECS: Record<string, ToolSpec> = {
       required: ["target", "bbox"],
     },
     schema: bboxArgs,
-    run: async (page, args: z.infer<typeof bboxArgs>) => (await screenshotSection(page, args.bbox)).toString("base64"),
+    run: async (page, args: z.infer<typeof bboxArgs>, attach) => {
+      const [x, y, w, h] = args.bbox;
+      const clip: [number, number, number, number] = [x, y, Math.min(w, MAX_TOOL_SHOT_PX), Math.min(h, MAX_TOOL_SHOT_PX)];
+      attach((await screenshotSection(page, clip)).toString("base64"));
+      const clipped = w > MAX_TOOL_SHOT_PX || h > MAX_TOOL_SHOT_PX;
+      return clipped ? `image attached (clipped to the top-left ${clip[2]}x${clip[3]} of the requested ${w}x${h})` : "image attached";
+    },
   },
   hover: {
     description: "Hover the element matching selector.",
@@ -158,9 +166,10 @@ const TOOL_SPECS: Record<string, ToolSpec> = {
 export function asTools(
   pages: { orig?: Page; clone: Page },
   opts: { maxCalls?: number } = {},
-): { tools: ToolDef[]; call(name: string, args: unknown): Promise<unknown>; calls(): number } {
+): { tools: ToolDef[]; call(name: string, args: unknown): Promise<unknown>; calls(): number; takeImages(): string[] } {
   const maxCalls = opts.maxCalls ?? DEFAULT_MAX_CALLS;
   let count = 0;
+  let images: string[] = []; // <= maxCalls screenshots, each <= 800x800
 
   const tools: ToolDef[] = Object.entries(TOOL_SPECS).map(([name, spec]) => ({
     name,
@@ -186,11 +195,17 @@ export function asTools(
     if (!page) return { error: `target "${target}" not available` };
 
     try {
-      return await spec.run(page, parsed.data as never);
+      return await spec.run(page, parsed.data as never, (png) => images.push(png));
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
     }
   }
 
-  return { tools, call, calls: () => count };
+  // The screenshots attached since the last take (for the next AI call's `images`).
+  const takeImages = () => {
+    const taken = images;
+    images = [];
+    return taken;
+  };
+  return { tools, call, calls: () => count, takeImages };
 }

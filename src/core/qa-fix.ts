@@ -204,16 +204,19 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
   return { a11y, focus: focus.map((f, i) => ({ ...f, captured: captured[i], clone: clone[i] })) };
 }
 
-// Generate <-> tool-call loop on the clone page; returns the final reply text.
+// Generate <-> tool-call loop on the clone page; returns the final reply text. The evidence images go with the
+// first call only; a later call carries just the screenshots the AI asked for with the tool.
 async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
   const inspector = asTools({ clone: page });
+  let attach = images;
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
-    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(i === 0 ? { images } : {}) }); // images once per round
+    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}) });
     if (!res.toolCalls?.length) return res.text;
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
     for (const call of res.toolCalls) results.push({ name: call.name, result: await inspector.call(call.name, call.args) });
     messages = [...messages, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
+    attach = inspector.takeImages();
   }
   throw new AppError(Codes.AI_BAD_RESPONSE, `no patch after ${MAX_GENERATE_CALLS} generate calls`, { projectId: ctx.projectId });
 }
