@@ -2,11 +2,14 @@ import { afterAll, expect, test } from "vitest";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
+import type { CaptureNode, PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
+import { emitHtml } from "@/core/emit-html";
+import { buildIR } from "@/core/ir";
 import { createProject, startProject, type JobDeps } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
@@ -249,6 +252,44 @@ test("export: zip streams out/ as a valid zip; folder refuses the workspace and 
   tmpDirs.push(dest);
   expect((await exportRoute.POST(post({ mode: "folder", dest }), ctx({ id }))).status).toBe(200);
   expect(await readFile(join(dest, "assets", "a.css"), "utf8")).toBe("body{}");
+});
+
+test("export: the zip stream holds the busy guard until read to the end; stripIds re-emits without data-ir-id", async () => {
+  const db = getDb();
+  const id = await newProject("http://x.test/");
+  const ws = join(config.workspaceRoot, id);
+  const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+  const dom = el("html", [el("head"), el("body", [el("main", [el("h1", [el("#text", [], "Hello")])])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  const ir = buildIR([capture]);
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "pages.json"), JSON.stringify([{ pageId: "home", url: "http://x.test/" }]));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(ir));
+  db.prepare("INSERT INTO tasks(id,project_id,phase,key,status,output_path) VALUES(?,?,'capture','home','done','pages/home/capture.json')").run(crypto.randomUUID(), id);
+  await emitHtml(ir, { assetMap: {}, pageUrls: { home: "http://x.test/" }, outDir: join(ws, "out"), workspaceDir: ws });
+
+  const res = await exportRoute.POST(post({ mode: "zip" }), ctx({ id }));
+  expect(res.status).toBe(200);
+  const del = () => project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
+  expect((await del()).status).toBe(409); // mid-stream: nothing may wipe out/
+  expect(unzip(Buffer.from(await res.arrayBuffer()))["index.html"]).toContain("data-ir-id");
+
+  const stripped = unzip(Buffer.from(await (await exportRoute.POST(post({ mode: "zip", stripIds: true }), ctx({ id }))).arrayBuffer()));
+  expect(stripped["index.html"]).toContain("Hello");
+  expect(stripped["index.html"]).not.toContain("data-ir-id");
+  expect(Object.keys(stripped).sort()).toEqual(["css/styles.css", "index.html", "js/runtime.js"]);
+  const dest = join(await mkdtemp(join(tmpdir(), "sp1-export-")), "site");
+  tmpDirs.push(dest);
+  expect((await exportRoute.POST(post({ mode: "folder", dest, stripIds: true }), ctx({ id }))).status).toBe(200);
+  expect(await readFile(join(dest, "index.html"), "utf8")).not.toContain("data-ir-id");
+  expect((await readdir(ws)).filter((f) => f.startsWith("export-"))).toEqual([]); // temp emit removed
+  expect((await del()).status).toBe(200); // the finished stream released the guard
 });
 
 test("preview returns pages with emitted file names, qa scores and coverage", async () => {

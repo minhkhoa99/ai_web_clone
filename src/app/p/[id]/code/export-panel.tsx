@@ -6,6 +6,7 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
   const [dest, setDest] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stripIds, setStripIds] = useState(false);
   const path = `/api/projects/${projectId}/export`;
 
   const run = async (fn: () => Promise<string>) => {
@@ -23,7 +24,7 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
   // The zip is a POST (JSON body, CSRF guard), so it is downloaded via a blob URL rather than a plain link.
   const zip = () =>
     run(async () => {
-      const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "zip" }) });
+      const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "zip", stripIds }) });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
         throw new Error(`${err.code ?? res.status}: ${err.message ?? res.statusText}`);
@@ -37,12 +38,16 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
 
   const folder = () =>
     run(async () => {
-      const r = await api<{ dest: string }>(path, { body: { mode: "folder", dest } });
+      const r = await api<{ dest: string }>(path, { body: { mode: "folder", dest, stripIds } });
       return `Đã xuất ra ${r.dest}`;
     });
 
   return (
     <div className="card stack">
+      <label className="row">
+        <input type="checkbox" checked={stripIds} onChange={(e) => setStripIds(e.target.checked)} />
+        Bỏ data-ir-id
+      </label>
       <div className="row">
         <button className="btn primary" disabled={disabled || busy} onClick={() => void zip()}>
           Xuất ZIP
