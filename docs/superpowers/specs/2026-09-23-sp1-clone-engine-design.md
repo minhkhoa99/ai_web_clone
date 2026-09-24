@@ -92,6 +92,15 @@ URL → [auth check] → crawl (sitemap) → người dùng tick trang
 | Ngân sách token / dự án | 2.000.000 | có |
 | AI call timeout / retry | 120s / 2 lần + exponential backoff | không |
 | Chờ người dùng xử lý auth | 10 phút | không |
+| Event giữ / dự án (RAM và replay SSE) | 2000 | không |
+| Dòng event trên đĩa / dự án | ≤ 4000 (2 file xoay vòng) | không |
+| Ring event trong RAM | 32 dự án | không |
+| Độ dài chuỗi trong event | 2000 ký tự | không |
+| `lastError.message` trong danh sách | 500 ký tự | không |
+| Dòng log hiển thị ở client | 2000 | không |
+| File thống kê ở code viewer | 2000, `stat` song song 8 | không |
+| `fixes` trong preview | 2000 | không |
+| Chạy lại QA (rescore) | 1 job qua queue chung (1 chạy, ≤5 chờ, vượt → 429) | không |
 
 ## 2. AI Gateway (`core/gateway.ts`)
 

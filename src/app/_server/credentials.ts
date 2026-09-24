@@ -41,14 +41,27 @@ export function credentialsFor(db: DatabaseSync, project: ProjectRow, fresh?: Cr
   return held.get(project.id) ?? (project.auth_enc ? (JSON.parse(decrypt(project.auth_enc)) as Creds) : undefined);
 }
 
+type LoginInfo = { config_json: string; auth_enc: string | null; loginStatus: string | null; loginErrorCode: string | null };
+
 // Auth mode auto and the next run can't log in by itself: the last login failed (never retried with the same
 // password), or it hasn't succeeded yet and no credentials are held in RAM or remembered. The UI then asks.
+// Pure over already-fetched columns (the list route folds these into its one row query instead of a query per
+// project, keeping the request's query count constant regardless of row count); only `held` reads process state.
+export function needsCredentialsFrom(projectId: string, row: LoginInfo): boolean {
+  if ((JSON.parse(row.config_json || "{}") as { auth?: { mode?: string } }).auth?.mode !== "auto") return false;
+  if (row.loginErrorCode === Codes.LOGIN_FAILED) return true;
+  return row.loginStatus !== "done" && !held.has(projectId) && !row.auth_enc;
+}
+
 export function needsCredentials(db: DatabaseSync, projectId: string): boolean {
   const row = db.prepare("SELECT config_json,auth_enc FROM projects WHERE id=?").get(projectId) as { config_json: string; auth_enc: string | null } | undefined;
-  if ((JSON.parse(row?.config_json ?? "{}") as { auth?: { mode?: string } }).auth?.mode !== "auto") return false;
   const login = db.prepare("SELECT status,error_code FROM tasks WHERE project_id=? AND phase='login' ORDER BY rowid LIMIT 1").get(projectId) as
     | { status: string; error_code: string | null }
     | undefined;
-  if (login?.error_code === Codes.LOGIN_FAILED) return true;
-  return login?.status !== "done" && !held.has(projectId) && !row?.auth_enc;
+  return needsCredentialsFrom(projectId, {
+    config_json: row?.config_json ?? "{}",
+    auth_enc: row?.auth_enc ?? null,
+    loginStatus: login?.status ?? null,
+    loginErrorCode: login?.error_code ?? null,
+  });
 }

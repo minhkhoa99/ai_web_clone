@@ -4,6 +4,7 @@ import { pageFileNames } from "@/core/emit-html";
 import { coverage } from "@/core/graph";
 import type { IR } from "@/core/ir";
 import type { QaFile } from "@/core/jobs";
+import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
 
@@ -37,6 +38,13 @@ export function GET(req: Request, { params }: IdCtx) {
     const pages = irPages.map((p) => ({ pageId: p.id, path: p.path, file: files.get(p.id) }));
     const sections = (ir?.sections ?? []).map((s) => ({ id: s.id, pageId: s.pageId, name: s.name, rootId: s.root.id }));
     const interactions = (ir?.interactions ?? []).map((i) => ({ id: i.id, pageId: i.pageId, kind: i.kind, trigger: i.trigger, status: i.status }));
-    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, interactions, coverage: coverage(db, id) });
+    // the fix-loop outcome per section (key pageId:sectionId) for the preview's "cần sửa" cards
+    const fixes = (
+      db.prepare("SELECT key,status,error_code FROM tasks WHERE project_id=? AND phase='fix' ORDER BY rowid LIMIT 2000").all(id) as { key: string; status: TaskStatus; error_code: string | null }[]
+    ).map((t) => {
+      const i = t.key.indexOf(":");
+      return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code };
+    });
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, interactions, coverage: coverage(db, id), fixes });
   });
 }

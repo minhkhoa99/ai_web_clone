@@ -3,7 +3,7 @@ import { createProject, isWaiting } from "@/core/jobs";
 import { createSchema } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle } from "@/app/_server/http";
-import { credentialsSchema, holdCredentials, needsCredentials } from "@/app/_server/session";
+import { credentialsSchema, holdCredentials, needsCredentialsFrom } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,28 +28,87 @@ export function POST(req: Request) {
   });
 }
 
+type LastError = { code: string | null; message: string; phase: string; key: string };
+type Row = {
+  id: string;
+  url: string;
+  mode: string;
+  status: string;
+  progress: number;
+  tokensUsed: number;
+  createdAt: number;
+  updatedAt: number;
+  phase: string | null;
+  thumbPage: string | null;
+  config_json: string;
+  auth_enc: string | null;
+  loginStatus: string | null;
+  loginErrorCode: string | null;
+};
+
 // History list: 20 per page, newest update first, `q` = URL substring, `phase` = first unfinished task's phase,
-// `thumbPage` = first captured pageId (its shots/1440.png is the row thumbnail), `needsCredentials` = resume must ask
-// for a login first (the progress screen does), `queued` = waiting in the job queue.
+// `thumbPage` = first captured pageId, `needsCredentials` = resume must ask for a login first, `queued` = waiting in
+// the job queue; per row `pageCount` (capture tasks; null = draft without a selection), `phaseDone/phaseTotal` of the
+// current phase, `lastError` (failed | needs_auth only, message <= 500 chars, redacted when written); `counts` per
+// group under the same `q`. Fixed number of queries per request (no per-task query, no per-row query).
 export function GET(req: Request) {
   return handle(req, () => {
     const { group, q, page } = listSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
-    const where = [
-      group === "completed" ? "status='completed'" : group === "incomplete" ? "status<>'completed'" : "1",
-      q ? "instr(url, ?) > 0" : "1",
-    ].join(" AND ");
+    const qWhere = q ? "instr(url, ?) > 0" : "1";
+    const where = [group === "completed" ? "status='completed'" : group === "incomplete" ? "status<>'completed'" : "1", qWhere].join(" AND ");
     const args = q ? [q] : [];
     const db = getDb();
     const { total } = db.prepare(`SELECT COUNT(*) total FROM projects WHERE ${where}`).get(...args) as { total: number };
-    const projects = db
+    const counts = db
+      .prepare(`SELECT COALESCE(SUM(status<>'completed'),0) incomplete, COALESCE(SUM(status='completed'),0) completed FROM projects WHERE ${qWhere}`)
+      .get(...args) as { incomplete: number; completed: number };
+    const rows = db
       .prepare(
-        `SELECT id,url,mode,status,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,
+        `SELECT id,url,mode,status,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,config_json,auth_enc,
            (SELECT phase FROM tasks t WHERE t.project_id=p.id AND t.status<>'done' ORDER BY rowid LIMIT 1) AS phase,
-           (SELECT key FROM tasks t WHERE t.project_id=p.id AND t.phase='capture' AND t.status='done' ORDER BY rowid LIMIT 1) AS thumbPage
+           (SELECT key FROM tasks t WHERE t.project_id=p.id AND t.phase='capture' AND t.status='done' ORDER BY rowid LIMIT 1) AS thumbPage,
+           (SELECT status FROM tasks t WHERE t.project_id=p.id AND t.phase='login' ORDER BY rowid LIMIT 1) AS loginStatus,
+           (SELECT error_code FROM tasks t WHERE t.project_id=p.id AND t.phase='login' ORDER BY rowid LIMIT 1) AS loginErrorCode
          FROM projects p WHERE ${where} ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?`,
       )
-      .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE)
-      .map((p) => ({ ...p, needsCredentials: needsCredentials(db, p.id as string), queued: isWaiting(p.id as string) }));
-    return Response.json({ projects, total, page, pageSize: PAGE_SIZE });
+      .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE) as Row[];
+    const ids = rows.map((r) => r.id);
+    const marks = (n: number) => Array.from({ length: n }, () => "?").join(",");
+    const agg = ids.length
+      ? (db.prepare(`SELECT project_id, phase, COUNT(*) total, SUM(status='done') done FROM tasks WHERE project_id IN (${marks(ids.length)}) GROUP BY project_id, phase`).all(...ids) as {
+          project_id: string;
+          phase: string;
+          total: number;
+          done: number;
+        }[])
+      : [];
+    const errIds = rows.filter((r) => r.status === "failed" || r.status === "needs_auth").map((r) => r.id);
+    const errs = errIds.length
+      ? (db
+          .prepare(
+            `SELECT project_id, error_code, error_msg, phase, key FROM (
+               SELECT project_id, error_code, substr(error_msg,1,500) error_msg, phase, key,
+                      ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY updated_at DESC, rowid DESC) rn
+               FROM tasks WHERE status IN ('failed','needs_auth') AND project_id IN (${marks(errIds.length)})) WHERE rn=1`,
+          )
+          .all(...errIds) as { project_id: string; error_code: string | null; error_msg: string | null; phase: string; key: string }[])
+      : [];
+    const byPhase = new Map(agg.map((a) => [`${a.project_id}:${a.phase}`, a]));
+    const lastErrorOf = new Map<string, LastError>(errs.map((e) => [e.project_id, { code: e.error_code, message: e.error_msg ?? "", phase: e.phase, key: e.key }]));
+    const projects = rows.map((p) => {
+      const capture = byPhase.get(`${p.id}:capture`);
+      const current = p.phase ? byPhase.get(`${p.id}:${p.phase}`) : undefined;
+      const { config_json, auth_enc, loginStatus, loginErrorCode, ...pub } = p;
+      return {
+        ...pub,
+        needsCredentials: needsCredentialsFrom(p.id, { config_json, auth_enc, loginStatus, loginErrorCode }),
+        queued: isWaiting(p.id),
+        pageCount: capture?.total ?? null,
+        phaseDone: current?.done ?? null,
+        phaseTotal: current?.total ?? null,
+        lastError: lastErrorOf.get(p.id) ?? null,
+      };
+    });
+    return Response.json({ projects, total, page, pageSize: PAGE_SIZE, counts });
   });
 }

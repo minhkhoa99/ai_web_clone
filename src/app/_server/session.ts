@@ -8,7 +8,7 @@ import { isQueuedOrActive } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
 import { ApiError, workspaceOf } from "./http";
 
-export { credentialsFor, credentialsSchema, forgetCredentials, holdCredentials, needsCredentials, type CredentialsInput } from "./credentials";
+export { credentialsFor, credentialsSchema, forgetCredentials, holdCredentials, needsCredentials, needsCredentialsFrom, type CredentialsInput } from "./credentials";
 
 type AuthWindow = { handle: BrowserHandle; timer: NodeJS.Timeout };
 

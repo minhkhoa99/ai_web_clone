@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync } from "node:fs";
@@ -100,6 +100,72 @@ test("needsCredentials (list): auto mode without held/remembered creds or after 
   login(held.id, "failed", "LOGIN_FAILED"); // a wrong password is never retried: ask even though creds are remembered
   login(bare.id, "done", null); // the session lives in the profile: nothing to ask
   expect([await flag(bare), await flag(held)]).toEqual([false, true]);
+});
+
+test("GET /api/projects: counts (q, not group), pageCount, phaseDone/phaseTotal, lastError — fixed queries, no N+1", async () => {
+  const db = getDb();
+  const prefix = `https://list.test/${crypto.randomUUID()}/`;
+  type T = [phase: string, key: string, status: string, code: string | null, msg: string | null];
+  const mk = (suffix: string, status: string, tasks: T[]) => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES(?,?,?,?,?)").run(id, prefix + suffix, "single", "{}", status);
+    for (const [phase, key, st, code, msg] of tasks)
+      db.prepare("INSERT INTO tasks(id,project_id,phase,key,status,error_code,error_msg) VALUES(?,?,?,?,?,?,?)").run(crypto.randomUUID(), id, phase, key, st, code, msg);
+    return id;
+  };
+  const failed = mk("failed", "failed", [
+    ["discover", prefix, "done", null, null],
+    ["capture", "a", "done", null, null],
+    ["capture", "b", "failed", "NAV_TIMEOUT", "timeout 30000ms"],
+    ["ir", "all", "pending", null, null],
+  ]);
+  const auth = mk("auth", "needs_auth", [["capture", "home", "needs_auth", "AUTH_REQUIRED", "login wall at /home"]]);
+  const draft = mk("draft", "draft", [["discover", prefix, "done", null, null]]);
+  mk("done", "completed", [["capture", "home", "done", null, null]]);
+
+  const spy = vi.spyOn(db, "prepare");
+  type Body = { counts: { incomplete: number; completed: number }; total: number; projects: Record<string, unknown>[] };
+  let body: Body;
+  let sqls: string[];
+  try {
+    body = (await (await projects.GET(new Request(`http://127.0.0.1/api/projects?group=incomplete&q=${encodeURIComponent(prefix)}`))).json()) as Body;
+    sqls = spy.mock.calls.map((c) => String(c[0]));
+  } finally {
+    spy.mockRestore();
+  }
+  expect(body.counts).toEqual({ incomplete: 3, completed: 1 });
+  expect(body.total).toBe(3);
+  const row = (id: string) => body.projects.find((p) => p.id === id);
+  expect(row(failed)).toMatchObject({ phase: "capture", pageCount: 2, phaseDone: 1, phaseTotal: 2, lastError: { code: "NAV_TIMEOUT", message: "timeout 30000ms", phase: "capture", key: "b" } });
+  expect(row(auth)).toMatchObject({ pageCount: 1, lastError: { code: "AUTH_REQUIRED", message: "login wall at /home", phase: "capture", key: "home" } });
+  expect(row(draft)).toMatchObject({ pageCount: null, phaseDone: null, phaseTotal: null, lastError: null });
+  const count = (re: RegExp) => sqls.filter((s) => re.test(s)).length;
+  expect([count(/GROUP BY project_id, phase/), count(/ROW_NUMBER\(\)/), count(/SUM\(status<>'completed'\)/)]).toEqual([1, 1, 1]);
+  // no per-row query: each row's needsCredentials/lastError/pageCount comes from the fixed set of queries above,
+  // never a query keyed by that row's own id
+  expect(sqls.filter((s) => /WHERE id=\?/.test(s) || /WHERE project_id=\?( |$)/.test(s))).toEqual([]);
+});
+
+test("GET /api/projects: query count stays constant regardless of row count (no N+1)", async () => {
+  const db = getDb();
+  const queryCountFor = async (n: number) => {
+    const prefix = `https://qcount.test/${crypto.randomUUID()}/`;
+    for (let i = 0; i < n; i++) {
+      const id = crypto.randomUUID();
+      created.push(id);
+      db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES(?,?,?,?,?)").run(id, `${prefix}${i}`, "single", "{}", "draft");
+    }
+    const spy = vi.spyOn(db, "prepare");
+    try {
+      const body = (await (await projects.GET(new Request(`http://127.0.0.1/api/projects?q=${encodeURIComponent(prefix)}`))).json()) as { total: number };
+      expect(body.total).toBe(n);
+      return spy.mock.calls.length;
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  expect(await queryCountFor(1)).toBe(await queryCountFor(20));
 });
 
 test("providers: GET masks the key; /test decrypts it server-side and counts models", async () => {
@@ -325,11 +391,13 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   await mkdir(ws, { recursive: true });
   await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", path: "/" }, { id: "about", path: "/about" }] }));
   await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ pageId: "home", sectionId: "s1", bp: 375, score: 0.9 }], stale: true }));
-  const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; stale: boolean; coverage: unknown[] };
+  getDb().prepare("INSERT INTO tasks(id,project_id,phase,key,status,error_code) VALUES(?,?,'fix','home:s1','done','BUDGET_EXCEEDED')").run(crypto.randomUUID(), id);
+  const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; stale: boolean; coverage: unknown[]; fixes: unknown[] };
   expect(body.pages).toEqual([{ pageId: "home", path: "/", file: "index.html" }, { pageId: "about", path: "/about", file: "about.html" }]);
   expect(body.scores).toHaveLength(1);
   expect(body.stale).toBe(true);
   expect(body.coverage).toEqual([]);
+  expect(body.fixes).toEqual([{ pageId: "home", sectionId: "s1", status: "done", errorCode: "BUDGET_EXCEEDED" }]);
 });
 
 test("DELETE removes the rows and the workspace; unknown id is 404", async () => {
