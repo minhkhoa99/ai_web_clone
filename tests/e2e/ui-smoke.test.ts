@@ -1,7 +1,9 @@
 // UI smoke: a real `next build` + `next start` (tmp db/workspace/key), driven by Playwright.
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { request } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,29 +53,88 @@ test("proxy: every path answers 403 to a non-loopback Host (DNS rebinding), loop
   expect(await statusWithHost("/new", "localhost")).toBe(200);
 });
 
-test("settings/ai: add a provider, it is listed with a masked key", async () => {
-  const page = await browser.newPage();
-  await page.goto(`${base}/settings/ai`);
-  await page.getByRole("button", { name: "Add OpenAI Compatible" }).click();
-  await page.getByLabel("Tên").fill("Local OpenAI");
-  await page.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
-  await page.getByLabel("API key").fill("sk-smoke-secret-key-1234");
-  await page.getByRole("button", { name: "Lưu" }).click();
-  const row = page.getByRole("listitem").filter({ hasText: "Local OpenAI" });
-  await expect.poll(() => row.innerText()).toContain("sk-…1234");
-  expect(await page.content()).not.toContain("sk-smoke-secret-key-1234");
-  await expectNoDrift(page);
+test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, filter, kebab edit/delete, masked key", async () => {
+  const models = createServer((_req, res) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] })));
+  await new Promise<void>((r) => models.listen(0, "127.0.0.1", r));
+  const modelsUrl = `http://127.0.0.1:${(models.address() as AddressInfo).port}/v1`;
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  try {
+    await page.goto(`${base}/settings/ai`);
+    await expectUi(page, ["ui_settings_ai_page_header", "ui_settings_ai_add_provider_buttons", "ui_settings_ai_endpoint_list", "ui_settings_ai_endpoint_filter", "ui_settings_ai_config_panel"]);
+    expect(await page.locator('[data-ui="ui_settings_ai_config_panel"]').innerText()).toContain("Chọn một endpoint để sửa, hoặc thêm mới.");
+    const adds = page.locator('[data-ui="ui_settings_ai_add_provider_buttons"]').getByRole("button");
+    expect(await adds.allInnerTexts()).toEqual(["Add Anthropic Compatible", "Add OpenAI Compatible"]);
 
-  // edit without a new key keeps the stored one; delete asks first
-  await row.getByRole("button", { name: "Sửa" }).click();
-  await page.getByLabel("Tên").fill("Renamed OpenAI");
-  await page.getByRole("button", { name: "Lưu" }).click();
-  const renamed = page.getByRole("listitem").filter({ hasText: "Renamed OpenAI" });
-  await expect.poll(() => renamed.innerText()).toContain("sk-…1234");
-  page.once("dialog", (d) => void d.accept());
-  await renamed.getByRole("button", { name: "Xóa" }).click();
-  await expect.poll(() => page.getByRole("listitem").filter({ hasText: "OpenAI" }).count()).toBe(0);
-  await page.close();
+    await page.getByRole("button", { name: "Add OpenAI Compatible" }).click();
+    const form = page.getByRole("form", { name: "Cấu hình provider" });
+    await expectUi(page, ["ui_settings_ai_display_name", "ui_settings_ai_protocol", "ui_settings_ai_base_url", "ui_settings_ai_api_key", "ui_settings_ai_fetch_models", "ui_settings_ai_test_endpoint", "ui_settings_ai_role_matrix", "ui_settings_ai_save_provider"]);
+    expect(await form.locator('[data-ui="ui_settings_ai_protocol"]').innerText()).toContain("OpenAI Chat Completions API");
+    await form.getByLabel("Tên hiển thị").fill("Local OpenAI");
+    await form.getByLabel("Base URL").fill(modelsUrl);
+    const key = form.getByLabel("API key", { exact: true });
+    await key.fill("sk-smoke-secret-key-1234");
+    expect(await key.getAttribute("type")).toBe("password");
+    await form.getByRole("button", { name: "Hiện mật khẩu" }).click();
+    expect(await key.getAttribute("type")).toBe("text");
+    await form.getByRole("button", { name: "Test kết nối" }).click(); // D7: before the provider is saved
+    await expect.poll(() => form.locator('[data-ui="ui_settings_ai_test_endpoint"] [role="status"]').innerText()).toMatch(/^Kết nối OK · \d+ ms · HTTP 200 · 2 model$/);
+    expect(await form.getByLabel("Model cho vai trò vision").isDisabled()).toBe(true);
+    await form.getByRole("button", { name: "Fetch models" }).click();
+    await expect.poll(() => form.locator('[data-ui="ui_settings_ai_fetch_models"]').innerText()).toContain("2 model");
+    await form.getByLabel("Model cho vai trò vision").selectOption("m1");
+    await parityShot(page, "settings-ai-form");
+    await form.getByRole("button", { name: "Lưu provider" }).click();
+
+    const rows = page.locator('[data-ui="ui_settings_ai_endpoint_row"]');
+    const row = rows.filter({ hasText: "Local OpenAI" });
+    await expect.poll(() => row.innerText()).toContain("sk-…1234");
+    expect(await row.innerText()).toContain("OPENAI");
+    expect(await row.innerText()).toContain("chưa test");
+    expect(await page.content()).not.toContain("sk-smoke-secret-key-1234");
+    expect(await page.locator('[data-ui="ui_settings_ai_endpoint_list"] .badge').first().innerText()).toBe(String(await rows.count()));
+
+    // row Test: latency on the row
+    await row.getByRole("button", { name: "Test", exact: true }).click();
+    await expect.poll(() => row.innerText()).toMatch(/\d+ ms/);
+
+    // filter is a literal, client-side substring over name / base URL / models
+    const filter = page.getByRole("searchbox", { name: "Lọc endpoint" });
+    await filter.fill("(");
+    expect(await rows.count()).toBe(0);
+    await filter.fill("LOCAL open");
+    expect(await rows.count()).toBe(1);
+    await filter.fill("");
+
+    // kebab: Esc closes and returns focus; Sửa opens the form; the saved key is never filled back
+    const kebab = row.getByRole("button", { name: "Thao tác" });
+    await kebab.click();
+    expect(await page.getByRole("menu").count()).toBe(1);
+    await page.keyboard.press("Escape");
+    expect(await page.getByRole("menu").count()).toBe(0);
+    expect(await kebab.evaluate((el) => el === document.activeElement)).toBe(true);
+    await kebab.click();
+    await page.getByRole("menuitem", { name: "Sửa" }).click();
+    expect(await page.locator('[data-ui="ui_settings_ai_config_panel"] h2').innerText()).toBe("Sửa: Local OpenAI");
+    expect(await form.getByLabel("API key", { exact: true }).inputValue()).toBe("");
+    expect(await row.getAttribute("class")).toContain("is-open");
+    await form.getByLabel("Tên hiển thị").fill("Renamed OpenAI");
+    await form.getByRole("button", { name: "Lưu provider" }).click();
+    const renamed = rows.filter({ hasText: "Renamed OpenAI" });
+    await expect.poll(() => renamed.innerText()).toContain("sk-…1234");
+
+    page.once("dialog", (d) => void d.accept());
+    await renamed.getByRole("button", { name: "Thao tác" }).click();
+    await page.getByRole("menuitem", { name: "Xóa" }).click();
+    await expect.poll(() => rows.filter({ hasText: "OpenAI" }).count()).toBe(0);
+
+    await expectNoDrift(page);
+    await expectIconButtonsLabelled(page);
+    expect(foreign).toEqual([]);
+  } finally {
+    await page.close();
+    await new Promise((r) => models.close(r));
+  }
 });
 
 test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async () => {
