@@ -262,6 +262,7 @@ interface ResolvedProvider {
   baseUrl: string;
   apiKeyEnc: string;
   model: string;
+  seesImages: boolean;
 }
 
 // The project's chosen provider (config.providerId) when it serves the role, else the most recently saved
@@ -280,7 +281,9 @@ function findProviderForRole(db: DatabaseSync, role: Role, projectId?: string): 
   const serving = rows.flatMap((row) => {
     const roles = JSON.parse(row.roles_json) as ProviderRoles;
     const model = roles[role];
-    return model ? [{ id: row.id, roles, provider: { name: row.name, kind: row.kind, baseUrl: row.base_url, apiKeyEnc: row.api_key_enc, model } }] : [];
+    // spec §9 "kèm ảnh nếu model vision": the code model gets images only if the same model is this provider's vision model
+    const seesImages = role !== "code" || roles.vision === model;
+    return model ? [{ id: row.id, provider: { name: row.name, kind: row.kind, baseUrl: row.base_url, apiKeyEnc: row.api_key_enc, model, seesImages } }] : [];
   });
   const pick = serving.find((r) => r.id === preferred) ?? serving[0];
   if (!pick) throw new AppError("AI_BAD_CONFIG", `no provider configured for role "${role}"`, { role });
@@ -305,7 +308,8 @@ function applyTokenUsage(db: DatabaseSync, projectId: string | undefined, tokens
 export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: Sleep = defaultSleep): Promise<GenerateResult> {
   const provider = findProviderForRole(db, opts.role, opts.projectId);
   const apiKey = decrypt(provider.apiKeyEnc);
-  const req = toRequest(provider.kind, provider.baseUrl, apiKey, { ...opts, model: provider.model });
+  const images = provider.seesImages ? opts.images : undefined; // text-only otherwise (the evidence text still goes)
+  const req = toRequest(provider.kind, provider.baseUrl, apiKey, { ...opts, images, model: provider.model });
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let res: Response;

@@ -189,3 +189,22 @@ test("updateProvider re-encrypts a new api key; omitted fields are kept", () => 
   expect(JSON.stringify(after)).not.toContain("sk-second-key-1111");
   expect([after.name, after.base_url, after.roles_json]).toEqual([before.name, before.base_url, before.roles_json]);
 });
+
+test("code role gets images only when the same provider+model also serves vision (else text-only)", async () => {
+  const bodies: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+    bodies.push(init.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200 });
+  }));
+  const withRoles = async (roles: Record<string, string>, role: "code" | "vision" = "code") => {
+    const db = openDb(":memory:");
+    saveProvider(db, { name: "p", kind: "openai", baseUrl: "https://o/v1", apiKey: "sk-x", roles });
+    await generate(db, { role, messages: [{ role: "user", content: "evidence text" }], images: ["iVBORw0KGgo="] }, async () => {});
+    return bodies.at(-1)!;
+  };
+  expect(await withRoles({ code: "m" })).not.toContain("image_url");
+  expect(await withRoles({ code: "m", vision: "other" })).not.toContain("image_url");
+  expect(await withRoles({ code: "m", vision: "m" })).toContain("image_url");
+  expect(await withRoles({ vision: "v" }, "vision")).toContain("image_url");
+  expect(bodies.every((b) => b.includes("evidence text"))).toBe(true);
+});
