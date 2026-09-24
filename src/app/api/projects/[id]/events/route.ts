@@ -1,3 +1,4 @@
+import { history } from "@/core/event-log";
 import { isWaiting, subscribe } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, type IdCtx } from "@/app/_server/http";
@@ -8,7 +9,9 @@ export const dynamic = "force-dynamic";
 const HEARTBEAT_MS = 15_000;
 const MAX_BUFFERED = 1_000; // a client this far behind is gone or stuck: close instead of buffering forever
 
-// SSE: the current status (+ whether it waits in the queue) first (a late subscriber starts in sync), then every job event, plus a heartbeat comment.
+// SSE (spec parity §4.2): the persisted event tail (<= 2000, for the log + run clock after a reload/restart), then the
+// current status (+ whether it waits in the queue), then every live job event, plus a heartbeat comment. Snapshot,
+// status and subscribe happen in one synchronous tick: no event is lost or sent twice.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -29,6 +32,8 @@ export function GET(req: Request, { params }: IdCtx) {
           if ((controller.desiredSize ?? 0) < -MAX_BUFFERED) return close();
           controller.enqueue(enc.encode(chunk));
         };
+        send(`data: ${JSON.stringify({ type: "history", events: history(id) })}\n\n`);
+        send(`data: ${JSON.stringify({ type: "status", status, queued: isWaiting(id), at: Date.now() })}\n\n`);
         const unsubscribe = subscribe(id, (e) => send(`data: ${JSON.stringify(e)}\n\n`));
         const heartbeat = setInterval(() => send(": heartbeat\n\n"), HEARTBEAT_MS);
         cleanup = () => {
@@ -37,7 +42,6 @@ export function GET(req: Request, { params }: IdCtx) {
           req.signal.removeEventListener("abort", close);
         };
         req.signal.addEventListener("abort", close);
-        send(`data: ${JSON.stringify({ type: "status", status, queued: isWaiting(id) })}\n\n`);
       },
       cancel() {
         cleanup();

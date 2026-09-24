@@ -8,20 +8,12 @@ import { capturePage, type PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
 import { openDb } from "@/core/db";
 import type { IR, IRNode } from "@/core/ir";
-import type { SectionNames } from "@/core/naming";
-import type { FixResult } from "@/core/qa-fix";
 import { serveDir } from "@/core/serve";
-import { createProject, discoverPages, enqueue, pauseProject, recoverOnStartup, resumeProject, runProject, startProject, subscribe, type JobDeps, type JobEvent } from "@/core/jobs";
+import { createProject, discoverPages, enqueue, pauseProject, recoverOnStartup, resumeProject, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
+import { offline } from "./offline-deps";
 
 const site3Dir = fileURLToPath(new URL("../fixtures/site3", import.meta.url));
 const authDir = fileURLToPath(new URL("../fixtures/auth", import.meta.url));
-
-// No network AI: naming keeps IR defaults, fixing reports every section red without patching.
-const offline: JobDeps = {
-  nameSections: async () => ({ names: {} as SectionNames }),
-  fixAll: async (_ctx, failing) =>
-    failing.map((t): FixResult => ({ ...t, finalScore: 0, scores: { 375: 0, 768: 0, 1440: 0 }, rounds: 0, patched: false, status: "red" })),
-};
 
 let server: { url: string; close(): Promise<void> };
 let authServer: { url: string; close(): Promise<void> };

@@ -195,6 +195,10 @@ test("files route serves only allowlisted workspace dirs and rejects traversal",
   await writeFile(join(ws, "out", "index.html"), "<p>hi</p>");
   await writeFile(join(ws, "pages", "home", "capture.json"), "{}");
   await writeFile(join(ws, "pages", "home", "shots", "375.png"), "png");
+  await writeFile(join(ws, "events.jsonl"), "{}\n");
+  await writeFile(join(ws, "events.prev.jsonl"), "{}\n");
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["events.jsonl"] }))).status).toBe(404);
+  expect((await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["events.prev.jsonl"] }))).status).toBe(404);
 
   const ok = await files.GET(new Request("http://127.0.0.1"), ctx({ id, path: ["out", "index.html"] }));
   expect(ok.status).toBe(200);
@@ -238,6 +242,7 @@ test("export: zip streams out/ as a valid zip; folder refuses the workspace and 
   await mkdir(join(out, "assets"), { recursive: true });
   await writeFile(join(out, "index.html"), "<h1>clone</h1>".repeat(50));
   await writeFile(join(out, "assets", "a.css"), "body{}");
+  await writeFile(join(config.workspaceRoot, id, "events.jsonl"), "{}\n");
 
   const res = await exportRoute.POST(post({ mode: "zip" }), ctx({ id }));
   expect(res.status).toBe(200);
@@ -317,19 +322,31 @@ test("DELETE removes the rows and the workspace; unknown id is 404", async () =>
   expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }))).status).toBe(404);
 });
 
-test("SSE streams the current status, then job events, and closes on abort", async () => {
+test("SSE: persisted history first, then the current status, then live stamped events; closes on abort; replayed next time", async () => {
   const id = await newProject();
-  const ac = new AbortController();
-  const res = await events.GET(new Request("http://127.0.0.1", { signal: ac.signal }), ctx({ id }));
-  expect(res.headers.get("content-type")).toBe("text/event-stream");
-  const reader = res.body!.getReader();
-  const dec = new TextDecoder();
-  expect(dec.decode((await reader.read()).value)).toBe(`data: ${JSON.stringify({ type: "status", status: "draft", queued: false })}\n\n`);
+  const open = async () => {
+    const ac = new AbortController();
+    const res = await events.GET(new Request("http://127.0.0.1", { signal: ac.signal }), ctx({ id }));
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    const next = async () => JSON.parse(dec.decode((await reader.read()).value).replace(/^data: /, "")) as Record<string, unknown>;
+    return { ac, reader, next };
+  };
+  const first = await open();
+  expect(await first.next()).toEqual({ type: "history", events: [] });
+  expect(await first.next()).toEqual({ type: "status", status: "draft", queued: false, at: expect.any(Number) });
   emit(id, { type: "log", level: "info", message: "hello" });
-  expect(dec.decode((await reader.read()).value)).toBe(`data: ${JSON.stringify({ type: "log", level: "info", message: "hello" })}\n\n`);
-  ac.abort();
-  expect((await reader.read()).done).toBe(true);
+  expect(await first.next()).toEqual({ type: "log", level: "info", message: "hello", at: expect.any(Number) });
+  first.ac.abort();
+  expect((await first.reader.read()).done).toBe(true);
   emit(id, { type: "log", level: "info", message: "after close" }); // must not throw into the job
+
+  const second = await open();
+  const replay = (await second.next()) as { type: string; events: { message: string }[] };
+  expect(replay.type).toBe("history");
+  expect(replay.events.map((e) => e.message)).toEqual(["hello", "after close"]);
+  second.ac.abort();
 });
 
 test("start maps a full queue to 429 QUEUE_FULL", async () => {
@@ -367,7 +384,9 @@ test("start maps a full queue to 429 QUEUE_FULL", async () => {
   expect(await listed(fillers[1]!)).toMatchObject({ status: "draft", queued: true });
   const ac = new AbortController();
   const sse = await events.GET(new Request("http://127.0.0.1", { signal: ac.signal }), ctx({ id: fillers[1]! }));
-  expect(new TextDecoder().decode((await sse.body!.getReader().read()).value)).toContain('"queued":true');
+  const sseReader = sse.body!.getReader();
+  expect(new TextDecoder().decode((await sseReader.read()).value)).toContain('"type":"history"');
+  expect(new TextDecoder().decode((await sseReader.read()).value)).toContain('"queued":true');
   ac.abort();
 
   // a queued project waiting on a login can't get a login window (it would fight the job for the profile)

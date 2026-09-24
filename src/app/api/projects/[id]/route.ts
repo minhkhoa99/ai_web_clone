@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { config } from "@/core/config";
 import { tx } from "@/core/db";
+import { forget } from "@/core/event-log";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, type IdCtx } from "@/app/_server/http";
 import { exclusive, forgetCredentials } from "@/app/_server/session";
@@ -26,6 +27,7 @@ export function DELETE(req: Request, { params }: IdCtx) {
         for (const table of ["tasks", "nodes", "edges"]) db.prepare(`DELETE FROM ${table} WHERE project_id=?`).run(id);
         db.prepare("DELETE FROM projects WHERE id=?").run(id);
       });
+      forget(id); // the event ring of a deleted project
     });
     return Response.json({ ok: true });
   });

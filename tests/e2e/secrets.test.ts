@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "@/core/config";
 import { openDb } from "@/core/db";
+import { history, settled } from "@/core/event-log";
 import { saveProvider } from "@/core/gateway";
 import { createProject, enqueue, runProject, subscribe, type JobEvent } from "@/core/jobs";
 import { serveDir } from "@/core/serve";
@@ -99,6 +100,7 @@ test("api key + password: absent from workspace files, raw db bytes, graph, SSE 
     spies.forEach((s) => s.mockRestore());
     off();
   }
+  await settled(projectId); // the event log's appends are on disk before the files are grepped
 
   const status = db.prepare("SELECT status FROM projects WHERE id=?").get(projectId) as { status: string };
   expect(status.status).toBe("completed");
@@ -115,6 +117,8 @@ test("api key + password: absent from workspace files, raw db bytes, graph, SSE 
   const fileLeaks = [];
   for (const f of files) for (const s of leaks(await readFile(f))) fileLeaks.push(`${f}: ${s}`);
   expect(fileLeaks).toEqual([]);
+  expect(files.some((f) => f.endsWith("events.jsonl"))).toBe(true); // the durable log was grepped above
+  expect(leaks(Buffer.from(JSON.stringify(history(projectId))))).toEqual([]); // the SSE history message
 
   const dbFiles = (await readdir(tmp)).filter((f) => f.startsWith("sp1.db")).map((f) => join(tmp, f));
   expect(dbFiles.length).toBeGreaterThan(0);

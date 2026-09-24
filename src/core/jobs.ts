@@ -1,6 +1,7 @@
 // Job orchestrator (spec §4): discover -> capture -> ir -> name -> emit -> qa -> fix -> done over durable
 // per-task checkpoints (output renamed into place, then `done` + output_path in one transaction), an
 // in-memory event bus for SSE, and a bounded FIFO queue (1 running, <=5 waiting).
+import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,9 +21,10 @@ import { mapLimit } from "./limit";
 import { applySectionNames, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
 import { fixAll, type FixCtx, type FixResult } from "./qa-fix";
-import { createSchema, emit, pageIdsFor, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
+import { SKIP } from "./statuses";
+import { clearRunSecrets, createSchema, emit, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
 
-export { pageIdsFor, projectConfigSchema, subscribe, type JobEvent, type ProjectConfig, type ProjectStatus } from "./jobs-base";
+export { pageIdsFor, projectConfigSchema, subscribe, type JobEvent, type ProjectConfig, type ProjectStatus, type StampedEvent } from "./jobs-base";
 
 // --- db helpers --------------------------------------------------------------------
 
@@ -32,7 +34,6 @@ const MAX_WAITING = 5;
 const MAX_PROJECT_ASSET_BYTES = 500 * 1024 * 1024;
 const FS_CONCURRENCY = 8;
 const RETRY_IN_RUN = new Set<string>([Codes.NAV_TIMEOUT, Codes.BROWSER_CRASH]);
-const SKIP = new Set<string>([Codes.ROBOTS_DISALLOWED, Codes.ASSET_TOO_LARGE, Codes.NODE_LIMIT, Codes.PROJECT_SIZE_LIMIT]);
 const NO_RETRY = new Set<string>([...SKIP, Codes.LOGIN_FAILED]);
 
 type TaskRow = { id: string; phase: string; key: string; status: TaskStatus; attempts: number; error_code: string | null; output_path: string | null };
@@ -44,14 +45,6 @@ export type QaFile = { scores: SectionScore[]; stale?: true };
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
 const rawMessageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-// The login credentials of each live run: never stored in error_msg nor emitted (a Playwright error can echo a
-// filled value). Longest first, so a user name inside the password can't leave part of it.
-const secretsOf = new Map<string, string[]>();
-function redact(projectId: string, text: string): string {
-  let out = text;
-  for (const secret of secretsOf.get(projectId) ?? []) out = out.split(secret).join("[redacted]");
-  return out;
-}
 const messageFor = (projectId: string, e: unknown): string => redact(projectId, rawMessageOf(e));
 const runnable = (t: TaskRow) => t.status === "pending" || (t.status === "failed" && t.attempts < MAX_ATTEMPTS && !NO_RETRY.has(t.error_code ?? ""));
 
@@ -123,6 +116,7 @@ export function createProject(db: DatabaseSync, input: { url: string; mode: "sin
   const { url, mode, config: cfg } = createSchema.parse(input);
   const id = randomUUID();
   db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES(?,?,?,?,'draft')").run(id, url, mode, JSON.stringify(cfg));
+  mkdirSync(workspaceOf(id), { recursive: true }); // events.jsonl lives here (the event log never creates the dir)
   return id;
 }
 
@@ -498,7 +492,7 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   const ws = workspaceOf(projectId);
   const deps = { openBrowser, capturePage, nameSections, fixAll, ...opts.deps };
   const { user, pass } = opts.credentials ?? {};
-  secretsOf.set(projectId, [user, pass].filter((s): s is string => !!s).sort((a, b) => b.length - a.length));
+  setRunSecrets(projectId, [user ?? "", pass ?? ""]);
   setStatus(db, projectId, "running");
   running.add(projectId);
   let handle: BrowserHandle | undefined;
@@ -523,7 +517,7 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     setStatus(db, projectId, "failed", codeOf(e) ?? messageFor(projectId, e));
     throw e;
   } finally {
-    secretsOf.delete(projectId);
+    clearRunSecrets(projectId);
     running.delete(projectId);
     paused.delete(projectId);
     await handle?.close();

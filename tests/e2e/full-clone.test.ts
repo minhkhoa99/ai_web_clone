@@ -10,20 +10,12 @@ import { config } from "@/core/config";
 import { openDb } from "@/core/db";
 import { coverage } from "@/core/graph";
 import type { IR } from "@/core/ir";
-import type { SectionNames } from "@/core/naming";
-import type { FixResult } from "@/core/qa-fix";
 import { serveDir } from "@/core/serve";
-import { createProject, discoverPages, enqueue, runProject, type JobDeps, type QaFile } from "@/core/jobs";
+import { createProject, discoverPages, enqueue, runProject, type QaFile } from "@/core/jobs";
+import { offline } from "./offline-deps";
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url));
 const THRESHOLD = 0.95;
-
-// No network AI: naming keeps the deterministic fallback names, the fix loop patches nothing.
-const offline: JobDeps = {
-  nameSections: async () => ({ names: {} as SectionNames }),
-  fixAll: async (_ctx, failing) =>
-    failing.map((t): FixResult => ({ ...t, finalScore: 0, scores: { 375: 0, 768: 0, 1440: 0 }, rounds: 0, patched: false, status: "red" })),
-};
 
 let db: DatabaseSync;
 const servers: { close(): Promise<void> }[] = [];

@@ -118,7 +118,7 @@ test("subscribe: listeners get events for their project only and are removed on 
   db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES('p1','http://x.test/','single','{}','running')").run();
   db.prepare("INSERT INTO projects(id,url,mode,config_json,status) VALUES('p9','http://x.test/','single','{}','running')").run();
   recoverOnStartup(db);
-  expect(got).toEqual([{ type: "status", status: "interrupted" }]);
+  expect(got).toEqual([{ type: "status", status: "interrupted", at: expect.any(Number) }]);
   off();
   db.prepare("UPDATE projects SET status='running'").run();
   recoverOnStartup(db);

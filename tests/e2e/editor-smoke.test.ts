@@ -7,18 +7,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import { chromium, type Browser } from "playwright";
-import type { JobDeps } from "@/core/jobs";
-import type { SectionNames } from "@/core/naming";
-import type { FixResult } from "@/core/qa-fix";
 import { serveDir } from "@/core/serve";
+import { offline } from "./offline-deps";
 import { startNextApp } from "./next-app";
-
-// No network AI: naming keeps IR defaults, fixing reports every section red without patching.
-const offline: JobDeps = {
-  nameSections: async () => ({ names: {} as SectionNames }),
-  fixAll: async (_ctx, failing) =>
-    failing.map((t): FixResult => ({ ...t, finalScore: 0, scores: { 375: 0, 768: 0, 1440: 0 }, rounds: 0, patched: false, status: "red" })),
-};
 
 let app: { base: string; stop(): void } | undefined;
 let browser: Browser;
