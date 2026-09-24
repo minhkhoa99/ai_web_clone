@@ -33,8 +33,26 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [created, setCreated] = useState<string | null>(null);
+  const [loginFirst, setLoginFirst] = useState(false); // manual auth: log in in the window, then crawl
 
-  // Create, then crawl the sitemap for the page picker. A failed crawl leaves the draft project, linked below.
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await fn();
+    } catch (err) {
+      setMsg(errorText(err));
+      setBusy(false);
+    }
+  };
+
+  const crawl = async (id: string) => {
+    await api(`/api/projects/${id}/crawl`, { method: "POST" });
+    router.push(`/p/${id}/sitemap`);
+  };
+
+  // Create, then crawl the sitemap for the page picker (manual auth: after the user logged in in the window).
+  // A failed crawl leaves the draft project, linked below.
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -51,8 +69,12 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
       const credentials = authMode === "auto" ? { credentials: { user, pass, remember } } : {};
       const { id } = await api<{ id: string }>("/api/projects", { body: { url, mode, config, ...credentials } });
       setCreated(id);
-      await api(`/api/projects/${id}/crawl`, { method: "POST" });
-      router.push(`/p/${id}/sitemap`);
+      if (authMode === "manual") {
+        setLoginFirst(true);
+        setBusy(false);
+        return;
+      }
+      await crawl(id);
     } catch (err) {
       setMsg(errorText(err));
       setBusy(false);
@@ -159,11 +181,25 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
           )}
         </p>
       )}
-      <div>
-        <button className="btn primary" disabled={busy}>
-          {busy ? "Đang quét…" : "Quét trang"}
-        </button>
-      </div>
+      {loginFirst && created ? (
+        <div className="card stack" role="group" aria-label="Đăng nhập trước khi quét">
+          <span>Mở cửa sổ Chrome, đăng nhập (tự xử lý CAPTCHA nếu có), rồi bấm Quét trang — cửa sổ sẽ được đóng trước khi quét.</span>
+          <div className="row">
+            <button type="button" className="btn" disabled={busy} onClick={() => void run(() => api(`/api/projects/${created}/auth/open`, { method: "POST" }).then(() => setBusy(false)))}>
+              Mở cửa sổ đăng nhập
+            </button>
+            <button type="button" className="btn primary" disabled={busy} onClick={() => void run(() => crawl(created))}>
+              Quét trang
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <button className="btn primary" disabled={busy}>
+            {busy ? "Đang quét…" : "Quét trang"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

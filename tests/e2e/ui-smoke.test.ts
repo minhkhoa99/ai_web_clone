@@ -100,6 +100,20 @@ test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async
   await page.close();
 });
 
+test("new (manual login): after create the login step comes before the crawl; Quét trang then crawls", async () => {
+  const page = await browser.newPage();
+  await page.goto(`${base}/new`);
+  await page.getByLabel("URL").fill(`${site.url}/index.html`);
+  await page.getByLabel(/^Thủ công/).check();
+  await page.getByRole("button", { name: "Quét trang" }).click();
+  const step = page.getByRole("group", { name: "Đăng nhập trước khi quét" });
+  await expect.poll(() => step.getByRole("button", { name: "Mở cửa sổ đăng nhập" }).isVisible()).toBe(true);
+  expect(page.url()).toMatch(/\/new$/); // not crawled yet
+  await step.getByRole("button", { name: "Quét trang" }).click();
+  await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
+  await page.close();
+});
+
 test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resumes with it", async () => {
   const db = openDb(env.DB_PATH); // the app's own db file (WAL): seed a project whose auto login failed
   const id = crypto.randomUUID();

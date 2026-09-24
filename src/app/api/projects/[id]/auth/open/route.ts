@@ -5,13 +5,14 @@ import { assertIdle, openAuthWindow } from "@/app/_server/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Manual login (spec §3 option 1): a real headed window; the user logs in / solves the CAPTCHA, then calls auth/continue.
+// Manual login (spec §3 option 1): a real headed window on the project profile; the user logs in / solves the
+// CAPTCHA, then calls auth/continue (needs_auth) or crawl (draft: logging in before the crawl, spec §0).
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     const project = requireProject(db, id);
-    requireStatus(project, ["needs_auth"], "open a login window for");
+    requireStatus(project, ["needs_auth", "draft"], "open a login window for");
     const url = await authUrl(db, project);
     // same tick as openAuthWindow registering the window: nothing can start in between. Re-opening is idempotent.
     assertIdle(id, { ignoreAuthWindow: true });
