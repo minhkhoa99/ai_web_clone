@@ -38,6 +38,19 @@ test("detects 'auth' on the login page", async () => {
   expect(result).toBe("auth");
 });
 
+test("a visible position:fixed password field is 'auth'; a display:none / visibility:hidden one is not", async () => {
+  const detect = (html: string) =>
+    withPage(handle, async (page) => {
+      await page.goto(`${site.url}/index.html`);
+      await page.setContent(html);
+      return detectNeedsAuth(page, { requestedUrl: `${site.url}/index.html` });
+    });
+  expect(await detect('<div style="position:fixed;top:0"><input type="password"></div>')).toBe("auth");
+  expect(await detect('<input type="password" style="position:fixed;top:0">')).toBe("auth");
+  expect(await detect('<input type="password" style="display:none">')).toBe("none");
+  expect(await detect('<input type="password" style="visibility:hidden">')).toBe("none");
+});
+
 test("detects 'captcha' on a page with a recaptcha widget", async () => {
   const result = await withPage(handle, async (page) => {
     await page.goto(`${site.url}/captcha.html`);

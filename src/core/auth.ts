@@ -27,7 +27,8 @@ async function readDomSignals(page: Page): Promise<{ hasCaptcha: boolean; hasPas
       const pwField = document.querySelector('input[type="password"]') as HTMLElement | null;
       return {
         hasCaptcha: hasCaptchaSrc || hasCaptchaEl,
-        hasPasswordField: pwField !== null && pwField.offsetParent !== null,
+        // checkVisibility, not offsetParent: a position:fixed field has no offsetParent but is visible
+        hasPasswordField: pwField !== null && pwField.checkVisibility({ visibilityProperty: true }),
       };
     },
     { captchaSrcSource: CAPTCHA_SRC.source, captchaSelector: CAPTCHA_SELECTOR },
