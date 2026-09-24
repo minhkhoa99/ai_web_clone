@@ -244,6 +244,71 @@ test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resume
   }
 });
 
+test("history: tab counts, row states (failed code, needs_auth, running phase x/y, draft), actions, ZIP download, long URL, pagination", async () => {
+  const db = openDb(env.DB_PATH);
+  const pfx = `http://history.test/${crypto.randomUUID()}`;
+  const ws = env.WORKSPACE_ROOT;
+  let done = "";
+  try {
+    done = seedProject(db, { url: `${pfx}/done`, status: "completed", progress: 100, tasks: [{ phase: "capture", key: "home", status: "done" }] });
+    await writeWs(ws, done, "pages/home/shots/1440.png", pngOf(40, 25, [40, 60, 200]));
+    await writeWs(ws, done, "out/index.html", "<h1>done</h1>");
+    seedProject(db, { url: `${pfx}/running`, status: "running", progress: 40, mode: "crawl", tasks: [{ phase: "capture", key: "home", status: "done" }, { phase: "capture", key: "about", status: "running" }] });
+    seedProject(db, { url: `${pfx}/failed`, status: "failed", progress: 10, tasks: [{ phase: "capture", key: "home", status: "failed", errorCode: "NAV_TIMEOUT", errorMsg: "navigation timeout 30000ms" }] });
+    seedProject(db, { url: `${pfx}/auth`, status: "needs_auth", tasks: [{ phase: "capture", key: "home", status: "needs_auth", errorCode: "AUTH_REQUIRED", errorMsg: "login wall" }] });
+    seedProject(db, { url: `${pfx}/${"very-long-segment-".repeat(16)}draft`, status: "draft", tasks: [{ phase: "discover", key: pfx, status: "done" }] });
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/`);
+  const search = page.getByRole("searchbox", { name: "Tìm theo URL" });
+  await search.fill(pfx);
+  await search.press("Enter");
+  const rows = page.locator('[data-ui="ui_history_job_rows"] [role="row"]:not(.grid-head)');
+  await expect.poll(() => rows.count()).toBe(4);
+  const tabs = page.getByRole("tablist", { name: "Nhóm dự án" });
+  expect(await tabs.getByRole("tab", { name: /Chưa hoàn thành/ }).innerText()).toMatch(/Chưa hoàn thành\s*4/);
+  expect(await tabs.getByRole("tab", { name: /Đã hoàn thành/ }).innerText()).toMatch(/Đã hoàn thành\s*1/);
+  expect(await page.locator('[data-ui="ui_history_page_header"]').innerText()).toContain("5 dự án");
+  const row = (s: string) => rows.filter({ hasText: `${pfx}/${s}` });
+  expect(await row("failed").innerText()).toContain("NAV_TIMEOUT: navigation timeout 30000ms");
+  expect(await row("auth").innerText()).toContain("Cần đăng nhập (AUTH_REQUIRED) — mở dự án để đăng nhập");
+  expect(await row("auth").getAttribute("class")).toContain("row-warn");
+  expect(await row("auth").getByRole("link", { name: "Tiếp tục" }).getAttribute("href")).toMatch(/^\/p\/[^/]+$/);
+  expect(await row("running").innerText()).toMatch(/capture 1\/2[\s\S]*40%/);
+  expect(await row("running").getByRole("button", { name: "Tạm dừng" }).count()).toBe(1);
+  expect(await row("running").innerText()).toMatch(/Crawl · 2 trang · bắt đầu/);
+  expect(await rows.filter({ hasText: "draft" }).innerText()).toContain("chưa chọn trang");
+  for (const s of ["failed", "needs_auth", "running", "draft"]) expect(await rows.locator(`[data-status="${s}"]`).count()).toBe(1);
+  expect(await page.locator('[data-ui="ui_history_pagination"]').innerText()).toContain("Hiển thị 1–4 / 4 dự án");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // a 300-char URL never widens the page
+  await expectUi(page, ["ui_shell_page_header", "ui_history_page_header", "ui_history_status_tabs", "ui_history_url_search", "ui_history_refresh", "ui_history_job_rows", "ui_history_row_url", "ui_history_row_subtitle", "ui_history_failed_error_log", "ui_history_needs_auth_status", "ui_history_status_pill", "ui_history_progress_bar", "ui_history_row_actions", "ui_history_pause_button", "ui_history_resume_button", "ui_history_open_button", "ui_history_reclone_button", "ui_history_delete_button", "ui_history_pagination"]);
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  await parityShot(page, "history-mixed");
+
+  await tabs.getByRole("tab", { selected: true }).press("ArrowRight"); // keyboard: → selects "Đã hoàn thành"
+  await expect.poll(() => rows.count()).toBe(1);
+  expect(await rows.locator('[data-ui="ui_history_row_thumb"]').count()).toBe(1);
+  expect(await rows.innerText()).toContain("xong");
+  const [download] = await Promise.all([page.waitForEvent("download"), rows.getByRole("button", { name: "Tải ZIP" }).click()]);
+  expect(download.suggestedFilename()).toBe(`${done}.zip`);
+  await parityShot(page, "history-completed");
+
+  await tabs.getByRole("tab", { name: /Chưa hoàn thành/ }).click();
+  await expect.poll(() => rows.count()).toBe(4);
+  page.once("dialog", (d) => void d.accept());
+  await rows.filter({ hasText: "draft" }).getByRole("button", { name: "Xóa" }).click();
+  await expect.poll(() => rows.count()).toBe(3);
+  await search.fill(`${pfx}/nothing-here`);
+  await search.press("Enter");
+  await expect.poll(() => page.locator('[data-ui="ui_history_empty"]').innerText()).toContain("Không có dự án nào.");
+  expect(foreign).toEqual([]);
+  await page.close();
+});
+
 test("shell: fixed 56px header; 3 general nav items; under /p/[id] the 5 project links; no request off loopback", async () => {
   const db = openDb(env.DB_PATH);
   let id = "";
