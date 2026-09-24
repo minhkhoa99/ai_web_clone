@@ -457,6 +457,8 @@ async function runFixes(run: Run): Promise<boolean> {
     emit: await emitOpts(run),
     threshold: run.cfg.threshold,
   };
+  // The graph from the persisted IR: after a crash mid-fix it may hold an accepted-but-unsaved patch.
+  writeGraph(run.db, run.projectId, ctx.ir, ctx.emit.assetMap);
   let results: FixResult[];
   try {
     results = await run.deps.fixAll(ctx, targets);

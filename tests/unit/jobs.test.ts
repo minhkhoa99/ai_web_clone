@@ -4,6 +4,8 @@ import { AppError } from "@/core/errors";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserHandle } from "@/core/browser";
+import type { CaptureNode, PageCapture } from "@/core/capture";
+import { buildIR } from "@/core/ir";
 import { config } from "@/core/config";
 import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
 
@@ -155,4 +157,36 @@ test("name:<pageId> of a page whose capture was skipped finishes without an AI c
   const gone = db.prepare("SELECT status,error_code FROM tasks WHERE project_id=? AND phase='name' AND key='gone'").get(id);
   expect(gone).toEqual({ status: "done", error_code: null });
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
+});
+
+test("fix phase: the graph is rewritten from the persisted IR before fixAll (a resumed fix never sees a stale graph)", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  const ir = buildIR([capture]);
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(ir));
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase='capture'").run("pages/home/capture.json", id);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
+  db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix',?,'pending')").run(id, `home:${ir.sections[0]!.id}`);
+  let seen: string[] = [];
+  const deps = {
+    openBrowser: async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} }),
+    fixAll: async () => {
+      seen = (db.prepare("SELECT id FROM nodes WHERE project_id=? AND type='Section' ORDER BY id").all(id) as { id: string }[]).map((r) => r.id);
+      throw new Error("stop after the check");
+    },
+  };
+  await expect(runProject(db, id, { deps })).rejects.toThrow("stop after the check");
+  expect(seen).toEqual(ir.sections.map((s) => s.id).sort());
 });
