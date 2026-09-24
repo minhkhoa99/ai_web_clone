@@ -290,22 +290,34 @@ function findProviderForRole(db: DatabaseSync, role: Role, projectId?: string): 
   return pick.provider;
 }
 
-function applyTokenUsage(db: DatabaseSync, projectId: string | undefined, tokens: number): void {
-  if (!projectId) return;
+function usageOf(db: DatabaseSync, projectId: string): { used: number; budget: number } | undefined {
   const row = db.prepare("SELECT tokens_used,config_json FROM projects WHERE id=?").get(projectId) as
     | { tokens_used: number; config_json: string }
     | undefined;
-  if (!row) return;
-  const newTotal = row.tokens_used + tokens;
-  db.prepare("UPDATE projects SET tokens_used=? WHERE id=?").run(newTotal, projectId);
+  if (!row) return undefined;
   const projectConfig = row.config_json ? (JSON.parse(row.config_json) as { tokenBudget?: number }) : {};
-  const budget = projectConfig.tokenBudget ?? config.tokenBudget;
-  if (newTotal > budget) {
-    throw new AppError("BUDGET_EXCEEDED", `token budget exceeded for project "${projectId}"`, { projectId, tokensUsed: newTotal, budget });
-  }
+  return { used: row.tokens_used, budget: projectConfig.tokenBudget ?? config.tokenBudget };
+}
+
+const budgetExceeded = (projectId: string, tokensUsed: number, budget: number) =>
+  new AppError("BUDGET_EXCEEDED", `token budget exceeded for project "${projectId}"`, { projectId, tokensUsed, budget });
+
+// Before a call: a spent budget is refused without spending more.
+function checkBudget(db: DatabaseSync, projectId: string | undefined): void {
+  const usage = projectId ? usageOf(db, projectId) : undefined;
+  if (projectId && usage && usage.used >= usage.budget) throw budgetExceeded(projectId, usage.used, usage.budget);
+}
+
+function applyTokenUsage(db: DatabaseSync, projectId: string | undefined, tokens: number): void {
+  const usage = projectId ? usageOf(db, projectId) : undefined;
+  if (!projectId || !usage) return;
+  const newTotal = usage.used + tokens;
+  db.prepare("UPDATE projects SET tokens_used=? WHERE id=?").run(newTotal, projectId);
+  if (newTotal > usage.budget) throw budgetExceeded(projectId, newTotal, usage.budget);
 }
 
 export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: Sleep = defaultSleep): Promise<GenerateResult> {
+  checkBudget(db, opts.projectId);
   const provider = findProviderForRole(db, opts.role, opts.projectId);
   const apiKey = decrypt(provider.apiKeyEnc);
   const images = provider.seesImages ? opts.images : undefined; // text-only otherwise (the evidence text still goes)

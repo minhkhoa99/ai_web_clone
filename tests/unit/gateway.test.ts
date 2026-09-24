@@ -208,3 +208,12 @@ test("code role gets images only when the same provider+model also serves vision
   expect(await withRoles({ vision: "v" }, "vision")).toContain("image_url");
   expect(bodies.every((b) => b.includes("evidence text"))).toBe(true);
 });
+
+test("generate refuses before any request when the project's budget is already spent", async () => {
+  const { db } = setupProvider();
+  db.prepare("INSERT INTO projects(id,url,mode,config_json,status,tokens_used) VALUES(?,?,?,?,?,?)").run("p1", "http://x", "single", JSON.stringify({ tokenBudget: 5 }), "draft", 5);
+  const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], projectId: "p1" }, async () => {})).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
