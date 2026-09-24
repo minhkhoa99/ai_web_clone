@@ -3,7 +3,12 @@
 // (two pages sharing an asset) never write into each other's tmp.
 import { randomBytes } from "node:crypto";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { config } from "./config";
+
+// A project's workspace dir (captures, assets, out/, profile) — the one definition, core and app alike.
+// (Not in config.ts: next build would trace `join(process.cwd(), …)` + a dynamic segment as the whole project.)
+export const workspaceOf = (projectId: string): string => join(config.workspaceRoot, projectId);
 
 export async function atomicWrite(path: string, write: (tmp: string) => Promise<void>): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
