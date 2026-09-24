@@ -2,6 +2,7 @@
 // in-memory per-project event bus behind SSE.
 import { z } from "zod";
 import { config } from "./config";
+import { pathSlug } from "./url";
 
 // --- config, page ids -----------------------------------------------------------
 
@@ -33,12 +34,7 @@ export const createSchema = z.object({
 export function pageIdsFor(urls: string[]): string[] {
   const used = new Set<string>();
   return urls.map((url) => {
-    const slug =
-      new URL(url).pathname
-        .replace(/\.html?$/i, "")
-        .replace(/[^A-Za-z0-9_-]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .toLowerCase() || "home";
+    const slug = pathSlug(new URL(url).pathname).toLowerCase() || "home";
     let id = slug;
     for (let n = 2; used.has(id); n++) id = `${slug}-${n}`;
     used.add(id);

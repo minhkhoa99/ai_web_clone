@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { APIResponse, BrowserContext, Page, Response } from "playwright";
 import type { CaptureNode } from "./capture";
 import { AppError, Codes } from "./errors";
+import { fileExists, writeFileAtomic } from "./fsx";
 import { mapLimit } from "./limit";
 
 // --- trackResponses -------------------------------------------------------
@@ -181,15 +182,6 @@ async function fetchWithRetry(context: BrowserContext, url: string): Promise<API
   throw lastErr;
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export type DownloadResult = {
   assets: Map<string, string>;
   skipped: { url: string; code: string; reason: string }[];
@@ -236,9 +228,7 @@ export async function downloadAssets(
       });
     }
     bytes += body.byteLength;
-    const tmpPath = join(destDir, `${fileName}.tmp-${randomBytes(6).toString("hex")}`);
-    await writeFile(tmpPath, body);
-    await rename(tmpPath, absPath);
+    await writeFileAtomic(absPath, body);
   }
 
   await mapLimit(urls, DOWNLOAD_CONCURRENCY, async (url) => {

@@ -1,7 +1,8 @@
 import type { Page } from "playwright";
 import { createHash } from "node:crypto";
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileExists, writeFileAtomic } from "./fsx";
 import { AppError, Codes } from "./errors";
 import { mapLimit } from "./limit";
 import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage } from "./capture-eval";
@@ -163,21 +164,6 @@ async function readPageMeta(page: Page): Promise<{ title: string; meta: Record<s
       return { title: document.title, meta };
     }),
   );
-}
-
-async function writeFileAtomic(path: string, data: string | Buffer): Promise<void> {
-  const tmpPath = `${path}.tmp`;
-  await writeFile(tmpPath, data);
-  await rename(tmpPath, path);
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export type DynamicAsset = { order: number; asset: string };

@@ -1,12 +1,13 @@
 // QA scorer (spec §9): per section x breakpoint pixel diff of the served clone against the capture shots.
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join, posix } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, posix } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import type { Page } from "playwright";
 import { withPage, type BrowserHandle } from "./browser";
 import { lazyLoadScroll, type CaptureNode, type PageCapture } from "./capture";
 import { pageFileNames } from "./emit-html";
+import { writeFileAtomic } from "./fsx";
 import type { IR, IRNode } from "./ir";
 import { serveDir } from "./serve";
 
@@ -122,11 +123,7 @@ function dynamicBoxes(node: CaptureNode, out: Bbox[] = []): Bbox[] {
   return out;
 }
 
-async function writePng(path: string, png: PNG): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(`${path}.tmp`, PNG.sync.write(png));
-  await rename(`${path}.tmp`, path);
-}
+const writePng = (path: string, png: PNG) => writeFileAtomic(path, PNG.sync.write(png));
 
 // Loads the clone at bp the way it is scored: lazy content scrolled in, animations frozen, fonts ready.
 export async function prepareClonePage(page: Page, url: string, bp: Bp): Promise<void> {

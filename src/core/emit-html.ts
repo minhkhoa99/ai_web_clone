@@ -1,12 +1,13 @@
 // IR -> out/. renderSite/emitSection are pure (string in, string out); emitHtml is the thin writer.
-import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { copyFile, rm, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { categoryOf, type Decl } from "./dedupe";
+import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
 import type { IR, IRNode, Page, Section } from "./ir";
 import { mapLimit } from "./limit";
-import { normalizeUrl } from "./url";
+import { normalizeUrl, pathSlug } from "./url";
 
 export type RenderOpts = {
   assetMap: Record<string, string>; // absolute url -> "assets/<sha>.<ext>"
@@ -161,11 +162,7 @@ export function pageFileNames(pages: Page[]): Map<string, string> {
   const used = new Set<string>();
   const names = new Map<string, string>();
   for (const page of pages) {
-    const slug =
-      page.path
-        .replace(/\.html?(?=$|\?)/i, "")
-        .replace(/[^A-Za-z0-9._-]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "index";
+    const slug = pathSlug(page.path) || "index";
     let name = slug;
     for (let n = 2; used.has(name.toLowerCase()); n++) name = `${slug}-${n}`;
     used.add(name.toLowerCase());
@@ -323,13 +320,6 @@ export function emitSection(ir: IR, sectionId: string, opts: RenderOpts): string
   return out.join("");
 }
 
-async function writeAtomic(path: string, write: (tmp: string) => Promise<void>): Promise<void> {
-  const tmp = `${path}.tmp`;
-  await mkdir(dirname(path), { recursive: true });
-  await write(tmp);
-  await rename(tmp, path);
-}
-
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).
 export async function emitHtml(ir: IR, opts: EmitOpts): Promise<void> {
   const files = renderSite(ir, opts);
@@ -344,12 +334,12 @@ export async function emitHtml(ir: IR, opts: EmitOpts): Promise<void> {
   for (const text of Object.values(files)) for (const [ref] of text.matchAll(ASSET_REF)) assets.add(ref);
 
   const copyAsset = (rel: string) =>
-    writeAtomic(join(opts.outDir, rel), (tmp) => copyFile(join(opts.workspaceDir, rel), tmp)).catch((err: unknown) => {
+    atomicWrite(join(opts.outDir, rel), (tmp) => copyFile(join(opts.workspaceDir, rel), tmp)).catch((err: unknown) => {
       throw new Error(`emit: copying asset ${rel} from ${opts.workspaceDir} failed`, { cause: err });
     });
   await Promise.all([
-    mapLimit(Object.entries(files), WRITE_CONCURRENCY, ([rel, text]) => writeAtomic(join(opts.outDir, rel), (tmp) => writeFile(tmp, text))),
-    writeAtomic(join(opts.outDir, "js/runtime.js"), (tmp) => copyFile(RUNTIME_SRC, tmp)),
+    mapLimit(Object.entries(files), WRITE_CONCURRENCY, ([rel, text]) => atomicWrite(join(opts.outDir, rel), (tmp) => writeFile(tmp, text))),
+    atomicWrite(join(opts.outDir, "js/runtime.js"), (tmp) => copyFile(RUNTIME_SRC, tmp)),
     mapLimit([...assets].sort(), WRITE_CONCURRENCY, copyAsset),
   ]);
 }

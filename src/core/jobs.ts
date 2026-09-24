@@ -2,18 +2,19 @@
 // per-task checkpoints (output renamed into place, then `done` + output_path in one transaction), an
 // in-memory event bus for SSE, and a bounded FIFO queue (1 running, <=5 waiting).
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { PNG } from "pngjs";
 import { detectNeedsAuth, autoLogin } from "./auth";
 import { openBrowser, withPage, type BrowserHandle } from "./browser";
 import { capturePage, type PageCapture } from "./capture";
-import { config } from "./config";
+import { workspaceOf } from "./config";
 import { crawl, type CrawlPage } from "./crawl";
 import { tx } from "./db";
 import { emitHtml, type RenderOpts } from "./emit-html";
 import { AppError, Codes } from "./errors";
+import { writeJsonAtomic } from "./fsx";
 import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import { mapLimit } from "./limit";
@@ -44,7 +45,6 @@ export type QaFile = { scores: SectionScore[]; stale?: true };
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const runnable = (t: TaskRow) => t.status === "pending" || (t.status === "failed" && t.attempts < MAX_ATTEMPTS && !NO_RETRY.has(t.error_code ?? ""));
-const workspaceOf = (projectId: string) => join(config.workspaceRoot, projectId);
 
 function loadProject(db: DatabaseSync, projectId: string): ProjectRow & { cfg: ProjectConfig } {
   const row = db.prepare("SELECT url,mode,config_json FROM projects WHERE id=?").get(projectId) as ProjectRow | undefined;
@@ -99,12 +99,6 @@ function failTask(db: DatabaseSync, projectId: string, t: TaskRow, e: unknown, s
   const errorCode = codeOf(e);
   db.prepare("UPDATE tasks SET status=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?").run(status, errorCode, messageOf(e), t.id);
   emit(projectId, { type: "task", phase: t.phase, key: t.key, status, ...(errorCode ? { errorCode } : {}), error: messageOf(e) });
-}
-
-async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(`${path}.tmp`, JSON.stringify(data));
-  await rename(`${path}.tmp`, path);
 }
 
 async function dirBytes(dir: string): Promise<number> {

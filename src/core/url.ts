@@ -32,3 +32,12 @@ export function isHtmlLike(url: string): boolean {
     return false;
   }
 }
+
+// The one slug of a page path, for page ids (jobs) and page file names (emit): "/" -> "", "/a/b" -> "a-b",
+// "/x.html" -> "x", "/p?q=1" -> "p-q-1". Callers pick the empty-slug name and the case rule.
+export function pathSlug(path: string): string {
+  return path
+    .replace(/\.html?(?=$|\?)/i, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}

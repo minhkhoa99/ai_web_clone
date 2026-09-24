@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { RESUMABLE_STATUSES } from "@/core/statuses";
 import { api, errorText } from "@/app/_ui/api";
 import { StatusPill } from "@/app/_ui/StatusPill";
 
@@ -17,7 +18,6 @@ type Row = {
 };
 type List = { projects: Row[]; total: number; page: number; pageSize: number };
 
-const RESUMABLE = new Set(["paused", "interrupted", "failed", "needs_auth"]);
 const openHref = (r: Row) => (r.status === "draft" ? `/p/${r.id}/sitemap` : `/p/${r.id}`);
 
 export function History() {
@@ -120,7 +120,7 @@ export function History() {
               <td className="muted">{new Date(r.updatedAt * 1000).toLocaleString("vi-VN")}</td>
               <td>
                 <div className="row">
-                  {RESUMABLE.has(r.status) &&
+                  {RESUMABLE_STATUSES.includes(r.status) &&
                     (r.needsCredentials ? (
                       // the progress screen asks for the account before resuming
                       <Link className="btn" href={`/p/${r.id}`}>

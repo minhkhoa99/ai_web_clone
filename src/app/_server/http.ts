@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z, ZodError } from "zod";
-import { config } from "@/core/config";
+import { workspaceOf } from "@/core/config";
 import { AppError, type Code } from "@/core/errors";
 import { isLoopbackHost } from "./loopback";
 
@@ -76,7 +76,7 @@ export function requireProject(db: DatabaseSync, id: string): ProjectRow {
   return row;
 }
 
-export const workspaceOf = (projectId: string) => join(config.workspaceRoot, projectId);
+export { workspaceOf } from "@/core/config";
 
 // The page behind the auth wall: a login task's key is its URL, a capture task's key is a pageId (pages.json).
 export async function authUrl(db: DatabaseSync, project: Pick<ProjectRow, "id" | "url">): Promise<string> {

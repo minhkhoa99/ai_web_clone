@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { JobEvent } from "@/core/jobs-base";
+import { RESUMABLE_STATUSES } from "@/core/statuses";
 import { api, errorText } from "@/app/_ui/api";
 import { StatusPill } from "@/app/_ui/StatusPill";
 import { PhaseStepper, phaseStates } from "./phase-stepper";
@@ -10,7 +11,6 @@ type LogLine = { n: number; level: "info" | "warn" | "error"; text: string };
 type Initial = { status: string; progress: number; tasks: TaskView[]; authUrl: string | null; needsCredentials: boolean };
 
 const MAX_LOG = 500; // the log view keeps the newest lines only
-const RESUMABLE = new Set(["paused", "interrupted", "failed"]);
 const taskKey = (t: { phase: string; key: string }) => `${t.phase}:${t.key}`;
 
 function describe(e: JobEvent): Omit<LogLine, "n"> | null {
@@ -109,7 +109,8 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
               Tạm dừng
             </button>
           )}
-          {RESUMABLE.has(status) && (
+          {/* needs_auth resumes from its own banner (auth/continue) */}
+          {RESUMABLE_STATUSES.includes(status) && status !== "needs_auth" && (
             <button className="btn primary" disabled={busy} onClick={() => resume("resume")}>
               Tiếp tục
             </button>

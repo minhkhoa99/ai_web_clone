@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { startProject } from "@/core/jobs";
+import { RESUMABLE_STATUSES } from "@/core/statuses";
 import { getDb } from "@/app/_server/db";
 import { handle, optionalJson, requireProject, requireStatus, type IdCtx } from "@/app/_server/http";
 import { assertIdle, closeAuthWindow, credentialsFor, credentialsSchema } from "@/app/_server/session";
@@ -8,7 +9,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({ credentials: credentialsSchema.optional() }).strict();
-const RESUMABLE = ["paused", "interrupted", "failed", "needs_auth"] as const;
 
 // Done tasks are never re-run. On needs_auth an open login window is closed first (same as auth/continue). After LOGIN_FAILED only new credentials in the body can log in again.
 export function POST(req: Request, { params }: IdCtx) {
@@ -17,7 +17,7 @@ export function POST(req: Request, { params }: IdCtx) {
     const { credentials } = bodySchema.parse(await optionalJson(req));
     const db = getDb();
     const project = requireProject(db, id);
-    requireStatus(project, RESUMABLE, "resume");
+    requireStatus(project, RESUMABLE_STATUSES, "resume");
     if (project.status === "needs_auth") await closeAuthWindow(id);
     assertIdle(id);
     startProject(db, id, { credentials: credentialsFor(db, project, credentials) });

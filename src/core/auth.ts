@@ -1,6 +1,6 @@
 import type { BrowserContext, Cookie, Locator, Page } from "playwright";
-import { rename, writeFile } from "node:fs/promises";
 import { AppError, Codes } from "./errors";
+import { writeJsonAtomic } from "./fsx";
 
 const CAPTCHA_SRC = /recaptcha|hcaptcha|challenges\.cloudflare\.com|turnstile/i;
 const CAPTCHA_SELECTOR = ".g-recaptcha, .h-captcha, .cf-turnstile";
@@ -90,10 +90,7 @@ export async function autoLogin(
 // Atomic like the checkpoint invariant: write tmp then rename, never a
 // half-written session file on the target path.
 export async function saveSession(context: BrowserContext, path: string): Promise<void> {
-  const state = await context.storageState();
-  const tmpPath = `${path}.tmp`;
-  await writeFile(tmpPath, JSON.stringify(state));
-  await rename(tmpPath, path);
+  await writeJsonAtomic(path, await context.storageState());
 }
 
 type StorageStateOrigin = { origin: string; localStorage?: { name: string; value: string }[] };
