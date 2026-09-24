@@ -215,10 +215,8 @@ export async function downloadAssets(
   async function writeIfNew(fileName: string, body: Buffer): Promise<void> {
     const absPath = join(destDir, fileName);
     if (await fileExists(absPath)) return; // already on disk (this run or a prior one): 0 new bytes
-    // ponytail: budget check+reserve isn't cross-worker-atomic (a small race
-    // window can overshoot by up to `DOWNLOAD_CONCURRENCY * MAX_FILE_BYTES`
-    // under concurrent large downloads); add a real lock if the 500MB budget
-    // must be exact rather than a soft cap.
+    // The budget check and the reservation below run with no await between
+    // them, so concurrent workers can't both pass the check and overshoot.
     if (bytes + body.byteLength > budgetBytes) {
       budgetExceeded = true;
       throw new AppError(Codes.PROJECT_SIZE_LIMIT, `project asset budget of ${budgetBytes} bytes exceeded`, {
