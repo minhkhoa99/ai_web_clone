@@ -199,3 +199,28 @@ test("fix phase: the graph is rewritten from the persisted IR before fixAll (a r
   await expect(runProject(db, id, { deps })).rejects.toThrow("stop after the check");
   expect(seen).toEqual(ir.sections.map((s) => s.id).sort());
 });
+
+test("the run's user/password never reach error_msg, events or the thrown error (a Playwright error echoing them)", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const creds = { user: "alice@example.test", pass: "hunter2-Secret!" };
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = {
+    openBrowser: async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} }),
+    capturePage: async () => {
+      throw new Error(`locator.fill: Timeout 30000ms exceeded.\n  - fill("${creds.pass}") into input[name=pass] for ${creds.user}`);
+    },
+  };
+  const err = await runProject(db, id, { credentials: creds, deps }).then(() => new Error("expected the run to throw"), (e: unknown) => e as Error);
+  off();
+  const stored = JSON.stringify(db.prepare("SELECT error_msg FROM tasks WHERE project_id=?").all(id));
+  for (const secret of [creds.user, creds.pass]) {
+    expect(stored).not.toContain(secret);
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(err.message).not.toContain(secret);
+  }
+  expect(stored).toContain("[redacted]");
+  expect(events.some((e) => e.type === "task" && e.error?.includes("[redacted]"))).toBe(true);
+});

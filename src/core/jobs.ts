@@ -43,7 +43,17 @@ type PageRef = { pageId: string; url: string };
 export type QaFile = { scores: SectionScore[]; stale?: true };
 
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const rawMessageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+// The login credentials of each live run: never stored in error_msg nor emitted (a Playwright error can echo a
+// filled value). Longest first, so a user name inside the password can't leave part of it.
+const secretsOf = new Map<string, string[]>();
+function redact(projectId: string, text: string): string {
+  let out = text;
+  for (const secret of secretsOf.get(projectId) ?? []) out = out.split(secret).join("[redacted]");
+  return out;
+}
+const messageFor = (projectId: string, e: unknown): string => redact(projectId, rawMessageOf(e));
 const runnable = (t: TaskRow) => t.status === "pending" || (t.status === "failed" && t.attempts < MAX_ATTEMPTS && !NO_RETRY.has(t.error_code ?? ""));
 
 function loadProject(db: DatabaseSync, projectId: string): ProjectRow & { cfg: ProjectConfig } {
@@ -64,7 +74,7 @@ function insertTask(db: DatabaseSync, projectId: string, phase: string, key: str
 
 function setStatus(db: DatabaseSync, projectId: string, status: ProjectStatus, reason?: string): void {
   db.prepare("UPDATE projects SET status=?,updated_at=unixepoch() WHERE id=?").run(status, projectId);
-  emit(projectId, reason ? { type: "status", status, reason } : { type: "status", status });
+  emit(projectId, reason ? { type: "status", status, reason: redact(projectId, reason) } : { type: "status", status });
 }
 
 // discover is the sitemap step before the page selection: a draft (only discover done) is 0%, not 100%.
@@ -97,8 +107,9 @@ function finishTask(db: DatabaseSync, projectId: string, t: TaskRow, outputPath:
 
 function failTask(db: DatabaseSync, projectId: string, t: TaskRow, e: unknown, status: "failed" | "needs_auth" = "failed"): void {
   const errorCode = codeOf(e);
-  db.prepare("UPDATE tasks SET status=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?").run(status, errorCode, messageOf(e), t.id);
-  emit(projectId, { type: "task", phase: t.phase, key: t.key, status, ...(errorCode ? { errorCode } : {}), error: messageOf(e) });
+  const message = messageFor(projectId, e);
+  db.prepare("UPDATE tasks SET status=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?").run(status, errorCode, message, t.id);
+  emit(projectId, { type: "task", phase: t.phase, key: t.key, status, ...(errorCode ? { errorCode } : {}), error: message });
 }
 
 async function dirBytes(dir: string): Promise<number> {
@@ -187,7 +198,7 @@ type Run = {
 const paused = new Set<string>();
 const running = new Set<string>(); // projects with a live runProject in this process
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
-const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message });
+const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message: redact(run.projectId, message) });
 
 // What loading captures and re-emitting needs: a run, or the editor's view of a finished project.
 type EmitSource = Pick<Run, "db" | "projectId" | "ws" | "pages" | "captures">;
@@ -336,7 +347,7 @@ async function runCaptures(run: Run): Promise<boolean> {
         const auth = code === Codes.AUTH_REQUIRED || code === Codes.CAPTCHA_REQUIRED;
         failTask(run.db, run.projectId, t, e, auth ? "needs_auth" : "failed");
         if (RETRY_IN_RUN.has(code) && t.attempts < MAX_ATTEMPTS) continue;
-        if (!auth && (RETRY_IN_RUN.has(code) || SKIP.has(code))) return log(run, "warn", `capture ${t.key} skipped: ${messageOf(e)}`);
+        if (!auth && (RETRY_IN_RUN.has(code) || SKIP.has(code))) return log(run, "warn", `capture ${t.key} skipped: ${rawMessageOf(e)}`);
         throw e; // auth wall or unexpected: stop starting captures, let in-flight ones finish
       }
     }
@@ -487,6 +498,8 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   const { url, cfg } = loadProject(db, projectId);
   const ws = workspaceOf(projectId);
   const deps = { openBrowser, capturePage, nameSections, fixAll, ...opts.deps };
+  const { user, pass } = opts.credentials ?? {};
+  secretsOf.set(projectId, [user, pass].filter((s): s is string => !!s).sort((a, b) => b.length - a.length));
   setStatus(db, projectId, "running");
   running.add(projectId);
   let handle: BrowserHandle | undefined;
@@ -503,12 +516,15 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     emit(projectId, { type: "progress", progress: 100 });
     emit(projectId, { type: "status", status: "completed" });
   } catch (e) {
+    // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.
+    if (e instanceof Error) e.message = messageFor(projectId, e);
     // The task that threw (ir/emit/qa/fix) is still `running`: make it failed so a resume retries it.
     db.prepare("UPDATE tasks SET status='failed',error_code=?,error_msg=?,updated_at=unixepoch() WHERE project_id=? AND status='running'")
-      .run(codeOf(e), messageOf(e), projectId);
-    setStatus(db, projectId, "failed", codeOf(e) ?? messageOf(e));
+      .run(codeOf(e), messageFor(projectId, e), projectId);
+    setStatus(db, projectId, "failed", codeOf(e) ?? messageFor(projectId, e));
     throw e;
   } finally {
+    secretsOf.delete(projectId);
     running.delete(projectId);
     paused.delete(projectId);
     await handle?.close();
@@ -573,7 +589,7 @@ function drain(): void {
   active = job.projectId;
   job
     .run()
-    .catch((e: unknown) => emit(job.projectId, { type: "log", level: "error", message: messageOf(e) }))
+    .catch((e: unknown) => emit(job.projectId, { type: "log", level: "error", message: rawMessageOf(e) })) // already scrubbed by runProject
     .finally(() => {
       queued.delete(job.projectId);
       active = null;
