@@ -237,7 +237,7 @@ function modelsHeaders(kind: ProviderKind, apiKey: string): Record<string, strin
   return kind === "anthropic" ? { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION } : { Authorization: `Bearer ${apiKey}` };
 }
 
-export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: string): Promise<string[]> {
+export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: string): Promise<{ models: string[]; httpStatus: number }> {
   const url = `${baseUrl}/models`;
   const res = await fetch(url, { headers: modelsHeaders(kind, apiKey), signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
@@ -246,7 +246,7 @@ export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: s
   }
   const raw = (await res.json()) as { data?: { id: string }[] };
   if (!Array.isArray(raw.data)) throw new AppError("AI_BAD_RESPONSE", "unexpected /models response shape", { url });
-  return raw.data.map((m) => m.id);
+  return { models: raw.data.map((m) => m.id), httpStatus: res.status };
 }
 
 function mapHttpError(status: number): { code: Code; retryable: boolean } {

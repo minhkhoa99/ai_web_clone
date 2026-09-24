@@ -52,7 +52,7 @@ test("import: a storageState (session cookie + localStorage) lands in the persis
   const text = await res.text();
   expect(JSON.parse(text)).toEqual({ ok: true, cookies: 1, origins: 1 });
   expect(text).not.toContain("secret-cookie-value");
-  expect(await discoverPages(getDb(), id)).toEqual([{ url: `${base}/`, needsAuth: false }]);
+  expect(await discoverPages(getDb(), id)).toMatchObject([{ url: `${base}/`, needsAuth: false }]);
 
   const ctx = await chromium.launchPersistentContext(join(config.workspaceRoot, id, "profile"), { headless: true });
   try {
@@ -67,10 +67,10 @@ test("import: a storageState (session cookie + localStorage) lands in the persis
 test("clear: removes the profile, the next crawl is logged out", { timeout: 180_000 }, async () => {
   const id = newProject();
   expect((await post(importRoute, id, { storageState: state })).status).toBe(200);
-  expect(await discoverPages(getDb(), id)).toEqual([{ url: `${base}/`, needsAuth: false }]);
+  expect(await discoverPages(getDb(), id)).toMatchObject([{ url: `${base}/`, needsAuth: false }]);
   expect((await post(clear, id)).status).toBe(200);
   expect(existsSync(join(config.workspaceRoot, id, "profile"))).toBe(false);
-  expect(await discoverPages(getDb(), id)).toEqual([{ url: `${base}/`, needsAuth: true }]);
+  expect(await discoverPages(getDb(), id)).toMatchObject([{ url: `${base}/`, needsAuth: true }]);
 });
 
 test("import: invalid JSON shapes are 400; a second import while one runs is 409 PROJECT_BUSY", { timeout: 180_000 }, async () => {

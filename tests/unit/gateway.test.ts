@@ -105,8 +105,8 @@ test("fetchModels returns ids from a happy-path /models response", async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "x" }] }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
 
-  const ids = await fetchModels("openai", "https://o/v1", "sk-secret-key");
-  expect(ids).toEqual(["x"]);
+  const res = await fetchModels("openai", "https://o/v1", "sk-secret-key");
+  expect(res).toEqual({ models: ["x"], httpStatus: 200 });
   expect(fetchMock).toHaveBeenCalledWith("https://o/v1/models", expect.objectContaining({ headers: { Authorization: "Bearer sk-secret-key" } }));
 });
 

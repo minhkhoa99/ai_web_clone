@@ -21,3 +21,13 @@ export function storedProvider(db: DatabaseSync, id: string): { kind: ProviderKi
 
 // "sk-…abcd": first 3 + last 4; short keys show only the ellipsis so nothing meaningful leaks.
 export const maskKey = (key: string) => (key.length < 12 ? "…" : `${key.slice(0, 3)}…${key.slice(-4)}`);
+
+// /models and /test (D7): a form's unsaved values, or a saved provider (its key decrypted server-side only).
+export const providerBodySchema = z.union([
+  z.object({ kind: z.enum(["anthropic", "openai"]), baseUrl: baseUrlSchema, apiKey: z.string().min(1).max(4096) }).strict(),
+  providerIdSchema,
+]);
+
+export function resolveProvider(db: DatabaseSync, body: z.infer<typeof providerBodySchema>): { kind: ProviderKind; baseUrl: string; apiKey: string } {
+  return "providerId" in body ? storedProvider(db, body.providerId) : body;
+}

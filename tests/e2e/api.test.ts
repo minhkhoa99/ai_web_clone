@@ -122,9 +122,31 @@ test("providers: GET masks the key; /test decrypts it server-side and counts mod
     expect(mine?.apiKey).toBe("sk-…abcd");
 
     const t = await providerTest.POST(post({ providerId: id }));
-    expect(await t.json()).toEqual({ ok: true, models: 2 });
+    const tested = (await t.json()) as { ok: boolean; models: number; latencyMs: number; httpStatus: number };
+    expect(tested).toMatchObject({ ok: true, models: 2, httpStatus: 200 });
+    expect(tested.latencyMs).toBeGreaterThanOrEqual(0);
     expect(seen.authorization).toBe(`Bearer ${apiKey}`);
+    // D7: an unsaved form (Test before Save) works the same, with the typed values
+    const unsaved = (await (await providerTest.POST(post({ kind: "openai", baseUrl, apiKey: "sk-unsaved-key-5555" }))).json()) as { models: number; httpStatus: number };
+    expect(unsaved).toMatchObject({ models: 2, httpStatus: 200 });
+    expect(seen.authorization).toBe("Bearer sk-unsaved-key-5555");
     getDb().prepare("DELETE FROM providers WHERE id=?").run(id);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("providers/test: an upstream 401 is 502 AI_AUTH with the status in the message; no key in the response", async () => {
+  const server = createServer((_req, res) => res.writeHead(401).end("nope"));
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    const res = await providerTest.POST(post({ kind: "anthropic", baseUrl, apiKey: "sk-denied-key-7777" }));
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(JSON.parse(text)).toMatchObject({ code: "AI_AUTH" });
+    expect(text).toContain("401");
+    expect(text).not.toContain("sk-denied-key-7777");
   } finally {
     await new Promise((r) => server.close(r));
   }

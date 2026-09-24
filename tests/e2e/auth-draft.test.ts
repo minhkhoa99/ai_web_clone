@@ -64,6 +64,6 @@ test("discoverPages crawls on the project profile: a login made there (cookie in
   const ctx = await chromium.launchPersistentContext(join(config.workspaceRoot, loggedIn, "profile"), { headless: true });
   await ctx.addCookies([{ name: "sid", value: "ok", url: base, expires: Math.floor(Date.now() / 1000) + 3600 }]);
   await ctx.close();
-  expect(await discoverPages(getDb(), loggedIn)).toEqual([{ url: `${base}/`, needsAuth: false }]);
-  expect(await discoverPages(getDb(), fresh)).toEqual([{ url: `${base}/`, needsAuth: true }]);
+  expect(await discoverPages(getDb(), loggedIn)).toMatchObject([{ url: `${base}/`, needsAuth: false, status: 200 }]);
+  expect(await discoverPages(getDb(), fresh)).toMatchObject([{ url: `${base}/`, needsAuth: true, status: 200 }]);
 });

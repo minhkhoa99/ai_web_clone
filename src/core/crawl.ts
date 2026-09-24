@@ -4,7 +4,9 @@ import { normalizeUrl, sameOrigin, isHtmlLike } from "./url";
 import { AppError, Codes } from "./errors";
 import { detectNeedsAuth } from "./auth";
 
-export type CrawlPage = { url: string; needsAuth: boolean };
+export type CrawlPage = { url: string; needsAuth: boolean; status?: number | null; loadMs?: number; redirected?: boolean };
+
+type Loaded = { links: string[]; needsAuth: boolean; status: number | null; loadMs: number; redirected: boolean };
 
 type CrawlOpts = {
   start: string;
@@ -46,13 +48,16 @@ function parseSitemapLocs(xml: string): string[] {
   return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1] as string);
 }
 
-async function loadPage(handle: BrowserHandle, pageUrl: string): Promise<{ links: string[]; needsAuth: boolean }> {
+// The navigation's own response: status, time to DOMContentLoaded, redirect — no extra request.
+async function loadPage(handle: BrowserHandle, pageUrl: string): Promise<Loaded> {
   return withPage(handle, async (page) => {
+    const t0 = performance.now();
     const response = await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+    const loadMs = Math.round(performance.now() - t0);
     const authState = await detectNeedsAuth(page, { status: response?.status(), requestedUrl: pageUrl });
     // `any`: $$eval runs in the browser context, not Node — no DOM lib types here.
     const links = await page.$$eval("a[href]", (anchors: any[]) => anchors.map((a) => a.getAttribute("href") ?? ""));
-    return { links, needsAuth: authState !== "none" };
+    return { links, needsAuth: authState !== "none", status: response?.status() ?? null, loadMs, redirected: !!response?.request().redirectedFrom() };
   });
 }
 
@@ -108,7 +113,7 @@ export async function crawl(handle: BrowserHandle, opts: CrawlOpts): Promise<Cra
     if (!item) break;
     await politeDelay();
 
-    let page: { links: string[]; needsAuth: boolean };
+    let page: Loaded;
     try {
       page = await loadPage(handle, item.url);
     } catch (err) {
@@ -118,7 +123,7 @@ export async function crawl(handle: BrowserHandle, opts: CrawlOpts): Promise<Cra
       continue; // skip this page, keep crawling the rest of the queue
     }
 
-    results.push({ url: item.url, needsAuth: page.needsAuth });
+    results.push({ url: item.url, needsAuth: page.needsAuth, status: page.status, loadMs: page.loadMs, redirected: page.redirected });
     if (results.length >= maxPages || item.depth >= depth) continue;
 
     for (const href of page.links) {
