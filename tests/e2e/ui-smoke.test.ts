@@ -111,6 +111,17 @@ test("new (manual login): after create the login step comes before the crawl; Qu
   expect(page.url()).toMatch(/\/new$/); // not crawled yet
   await step.getByRole("button", { name: "Quét trang" }).click();
   await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
+  // session tools on the sitemap: import a storageState file, then clear the session
+  const session = page.getByRole("region", { name: "Phiên đăng nhập" });
+  await session.getByLabel("Import cookie / storageState JSON").setInputFiles({
+    name: "state.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ cookies: [{ name: "sid", value: "v", url: site.url }], origins: [] })),
+  });
+  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã import 1 cookie, 0 origin.");
+  page.once("dialog", (d) => void d.accept());
+  await session.getByRole("button", { name: "Xóa phiên" }).click();
+  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã xóa phiên.");
   await page.close();
 });
 

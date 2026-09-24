@@ -3,6 +3,7 @@ import type { CrawlPage } from "@/core/crawl";
 import { getDb } from "@/app/_server/db";
 import { StatusPill } from "@/app/_ui/StatusPill";
 import { loadProject, readWorkspaceJson } from "../data";
+import { SessionTools } from "../session-tools";
 import { SitemapPicker, type SitemapPage } from "./sitemap-picker";
 
 // Capture time per URL, known once a capture task finished (pages.json maps pageId -> url).
@@ -32,6 +33,7 @@ export default async function SitemapPage({ params }: { params: Promise<{ id: st
       </div>
       <p className="mono muted">{project.url}</p>
       <SitemapPicker projectId={id} pages={pages} crawled={discovered !== null} draft={project.status === "draft"} />
+      <SessionTools projectId={id} />
     </>
   );
 }

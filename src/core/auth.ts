@@ -112,22 +112,31 @@ function validateStorageState(json: unknown): { cookies: Cookie[]; origins: Stor
   return { cookies: (cookies as Cookie[] | undefined) ?? [], origins: (origins as StorageStateOrigin[] | undefined) ?? [] };
 }
 
+const IMPORTED_SESSION_COOKIE_TTL_S = 7 * 24 * 3600;
+const MAX_IMPORT_ORIGINS = 50;
+
+// Works on a persistent profile too: a session cookie (no expiry) would vanish when the profile closes, so it
+// is kept for 7 days; localStorage is written now, on a stub page per origin (nothing is fetched from the network).
 export async function importStorageState(context: BrowserContext, json: unknown): Promise<void> {
   const { cookies, origins } = validateStorageState(json);
-  if (cookies.length > 0) await context.addCookies(cookies);
+  const until = Math.floor(Date.now() / 1000) + IMPORTED_SESSION_COOKIE_TTL_S;
+  if (cookies.length > 0) await context.addCookies(cookies.map((c) => (c.expires === undefined || c.expires < 0 ? { ...c, expires: until } : c)));
 
-  // Bounded by the small number of origins a single storageState captures.
-  await Promise.all(
-    origins
-      .filter((o) => o.localStorage && o.localStorage.length > 0)
-      .map((o) =>
-        context.addInitScript(
-          ({ origin, entries }: { origin: string; entries: { name: string; value: string }[] }) => {
-            if (window.location.origin !== origin) return;
-            for (const { name, value } of entries) window.localStorage.setItem(name, value);
-          },
-          { origin: o.origin, entries: o.localStorage ?? [] },
-        ),
-      ),
-  );
+  // Sequential, capped: one stub page at a time.
+  for (const o of origins.filter((x) => x.localStorage && x.localStorage.length > 0).slice(0, MAX_IMPORT_ORIGINS)) {
+    const url = URL.parse(o.origin);
+    if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
+      throw new AppError(Codes.AUTH_REQUIRED, "invalid storage state: origin must be an http(s) URL", {});
+    }
+    const page = await context.newPage();
+    try {
+      await page.route("**/*", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "" }));
+      await page.goto(url.origin + "/");
+      await page.evaluate((entries) => {
+        for (const { name, value } of entries) window.localStorage.setItem(name, value);
+      }, o.localStorage ?? []);
+    } finally {
+      await page.close();
+    }
+  }
 }
