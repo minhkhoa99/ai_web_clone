@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { BrowserHandle } from "@/core/browser";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import { buildIR } from "@/core/ir";
+import { PNG } from "pngjs";
 import { config } from "@/core/config";
 import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
 
@@ -147,13 +148,21 @@ test("name:<pageId> of a page whose capture was skipped finishes without an AI c
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
   await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", sectionIds: [] }], sections: [] }));
+  await mkdir(join(ws, "pages", "home", "shots"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "shots", "1440.png"), PNG.sync.write(new PNG({ width: 1440, height: 900 })));
   const calls: string[] = [];
+  let thumb: PNG | undefined;
   const deps = {
     openBrowser: async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} }),
-    nameSections: async (_db: unknown, _p: string, _ir: unknown, pageId: string) => (calls.push(pageId), { names: {} }),
+    nameSections: async (_db: unknown, _p: string, _ir: unknown, pageId: string, opts?: { thumbnail?: string }) => {
+      calls.push(pageId);
+      thumb = opts?.thumbnail ? PNG.sync.read(Buffer.from(opts.thumbnail, "base64")) : undefined;
+      return { names: {} };
+    },
   };
   await runProject(db, id, { deps });
   expect(calls).toEqual(["home"]);
+  expect([thumb?.width, thumb?.height]).toEqual([400, 250]); // the 1440 shot, downscaled, goes with the naming call
   const gone = db.prepare("SELECT status,error_code FROM tasks WHERE project_id=? AND phase='name' AND key='gone'").get(id);
   expect(gone).toEqual({ status: "done", error_code: null });
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");

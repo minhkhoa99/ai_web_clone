@@ -1,7 +1,8 @@
 import { expect, test, vi, beforeEach } from "vitest";
 import type { IR, IRNode, Page, Section } from "@/core/ir";
 import { AppError } from "@/core/errors";
-import { applySectionNames, buildOutline, nameSections } from "@/core/naming";
+import { PNG } from "pngjs";
+import { applySectionNames, buildOutline, nameSections, thumbnailOf } from "@/core/naming";
 
 vi.mock("@/core/gateway", () => ({ generate: vi.fn() }));
 import { generate } from "@/core/gateway";
@@ -173,4 +174,22 @@ test("fallback names use the position on the owning page: a shared layout is nev
   expect(p1.names.shared).toEqual({ name: "section-2", role: "nav" });
   expect(p2.names).toEqual({ c: { name: "section-2", role: "body" }, d: { name: "section-3", role: "footer" } }); // shared left to its owner
   expect(new Set(["a", "shared", "b"].map((id) => merged[id]!.name)).size).toBe(3);
+});
+
+test("thumbnailOf: nearest-neighbour downscale to <= 400px wide, height capped; small shots keep their size", () => {
+  const src = new PNG({ width: 1440, height: 3000 });
+  for (let y = 0; y < src.height; y++)
+    for (let x = 0; x < src.width; x++) {
+      const i = (y * src.width + x) * 4;
+      const left = x < 720;
+      src.data.set([left ? 255 : 0, 0, left ? 0 : 255, 255], i); // left red, right blue
+    }
+  const t = thumbnailOf(src);
+  expect([t.width, t.height]).toEqual([400, 833]);
+  const at = (x: number, y: number) => [...t.data.subarray((y * t.width + x) * 4, (y * t.width + x) * 4 + 3)];
+  expect(at(10, 10)).toEqual([255, 0, 0]);
+  expect(at(390, 800)).toEqual([0, 0, 255]);
+  expect(thumbnailOf(new PNG({ width: 1440, height: 5000 })).height).toBe(1200); // tall page (1389px scaled): top part only
+  const small = thumbnailOf(new PNG({ width: 300, height: 100 }));
+  expect([small.width, small.height]).toEqual([300, 100]);
 });

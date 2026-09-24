@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { PNG } from "pngjs";
 import { detectNeedsAuth, autoLogin } from "./auth";
 import { openBrowser, withPage, type BrowserHandle } from "./browser";
 import { capturePage, type PageCapture } from "./capture";
@@ -16,7 +17,7 @@ import { AppError, Codes } from "./errors";
 import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import { mapLimit } from "./limit";
-import { applySectionNames, nameSections } from "./naming";
+import { applySectionNames, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
 import { fixAll, type FixCtx, type FixResult } from "./qa-fix";
 import { createSchema, emit, pageIdsFor, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
@@ -375,6 +376,12 @@ async function runIr(run: Run): Promise<boolean> {
   return true;
 }
 
+// The page's 1440 shot, downscaled, for the naming call; none when the shot is missing.
+async function thumbnailFor(run: Run, pageId: string): Promise<{ thumbnail?: string }> {
+  const shot = await readFile(join(run.ws, "pages", pageId, "shots", "1440.png")).catch(() => null);
+  return shot ? { thumbnail: PNG.sync.write(thumbnailOf(PNG.sync.read(shot))).toString("base64") } : {};
+}
+
 // Per page, sequential (one AI call at a time keeps the circuit breaker exact). An AI error keeps the
 // fallback names nameSections returns; 5 in a row opens the circuit and fails the project.
 async function runNames(run: Run): Promise<boolean> {
@@ -389,7 +396,7 @@ async function runNames(run: Run): Promise<boolean> {
       finishTask(run.db, run.projectId, t, "ir.json", run.budgetHit ? Codes.BUDGET_EXCEEDED : undefined);
       continue;
     }
-    const { names, error } = await run.deps.nameSections(run.db, run.projectId, ir, t.key);
+    const { names, error } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, await thumbnailFor(run, t.key));
     if (error && error !== Codes.BUDGET_EXCEEDED && ++run.aiFailures >= AI_CIRCUIT_LIMIT) {
       failTask(run.db, run.projectId, t, new AppError(Codes.AI_CIRCUIT_OPEN, `${AI_CIRCUIT_LIMIT} AI failures in a row (last: ${error})`));
       setStatus(run.db, run.projectId, "failed", Codes.AI_CIRCUIT_OPEN);

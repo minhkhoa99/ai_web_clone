@@ -1,4 +1,5 @@
 // AI section naming (1 generate call/page), safe fallback on any failure. Never throws.
+import { PNG } from "pngjs";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { AppError } from "./errors";
@@ -9,6 +10,8 @@ const MAX_TAG_DEPTH = 3;
 const MAX_TEXT_CHARS = 200;
 const MAX_NAME_CHARS = 60;
 const MAX_ROLE_CHARS = 30;
+const THUMB_MAX_WIDTH = 400;
+const THUMB_MAX_HEIGHT = 1200;
 
 export type OutlineTag = { tag: string; children: OutlineTag[] };
 export type SectionOutline = { id: string; tag: OutlineTag; text: string };
@@ -35,6 +38,23 @@ export function buildOutline(ir: IR, pageId: string): SectionOutline[] {
     collectText(section.root, texts);
     return { id, tag: outlineTag(section.root, 1), text: texts.join(" ").slice(0, MAX_TEXT_CHARS) };
   });
+}
+
+// PURE. Nearest-neighbour downscale of the 1440 page shot for the naming call: <= 400px wide, and a very tall
+// page keeps only its top (<= 1200px tall), so the image stays small whatever the page length.
+export function thumbnailOf(src: PNG, maxWidth = THUMB_MAX_WIDTH, maxHeight = THUMB_MAX_HEIGHT): PNG {
+  const scale = Math.min(1, maxWidth / src.width);
+  const width = Math.max(1, Math.round(src.width * scale));
+  const height = Math.max(1, Math.min(maxHeight, Math.round(src.height * scale)));
+  const out = new PNG({ width, height });
+  for (let y = 0; y < height; y++) {
+    const sy = Math.min(src.height - 1, Math.floor(y / scale));
+    for (let x = 0; x < width; x++) {
+      const sx = Math.min(src.width - 1, Math.floor(x / scale));
+      src.data.copy(out.data, (y * width + x) * 4, (sy * src.width + sx) * 4, (sy * src.width + sx) * 4 + 4);
+    }
+  }
+  return out;
 }
 
 // PURE, immutable. Only touches Section.name/role.
