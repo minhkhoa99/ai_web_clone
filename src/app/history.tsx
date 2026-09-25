@@ -107,10 +107,24 @@ export function History() {
   const [list, setList] = useState<List | null>(null);
   const [msg, setMsg] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [brokenThumbs, setBrokenThumbs] = useState<ReadonlySet<string>>(new Set());
 
   const load = useCallback(() => {
     const params = new URLSearchParams({ group, page: String(page), ...(q ? { q } : {}) });
-    return api<List>(`/api/projects?${params}`).then(setList, (e: unknown) => setMsg(errorText(e)));
+    return api<List>(`/api/projects?${params}`).then(
+      (l) => {
+        // deleting the last row of the last page (or a group/search change) can leave `page` past the new
+        // last page — clamp and reload once, instead of showing an empty page that still says "trang N".
+        const lastPage = Math.max(1, Math.ceil(l.total / l.pageSize));
+        if (page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setList(l);
+        setMsg("");
+      },
+      (e: unknown) => setMsg(errorText(e)),
+    );
   }, [group, q, page]);
   useEffect(() => void load(), [load]);
 
@@ -156,8 +170,14 @@ export function History() {
       case "source":
         return (
           <div className="source-cell">
-            {r.thumbPage ? (
-              <img className="row-thumb" alt="" data-ui="ui_history_row_thumb" src={`/api/projects/${r.id}/files/pages/${encodeURIComponent(r.thumbPage)}/shots/1440.png`} />
+            {r.thumbPage && !brokenThumbs.has(r.id) ? (
+              <img
+                className="row-thumb"
+                alt=""
+                data-ui="ui_history_row_thumb"
+                src={`/api/projects/${r.id}/files/pages/${encodeURIComponent(r.thumbPage)}/shots/1440.png`}
+                onError={() => setBrokenThumbs((s) => (s.has(r.id) ? s : new Set(s).add(r.id)))}
+              />
             ) : (
               <span className="row-thumb" aria-hidden="true" />
             )}
@@ -175,7 +195,7 @@ export function History() {
       case "phase":
         return (
           <div className="phase-cell" data-ui="ui_history_progress_bar">
-            <div className="phase-line t-label-md">
+            <div className={`phase-line t-label-md${r.status === "failed" ? " text-danger" : r.status === "interrupted" ? " text-warn" : ""}`}>
               <span>
                 {r.status === "completed" ? "done" : (r.phase ?? "—")}
                 {r.status !== "completed" && r.phaseTotal ? ` ${r.phaseDone}/${r.phaseTotal}` : ""}

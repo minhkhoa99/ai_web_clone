@@ -164,9 +164,12 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .seg-item { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 12px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--c-text-2); font: var(--t-label-md); cursor: pointer; white-space: nowrap; }
 .seg-item:hover:not(:disabled) { color: var(--c-text); }
 .seg-item[aria-pressed="true"], .seg-item[aria-selected="true"] { background: var(--c-surface); color: var(--c-primary); }
-.seg-tabs .seg-item[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--c-primary); }
 .seg-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .seg-item.tone-warn { color: var(--c-warn); }
+/* tabs: an underline strip, not the toggle's bordered box */
+.seg-tabs { display: inline-flex; gap: var(--s-lg); padding: 0; background: transparent; border: 0; border-radius: 0; border-bottom: 1px solid var(--c-border); }
+.seg-tabs .seg-item { padding: 8px 2px; border-radius: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.seg-tabs .seg-item[aria-selected="true"] { background: transparent; border-bottom-color: var(--c-primary); }
 
 /* === GridTable === */
 .grid-table { border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; background: var(--c-surface-lowest); }
@@ -349,6 +352,15 @@ th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-
 .phase-line { display: flex; justify-content: space-between; gap: var(--s-sm); }
 .row-actions { display: flex; justify-content: flex-end; gap: 2px; }
 .table-empty { display: grid; justify-items: center; gap: var(--s-md); padding: var(--s-xl); color: var(--c-text-2); }
-.pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--s-md); flex-wrap: wrap; margin-top: var(--s-md); }
+[data-ui="ui_history_row_url"] { color: var(--c-primary); }
+[data-ui="ui_history_job_rows"] .grid-head > [role="columnheader"]:last-child { text-align: right; }
+.toolbar-end .search-input { flex: 1 1 400px; width: auto; }
+/* footer band: attaches to the bottom of the table card, no floating gap */
+[data-ui="ui_history_job_rows"] { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.pagination {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-md); flex-wrap: wrap;
+  margin-top: 0; padding: var(--s-sm) var(--s-lg); background: var(--c-surface);
+  border: 1px solid var(--c-border); border-top: 0; border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg);
+}
 .page-num { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface-high); color: var(--c-text); font: var(--t-label-md); cursor: pointer; }
 .page-num[aria-current="page"] { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }

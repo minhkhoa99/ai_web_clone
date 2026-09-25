@@ -256,6 +256,7 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
     seedProject(db, { url: `${pfx}/running`, status: "running", progress: 40, mode: "crawl", tasks: [{ phase: "capture", key: "home", status: "done" }, { phase: "capture", key: "about", status: "running" }] });
     seedProject(db, { url: `${pfx}/failed`, status: "failed", progress: 10, tasks: [{ phase: "capture", key: "home", status: "failed", errorCode: "NAV_TIMEOUT", errorMsg: "navigation timeout 30000ms" }] });
     seedProject(db, { url: `${pfx}/auth`, status: "needs_auth", tasks: [{ phase: "capture", key: "home", status: "needs_auth", errorCode: "AUTH_REQUIRED", errorMsg: "login wall" }] });
+    seedProject(db, { url: `${pfx}/interrupted`, status: "interrupted", progress: 55, tasks: [{ phase: "capture", key: "home", status: "running" }] });
     seedProject(db, { url: `${pfx}/${"very-long-segment-".repeat(16)}draft`, status: "draft", tasks: [{ phase: "discover", key: pfx, status: "done" }] });
   } finally {
     db.close();
@@ -267,11 +268,11 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   await search.fill(pfx);
   await search.press("Enter");
   const rows = page.locator('[data-ui="ui_history_job_rows"] [role="row"]:not(.grid-head)');
-  await expect.poll(() => rows.count()).toBe(4);
+  await expect.poll(() => rows.count()).toBe(5);
   const tabs = page.getByRole("tablist", { name: "Nhóm dự án" });
-  expect(await tabs.getByRole("tab", { name: /Chưa hoàn thành/ }).innerText()).toMatch(/Chưa hoàn thành\s*4/);
+  expect(await tabs.getByRole("tab", { name: /Chưa hoàn thành/ }).innerText()).toMatch(/Chưa hoàn thành\s*5/);
   expect(await tabs.getByRole("tab", { name: /Đã hoàn thành/ }).innerText()).toMatch(/Đã hoàn thành\s*1/);
-  expect(await page.locator('[data-ui="ui_history_page_header"]').innerText()).toContain("5 dự án");
+  expect(await page.locator('[data-ui="ui_history_page_header"]').innerText()).toContain("6 dự án");
   const row = (s: string) => rows.filter({ hasText: `${pfx}/${s}` });
   expect(await row("failed").innerText()).toContain("NAV_TIMEOUT: navigation timeout 30000ms");
   expect(await row("auth").innerText()).toContain("Cần đăng nhập (AUTH_REQUIRED) — mở dự án để đăng nhập");
@@ -280,9 +281,10 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   expect(await row("running").innerText()).toMatch(/capture 1\/2[\s\S]*40%/);
   expect(await row("running").getByRole("button", { name: "Tạm dừng" }).count()).toBe(1);
   expect(await row("running").innerText()).toMatch(/Crawl · 2 trang · bắt đầu/);
+  expect(await row("interrupted").getByRole("button", { name: "Tiếp tục" }).getAttribute("class")).toContain("tone-warn");
   expect(await rows.filter({ hasText: "draft" }).innerText()).toContain("chưa chọn trang");
-  for (const s of ["failed", "needs_auth", "running", "draft"]) expect(await rows.locator(`[data-status="${s}"]`).count()).toBe(1);
-  expect(await page.locator('[data-ui="ui_history_pagination"]').innerText()).toContain("Hiển thị 1–4 / 4 dự án");
+  for (const s of ["failed", "needs_auth", "running", "interrupted", "draft"]) expect(await rows.locator(`[data-status="${s}"]`).count()).toBe(1);
+  expect(await page.locator('[data-ui="ui_history_pagination"]').innerText()).toContain("Hiển thị 1–5 / 5 dự án");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // a 300-char URL never widens the page
   await expectUi(page, ["ui_shell_page_header", "ui_history_page_header", "ui_history_status_tabs", "ui_history_url_search", "ui_history_refresh", "ui_history_job_rows", "ui_history_row_url", "ui_history_row_subtitle", "ui_history_failed_error_log", "ui_history_needs_auth_status", "ui_history_status_pill", "ui_history_progress_bar", "ui_history_row_actions", "ui_history_pause_button", "ui_history_resume_button", "ui_history_open_button", "ui_history_reclone_button", "ui_history_delete_button", "ui_history_pagination"]);
   await expectNoDrift(page);
@@ -293,18 +295,20 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   await expect.poll(() => rows.count()).toBe(1);
   expect(await rows.locator('[data-ui="ui_history_row_thumb"]').count()).toBe(1);
   expect(await rows.innerText()).toContain("xong");
+  await expectUi(page, ["ui_history_row_thumb", "ui_history_download_export"]);
   const [download] = await Promise.all([page.waitForEvent("download"), rows.getByRole("button", { name: "Tải ZIP" }).click()]);
   expect(download.suggestedFilename()).toBe(`${done}.zip`);
   await parityShot(page, "history-completed");
 
   await tabs.getByRole("tab", { name: /Chưa hoàn thành/ }).click();
-  await expect.poll(() => rows.count()).toBe(4);
+  await expect.poll(() => rows.count()).toBe(5);
   page.once("dialog", (d) => void d.accept());
   await rows.filter({ hasText: "draft" }).getByRole("button", { name: "Xóa" }).click();
-  await expect.poll(() => rows.count()).toBe(3);
+  await expect.poll(() => rows.count()).toBe(4);
   await search.fill(`${pfx}/nothing-here`);
   await search.press("Enter");
   await expect.poll(() => page.locator('[data-ui="ui_history_empty"]').innerText()).toContain("Không có dự án nào.");
+  await expectUi(page, ["ui_history_empty"]);
   expect(foreign).toEqual([]);
   await page.close();
 });
