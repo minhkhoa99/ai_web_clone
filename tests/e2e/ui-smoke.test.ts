@@ -226,10 +226,10 @@ test("new (manual login): after create the login step comes before the crawl; Qu
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({ cookies: [{ name: "sid", value: "v", url: site.url }], origins: [] })),
   });
-  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã import 1 cookie, 0 origin.");
+  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toContain("Đã import 1 cookie, 0 origin.");
   page.once("dialog", (d) => void d.accept());
   await session.getByRole("button", { name: "Xóa phiên" }).click();
-  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã xóa phiên.");
+  await expect.poll(() => session.getByRole("status").innerText(), { timeout: 30_000 }).toContain("Đã xóa phiên.");
   await page.close();
 });
 
@@ -312,7 +312,48 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
   expect(await page.locator('[data-ui="ui_sitemap_page_header"]').innerText()).toMatch(/http:\/\/sitemap\.test[\s\S]*7 trang · 1 đã chụp/);
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
+
+  // fix round 1 #6/#7: connector glyph right next to the checkbox, folder label = bold real path + smaller muted count
+  expect(await rowOf("/docs/a").locator(".tree-conn").evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"├─"');
+  expect(await rowOf("/docs/b").locator(".tree-conn").evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"└─"');
+  expect(await rowOf("/docs (2 trang con)").locator(".tree-label-main").innerText()).toBe("/docs");
+  expect(await rowOf("/docs (2 trang con)").locator(".tree-label-count").innerText()).toBe("(2 trang con)");
+  // fix round 1 #8: HTTP "—" and the captured column (RelTime + "Chưa chụp") share one small muted style
+  const capturedFont = (loc: ReturnType<typeof rowOf>) => loc.locator(".captured-cell").first().evaluate((el) => getComputedStyle(el).fontSize);
+  expect(await capturedFont(rowOf("/about"))).toBe("11px");
+  expect(await capturedFont(rowOf("/legacy"))).toBe("11px");
+  // fix round 1 #5: select-all + counter, and the token estimate, are bordered chips
+  expect(await page.locator('[data-ui="ui_sitemap_select_all"]').getAttribute("class")).toContain("sitemap-chip");
+  expect(await page.locator('[data-ui="ui_sitemap_cost_estimate"]').getAttribute("class")).toContain("sitemap-chip");
+  // fix round 1 #4: the filter tabs fit their content, not stretched full width by the grid column
+  const tabsBox = (await page.getByRole("group", { name: "Bộ lọc trang" }).boundingBox())!;
+  expect(tabsBox.width).toBeLessThan(700);
+  // fix round 1 #1: search capped and the expand/collapse group sits right after it, both on one line
+  const searchBox = (await page.locator('[data-ui="ui_sitemap_route_search"]').boundingBox())!;
+  const expandBox = (await page.locator('[data-ui="ui_sitemap_expand_collapse"]').boundingBox())!;
+  expect(searchBox.width).toBeLessThanOrEqual(320);
+  expect(Math.abs(searchBox.y - expandBox.y)).toBeLessThan(4); // same line
+  // fix round 1 #3: h-14 action bar, Start follows the mockup's default (non-lg) button, Cancel isn't stretched
+  expect((await bar.boundingBox())!.height).toBeGreaterThanOrEqual(56);
+  expect(await page.locator('[data-ui="ui_sitemap_start_clone"]').getAttribute("class")).not.toContain("btn-lg");
+  const cancelBox = (await page.locator('[data-ui="ui_sitemap_cancel"]').boundingBox())!;
+  const startBox = (await page.locator('[data-ui="ui_sitemap_start_clone"]').boundingBox())!;
+  expect(Math.abs(cancelBox.height - startBox.height)).toBeLessThanOrEqual(2);
+
   await parityShot(page, "sitemap");
+
+  // fix round 1 #13: openWindow is guarded against a double click (exactly one POST) and gives success feedback
+  let opens = 0;
+  await page.route("**/auth/open", async (route) => {
+    opens++;
+    await new Promise((r) => setTimeout(r, 200)); // wide enough for a real double click to race the guard
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, url: `${o}/` }) });
+  });
+  const openBtn = banner.getByRole("button", { name: "Mở cửa sổ đăng nhập" });
+  await Promise.all([openBtn.click({ force: true }), openBtn.click({ force: true })]);
+  await expect.poll(() => page.getByText("Đã mở cửa sổ đăng nhập.").count()).toBe(1);
+  expect(opens).toBe(1);
+  await page.unroute("**/auth/open");
 
   // tri-state folder; deselecting the auth page removes the banner
   await tree.getByRole("checkbox", { name: "/docs/a", exact: true }).uncheck();
@@ -345,12 +386,13 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
   await page.getByRole("button", { name: "Mở hết", exact: true }).click();
   expect(await tree.getByRole("checkbox", { name: "/docs/a", exact: true }).count()).toBe(1);
 
-  // session tools sit in a closed disclosure, 16px below the action bar
+  // session tools sit in a closed disclosure, right after the action bar
   await page.locator('[data-ui="ui_sitemap_session_tools"] > summary').click();
   expect(await page.getByRole("region", { name: "Phiên đăng nhập" }).isVisible()).toBe(true);
   expect(foreign).toEqual([]);
 
-  // tablet + phone: the tree/action bar never force a horizontal page scroll (P19 review focus #1)
+  // tablet + phone: the tree/action bar never force a horizontal page scroll (P19 review focus #1); a short
+  // path never gets clipped by an off-track column width (fix round 1 #2)
   for (const [w, name] of [[768, "sitemap-768"], [375, "sitemap-375"]] as const) {
     await page.setViewportSize({ width: w, height: 900 });
     if (process.env.PARITY_DIR) {
@@ -358,7 +400,20 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
       await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+    const label = tree.locator(".tree-label").first();
+    expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth), `tree-label fits at ${w}`).toBe(true);
   }
+
+  // 375, viewport only (no fullPage stitching), scrolled to the bottom: the sticky action bar must not cover
+  // the tree's last row (fix round 1 #2/#15)
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  if (process.env.PARITY_DIR) {
+    await mkdir(process.env.PARITY_DIR, { recursive: true });
+    await page.screenshot({ path: join(process.env.PARITY_DIR, "sitemap-375-scrolled.png") });
+  }
+  const lastRowBox = (await tree.locator('[role="row"]').last().boundingBox())!;
+  const barBox = (await bar.boundingBox())!;
+  expect(lastRowBox.y + lastRowBox.height).toBeLessThanOrEqual(barBox.y + 1);
   await page.close();
 });
 

@@ -39,11 +39,18 @@ export default async function SitemapScreen({ params }: { params: Promise<{ id: 
           <>
             <UrlChip
               url={new URL(project.url).origin}
+              icon="language"
               openable
               extra={
-                <span className="t-label-sm text-3 chip-extra">
-                  {pages.length} trang · {captured} đã chụp
-                </span>
+                <>
+                  <span className="chip-divider" aria-hidden="true" />
+                  <span className="chip-status-group">
+                    <span className="dot tone-success" aria-hidden="true" />
+                    <span className="t-label-sm text-3 chip-extra">
+                      {pages.length} trang · {captured} đã chụp
+                    </span>
+                  </span>
+                </>
               }
             />
             {project.status !== "draft" && (

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { buildRouteTree, filterTree, httpLabel, parentKeys, selectionState, visibleRows, type RouteRow } from "@/app/p/[id]/sitemap/route-tree";
+import { buildRouteTree, filterTree, httpLabel, parentKeys, pathOf, selectionState, visibleRows, type RouteRow } from "@/app/p/[id]/sitemap/route-tree";
 
 const o = "http://x.test";
 const pages = (paths: string[]) => paths.map((p) => ({ url: `${o}${p}` }));
@@ -45,6 +45,21 @@ test("httpLabel: 2xx success with seconds, redirect text-2, 401/403 warn, other 
   expect(httpLabel({ status: 503, loadMs: 40 }).tone).toBe("danger");
   expect(httpLabel({})).toEqual({ text: "—", tone: "neutral" }); // discover.json from before spec §4.4
   expect(httpLabel({ status: null })).toEqual({ text: "—", tone: "neutral" });
+});
+
+test("fix round 1 #14: '/a' and '/a/' don't collide — each row shows its own real path, keys stay unique", () => {
+  // the trailing-slash variant arrives first and becomes the trie node's primary occupant: its row must still
+  // show ITS OWN real path ("/a/"), not the segment-reconstructed "/a" the node itself is keyed by.
+  const tree = buildRouteTree(pages(["/a/", "/a"]));
+  const rows = visibleRows(tree, new Set());
+  expect(rows.map((r) => r.path)).toEqual(["/a/", "/a"]);
+  expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+});
+
+test("fix round 1 #14: percent-encoded path segments are decoded, for the row label and for pathOf (search matches the decoded form)", () => {
+  const tree = buildRouteTree(pages(["/caf%C3%A9/menu"]));
+  expect(visibleRows(tree, new Set()).map((r) => r.path)).toEqual(["/café/menu"]);
+  expect(pathOf(`${o}/caf%C3%A9/menu`)).toBe("/café/menu");
 });
 
 test("100 pages build in < 50 ms", () => {

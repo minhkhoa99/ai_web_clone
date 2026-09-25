@@ -5,9 +5,19 @@ export type RouteRow<P> = { kind: "folder" | "page"; key: string; path: string; 
 
 type Trie<P> = { prefix: string; page?: P; kids: Map<string, Trie<P>> };
 
+// Percent-decoded for display and for search matching (spec parity: never show raw %XX escapes); falls back to
+// the raw text for a malformed escape rather than throwing.
+const decodePart = (s: string): string => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
 export const pathOf = (url: string): string => {
   const u = new URL(url);
-  return u.pathname + u.search;
+  return decodePart(u.pathname) + u.search;
 };
 
 const urlsOf = <P extends { url: string }>(n: Trie<P>): string[] => [...(n.page ? [n.page.url] : []), ...[...n.kids.values()].flatMap((k) => urlsOf(k))];
@@ -17,7 +27,14 @@ function rowsOf<P extends { url: string }>(node: Trie<P>, depth: number): RouteR
   const out: RouteRow<P>[] = [];
   const kids = [...node.kids.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, k]) => k);
   for (const kid of kids) {
-    if (kid.page) out.push({ kind: "page", key: kid.prefix, path: kid.prefix, depth, isLast: false, page: kid.page, urls: [kid.page.url], children: rowsOf(kid, depth + 1) });
+    // The page's own real stored path (decoded), never the trie's segment-reconstructed prefix: "/a" and "/a/"
+    // both land on the same trie node (a trailing slash is an empty, filtered-out segment), so using the node's
+    // fixed prefix as the label would show "/a" for whichever page happens to occupy it — including one whose
+    // real path is "/a/" — and its key wouldn't distinguish the two. pathOf(page.url) is unique per real URL.
+    if (kid.page) {
+      const real = pathOf(kid.page.url);
+      out.push({ kind: "page", key: real, path: real, depth, isLast: false, page: kid.page, urls: [kid.page.url], children: rowsOf(kid, depth + 1) });
+    }
     // >= 2 branches below a non-page prefix = >= 2 pages (every leaf is a page); a single branch is lifted, so a chain
     // like /a -> /a/b collapses into one folder "/a/b"
     else if (kid.kids.size >= 2) out.push({ kind: "folder", key: kid.prefix, path: kid.prefix, depth, isLast: false, urls: urlsOf(kid), children: rowsOf(kid, depth + 1) });
@@ -30,7 +47,7 @@ export function buildRouteTree<P extends { url: string }>(pages: P[]): RouteRow<
   const root: Trie<P> = { prefix: "", kids: new Map() };
   for (const p of pages) {
     const u = new URL(p.url);
-    const segs = u.pathname.split("/").filter(Boolean);
+    const segs = u.pathname.split("/").filter(Boolean).map(decodePart);
     let node = root;
     segs.forEach((seg, i) => {
       let next = node.kids.get(seg);
@@ -41,10 +58,10 @@ export function buildRouteTree<P extends { url: string }>(pages: P[]): RouteRow<
       node = next;
     });
     if (u.search) {
-      const leaf: Trie<P> = { prefix: u.pathname + u.search, page: p, kids: new Map() };
+      const leaf: Trie<P> = { prefix: pathOf(p.url), page: p, kids: new Map() };
       node.kids.set(u.search, leaf);
     } else if (node.page) {
-      node.kids.set(`#${pathOf(p.url)}`, { prefix: pathOf(p.url), page: p, kids: new Map() }); // "/a" and "/a/": both kept
+      node.kids.set(`#${pathOf(p.url)}`, { prefix: pathOf(p.url), page: p, kids: new Map() }); // "/a" and "/a/": both kept, each keyed by its own real path
     } else node.page = p;
   }
   const home: RouteRow<P>[] = root.page ? [{ kind: "page", key: "/", path: "/", depth: 0, isLast: false, page: root.page, urls: [root.page.url], children: [] }] : [];

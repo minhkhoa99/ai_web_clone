@@ -67,6 +67,7 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [authMsg, setAuthMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [openBusy, setOpenBusy] = useState(false);
   const tree = useMemo(() => buildRouteTree(pages), [pages]);
 
   const recent = (p: SitemapPage) => p.capturedAt !== null && p.capturedAt >= now - WEEK_S;
@@ -124,11 +125,16 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
     });
 
   const openWindow = async () => {
+    if (openBusy) return; // guard a double click: exactly one POST
+    setOpenBusy(true);
     setAuthMsg(null);
     try {
       await api(`/api/projects/${projectId}/auth/open`, { method: "POST" });
+      setAuthMsg({ ok: true, text: "Đã mở cửa sổ đăng nhập." });
     } catch (e) {
       setAuthMsg({ ok: false, text: errorText(e) });
+    } finally {
+      setOpenBusy(false);
     }
   };
 
@@ -147,23 +153,31 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
     const p = r.page;
     if (key === "path") {
       const open = filtering || !closed.has(r.key);
+      // Chevron/spacer first (a fixed alignment column across every depth), then the ├/└ connector sitting
+      // right next to the checkbox — no reserved gap between them (P19 fix round 1 #6).
       return (
         <div className="tree-cell" style={{ paddingLeft: r.depth * 20 }}>
-          {r.depth > 0 && <span className={`tree-conn${r.isLast ? " last" : ""}`} aria-hidden="true" />}
           {r.children.length > 0 ? (
             <IconButton icon="chevron_right" className={open ? "chev open" : "chev"} label={open ? `Thu gọn ${r.path}` : `Mở ${r.path}`} aria-expanded={open} onClick={() => toggleOpen(r.key)} />
           ) : (
             <span className="chev-space" />
           )}
+          {r.depth > 0 && <span className={`tree-conn${r.isLast ? " last" : ""}`} aria-hidden="true" />}
           {r.kind === "folder" ? (
             <TriCheckbox state={selectionState(r.urls, selected)} label={`Chọn tất cả trong ${r.path}`} disabled={!draft} onChange={() => setMany(r.urls, selectionState(r.urls, selected) !== "all")} />
           ) : (
             <TriCheckbox state={selected.has(p!.url) ? "all" : "none"} label={shownPath(r.path)} disabled={!draft} onChange={() => setMany([p!.url], !selected.has(p!.url))} />
           )}
           <Icon name={r.kind === "folder" ? (open ? "folder_open" : "folder") : "description"} />
-          <span className="mono tree-label" title={r.path}>
-            {r.kind === "folder" ? `${r.path} (${r.urls.length} trang con)` : shownPath(r.path)}
-          </span>
+          {r.kind === "folder" ? (
+            <span className="mono tree-label" title={r.path}>
+              <span className="tree-label-main">{r.path}</span> <span className="tree-label-count">({r.urls.length} trang con)</span>
+            </span>
+          ) : (
+            <span className="mono tree-label" title={r.path}>
+              {shownPath(r.path)}
+            </span>
+          )}
         </div>
       );
     }
@@ -171,7 +185,7 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
     if (key === "http") {
       const h = httpLabel(p);
       return h.text === "—" ? (
-        <span className="text-3" data-ui="ui_sitemap_http_status">
+        <span className="text-3 captured-cell" data-ui="ui_sitemap_http_status">
           —
         </span>
       ) : (
@@ -187,12 +201,14 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
           Cần đăng nhập
         </Badge>
       ) : (
-        <span className="text-3">—</span>
+        <span className="text-3 captured-cell">—</span>
       );
     return p.capturedAt ? (
-      <RelTime at={p.capturedAt} prefix="đã chụp " data-ui="ui_sitemap_captured_at" />
+      <span className="captured-cell text-3">
+        <RelTime at={p.capturedAt} prefix="đã chụp " data-ui="ui_sitemap_captured_at" />
+      </span>
     ) : (
-      <span className="text-3" data-ui="ui_sitemap_captured_at">
+      <span className="text-3 captured-cell" data-ui="ui_sitemap_captured_at">
         Chưa chụp
       </span>
     );
@@ -221,7 +237,7 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
         <>
           <div className="sitemap-tools">
             <div className="row">
-              <span className="row" data-ui="ui_sitemap_select_all">
+              <span className="sitemap-chip" data-ui="ui_sitemap_select_all">
                 <TriCheckbox
                   state={visibleState}
                   label="Chọn tất cả"
@@ -229,17 +245,20 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
                   onChange={() => setMany(shown.map((p) => p.url), visibleState !== "all")}
                   visibleLabel={`Chọn tất cả (${shown.length})`}
                 />
-                <span className="t-label-md text-2">
+                <span className="text-3" aria-hidden="true">
+                  •
+                </span>
+                <span className="t-label-sm sitemap-counter">
                   {selected.size} / {pages.length} đã chọn
                 </span>
               </span>
-              <span className="t-label-md text-3" data-ui="ui_sitemap_cost_estimate" title={ESTIMATE_TITLE}>
+              <span className="sitemap-chip t-label-sm text-3" data-ui="ui_sitemap_cost_estimate" title={ESTIMATE_TITLE}>
                 {est.cappedByBudget ? `· tối đa ${fmtTokens(tokenBudget)} token (ngân sách)` : `· ~${fmtTokens(est.tokens)} token (ước tính)`}
               </span>
             </div>
-            <div className="row">
+            <div className="row sitemap-search-row">
               <SearchInput data-ui="ui_sitemap_route_search" label="Lọc đường dẫn" placeholder="Lọc theo đường dẫn…" value={query} onChange={setQuery} />
-              <span className="row" data-ui="ui_sitemap_expand_collapse">
+              <span className="row sitemap-expand-group" data-ui="ui_sitemap_expand_collapse">
                 <Button variant="ghost" icon="unfold_more" onClick={() => setClosed(new Set())}>
                   Mở hết
                 </Button>
@@ -283,7 +302,7 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
               title={`Có ${authSelected} trang cần đăng nhập trong lựa chọn`}
               actions={
                 <>
-                  <Button icon="open_in_new" onClick={() => void openWindow()}>
+                  <Button icon="open_in_new" disabled={openBusy} onClick={() => void openWindow()}>
                     Mở cửa sổ đăng nhập
                   </Button>
                   <label className="btn btn-secondary file-btn">
@@ -298,25 +317,36 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
             </Banner>
           )}
           {authMsg && (
-            <p className={`note tint tone-${authMsg.ok ? "primary" : "danger"}`} role={authMsg.ok ? "status" : "alert"}>
+            <Banner
+              tone={authMsg.ok ? "info" : "danger"}
+              icon={authMsg.ok ? "check_circle" : "error"}
+              role={authMsg.ok ? "status" : "alert"}
+              actions={<IconButton icon="close" label="Đóng thông báo" onClick={() => setAuthMsg(null)} />}
+            >
               {authMsg.text}
-            </p>
+            </Banner>
           )}
         </>
       )}
       <div className="action-bar" data-ui="ui_sitemap_action_bar">
-        <span className="t-label-md">
-          {selected.size} trang đã chọn
-          {authSelected > 0 && <span className="text-warn"> ({authSelected} cần đăng nhập)</span>}
-        </span>
-        <span className="t-label-md text-2" data-ui="ui_sitemap_runtime_estimate">
-          Ước tính {fmtMinutes(est.seconds)}
+        <span className="row action-bar-info">
+          <span className="dot tone-primary" aria-hidden="true" />
+          <span className="t-label-md">
+            {selected.size} trang đã chọn
+            {authSelected > 0 && <span className="text-warn"> ({authSelected} cần đăng nhập)</span>}
+          </span>
+          <span className="text-3" aria-hidden="true">
+            •
+          </span>
+          <span className="t-label-md text-2" data-ui="ui_sitemap_runtime_estimate">
+            Ước tính {fmtMinutes(est.seconds)}
+          </span>
         </span>
         <span className="action-bar-end">
           <Button href="/" data-ui="ui_sitemap_cancel">
             Hủy
           </Button>
-          <Button variant="primary" size="lg" icon="play_arrow" data-ui="ui_sitemap_start_clone" disabled={busy || !draft || selected.size === 0} onClick={() => void start()}>
+          <Button variant="primary" icon="play_arrow" data-ui="ui_sitemap_start_clone" disabled={busy || !draft || selected.size === 0} onClick={() => void start()}>
             Bắt đầu clone
           </Button>
         </span>

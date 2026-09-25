@@ -1,7 +1,10 @@
 "use client";
 import { useState, type ChangeEvent } from "react";
 import { api, errorText } from "@/app/_ui/api";
+import { Banner } from "@/app/_ui/Banner";
 import { Button } from "@/app/_ui/Button";
+import { Icon } from "@/app/_ui/Icon";
+import { IconButton } from "@/app/_ui/IconButton";
 
 // A bare cookie array (browser extension export) or a Playwright storageState, applied into the project profile.
 export async function importSessionFile(projectId: string, file: File): Promise<string> {
@@ -50,15 +53,21 @@ export function SessionTools({ projectId }: { projectId: string }) {
         <Button icon="delete" disabled={busy} onClick={clear} aria-label="Xóa phiên" title="Xóa phiên">
           Xóa phiên
         </Button>
-        <label className="file-pick">
-          <span className="t-label-md text-2">Import cookie / storageState JSON</span>
-          <input type="file" accept="application/json,.json" disabled={busy} onChange={importFile} />
+        <label className={`btn btn-secondary file-btn${busy ? " btn-disabled-look" : ""}`}>
+          <Icon name="drive_folder_upload" />
+          Import cookie / storageState JSON
+          <input type="file" accept="application/json,.json" className="visually-hidden" disabled={busy} onChange={importFile} />
         </label>
       </div>
       {msg && (
-        <p className={`note tint tone-${msg.ok ? "success" : "danger"}`} role={msg.ok ? "status" : "alert"}>
+        <Banner
+          tone={msg.ok ? "info" : "danger"}
+          icon={msg.ok ? "check_circle" : "error"}
+          role={msg.ok ? "status" : "alert"}
+          actions={<IconButton icon="close" label="Đóng thông báo" onClick={() => setMsg(null)} />}
+        >
           {msg.text}
-        </p>
+        </Banner>
       )}
     </section>
   );

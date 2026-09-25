@@ -81,6 +81,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .upper { text-transform: uppercase; letter-spacing: 0.05em; }
 .text-2 { color: var(--c-text-2); }
 .text-3 { color: var(--c-text-3); }
+.text-primary { color: var(--c-primary); }
 .text-success { color: var(--c-success); }
 .text-warn { color: var(--c-warn); }
 .text-danger { color: var(--c-danger); }
@@ -447,34 +448,72 @@ select.full { width: 100%; min-height: 38px; }
    width at every viewport, so children shrink and wrap instead. */
 .sitemap-picker { grid-template-columns: minmax(0, 1fr); }
 .sitemap-tools { display: flex; justify-content: space-between; align-items: center; gap: var(--s-md); flex-wrap: wrap; }
+/* fix round 1 #1: search capped, expand/collapse group gets a left divider (sitemap.html:303-317) */
+.sitemap-search-row { flex-wrap: nowrap; }
+.sitemap-search-row [data-ui="ui_sitemap_route_search"] { flex: 1 1 200px; max-width: 320px; }
+.sitemap-expand-group { flex: none; border-left: 1px solid var(--c-border); padding-left: var(--s-sm); }
+/* fix round 1 #5: select-all + counter, and the token estimate, as bordered surface chips */
+.sitemap-chip { display: inline-flex; align-items: center; gap: var(--s-sm); padding: 5px 10px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface); }
+.sitemap-counter { color: var(--c-primary); font-weight: 600; }
+/* fix round 1 #4: the filter tabs are as wide as their content, not stretched by the grid column */
+[data-ui="ui_sitemap_filter_tabs"] { justify-self: start; }
 .tree-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tree-conn { position: relative; width: 12px; flex: none; color: var(--c-border); font: var(--t-label-md); }
-.tree-conn::before { content: "├"; }
-.tree-conn.last::before { content: "└"; }
+.tree-cell > .icon, .tree-cell > input { flex: none; }
+/* fix round 1 #6: the ├/└ connector sits right next to the checkbox (chevron/spacer renders before it, see the
+   cell markup) — no reserved gap between the connector and the checkbox. */
+.tree-conn { position: relative; width: 16px; flex: none; color: var(--c-border); font: var(--t-label-md); }
+.tree-conn::before { content: "├─"; }
+.tree-conn.last::before { content: "└─"; }
 .chev .icon { transition: transform 0.15s; }
 .chev.open .icon { transform: rotate(90deg); }
 .chev-space { width: 28px; flex: none; }
 .tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* fix round 1 #7: folder label — real prefix bold, "(N trang con)" smaller and muted */
+.tree-label-main { font-weight: 600; }
+.tree-label-count { font-size: 11px; color: var(--c-text-3); font-weight: 400; }
 .grid-row.unselected .tree-label { color: var(--c-text-3); }
-/* No white-space: nowrap here: as a flex child of the inline-flex .url-chip it would otherwise floor to its own
-   (unbreakable) min-content width via the default min-width: auto, overflowing the page at narrow viewports. */
-.chip-extra { padding: 0 6px; }
+/* fix round 1 #8: HTTP "—" / auth "—" / captured column (RelTime and "Chưa chụp") share one small muted style */
+.captured-cell { font-size: 11px; }
+/* fix round 1 #10: compact rows in the sitemap tree only — the shared GridTable default (44px) is untouched */
+[data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) { min-height: 30px; }
+[data-ui="ui_sitemap_route_tree"] .grid-row > [role="cell"] { padding: 4px 0; }
+/* fix round 1 #9: the origin chip's icon + the "N trang · M đã chụp" extra wrap as one atomic unit (never
+   mid-phrase) at narrow widths; white-space: nowrap here is safe because .url-chip itself is allowed to wrap
+   the whole "extra" node onto its own line instead. */
+[data-ui="ui_sitemap_page_header"] .url-chip { flex-wrap: wrap; row-gap: 2px; }
+.chip-divider { width: 1px; height: 12px; background: var(--c-border); flex: none; }
+.chip-status-group { display: inline-flex; align-items: center; gap: 6px; }
+.chip-extra { padding: 0 6px; white-space: nowrap; }
 .file-btn { position: relative; }
 .file-btn:focus-within { outline: 2px solid var(--c-primary); outline-offset: 1px; }
-.action-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-md) var(--s-lg); padding: var(--s-md) var(--s-lg); background: var(--c-surface-lowest); border-top: 1px solid var(--c-border); }
-.action-bar-end { margin-left: auto; display: flex; gap: var(--s-sm); }
+/* the session-tools import label is long ("Import cookie / storageState JSON"): .btn's white-space: nowrap
+   would force it past the viewport at narrow widths, so this one wraps onto 2 lines instead. */
+.session-tools .file-btn { white-space: normal; text-align: left; height: auto; }
+.btn-disabled-look { opacity: 0.45; pointer-events: none; }
+/* fix round 1 #3: h-14 action bar; Start follows the mockup's default (non-lg) button (P23); Cancel isn't
+   stretched by its flex sibling. */
+.action-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; min-height: 56px; gap: var(--s-md) var(--s-lg); padding: var(--s-md) var(--s-lg); background: var(--c-surface-lowest); border-top: 1px solid var(--c-border); }
+.action-bar-info { flex-wrap: nowrap; }
+.action-bar-end { margin-left: auto; display: flex; align-items: center; gap: var(--s-sm); }
 .session-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-sm); }
-.file-pick { display: inline-flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
-/* Below ~640px the 3 fixed-width columns (480px together) no longer fit next to the path column: each row
-   becomes path on its own line + HTTP/auth/captured wrapped below it, headers hidden as redundant (P19 review
-   focus #1 / Task 10 lesson from Task 9: no horizontal page scroll at 375). */
-@media (max-width: 639px) {
+/* fix round 1 #2: raised from 639px to ~899px — at 768 the fixed HTTP/auth/captured columns (480px together)
+   still crowd the path column and truncate it; the stacked per-row layout stays readable at every width below
+   desktop instead of trying to hand-tune column widths for the in-between zone. */
+@media (max-width: 899px) {
   [data-ui="ui_sitemap_route_tree"] .grid-head { display: none; }
-  [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-sm); padding: var(--s-sm) var(--s-md); }
+  [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-sm); padding: var(--s-sm) var(--s-md); min-height: auto; }
   [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) > [role="cell"] { padding: 0; }
   [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) > [role="cell"]:first-child { flex-basis: 100%; }
+}
+@media (max-width: 639px) {
   /* The .seg (filter tabs) is inline-flex with nowrap items: as a CSS grid item its default min-width:auto keeps
      it (and every .stack sibling, sharing the same single-column track) at its unshrunk content width, forcing
      the whole page wider than the viewport. Let it shrink and wrap onto a 2nd line instead. */
   [data-ui="ui_sitemap_filter_tabs"] { min-width: 0; flex-wrap: wrap; }
+  .sitemap-search-row { flex-wrap: wrap; }
+  .sitemap-search-row [data-ui="ui_sitemap_route_search"] { max-width: none; }
+  /* the dot + "N trang · M đã chụp" wrap down as one atomic unit instead of the text breaking mid-phrase; the
+     vertical divider (meant for one inline row) is dropped once it wraps to its own line. */
+  .chip-status-group { flex-basis: 100%; padding-left: 20px; }
+  .chip-divider { display: none; }
 }
