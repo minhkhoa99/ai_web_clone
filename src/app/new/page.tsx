@@ -1,6 +1,5 @@
 import { projectConfigSchema, type ProjectConfig } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
-import { PageHeader } from "@/app/_ui/PageHeader";
 import { NewCloneForm } from "./new-clone-form";
 
 // "Clone lại" (?from=<id>) prefills URL, mode and config from that project; credentials are never prefilled.
@@ -16,15 +15,6 @@ function initialFrom(id: string | undefined): { url: string; mode: "single" | "c
 
 export default async function NewPage({ searchParams }: { searchParams: Promise<{ from?: string | string[] }> }) {
   const { from } = await searchParams;
-  return (
-    <>
-      <PageHeader
-        data-ui="ui_new_clone_page_header"
-        crumbs={[{ label: "Clone mới" }]}
-        title="Cấu hình clone mới"
-        subtitle="Nhập URL, chọn chế độ, cách đăng nhập, ngưỡng QA và ngân sách token."
-      />
-      <NewCloneForm initial={initialFrom(typeof from === "string" ? from : undefined)} />
-    </>
-  );
+  // P20: the title/subtitle/divider live inside the form card itself (as in the mockup), not the shared PageHeader.
+  return <NewCloneForm initial={initialFrom(typeof from === "string" ? from : undefined)} />;
 }
