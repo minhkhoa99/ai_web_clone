@@ -1,9 +1,20 @@
 "use client";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent, type ReactNode } from "react";
 import type { ProjectConfig } from "@/core/jobs-base";
 import { api, errorText } from "@/app/_ui/api";
+import { Badge } from "@/app/_ui/Badge";
+import { Banner } from "@/app/_ui/Banner";
+import { Button } from "@/app/_ui/Button";
+import { Card } from "@/app/_ui/Card";
+import { Disclosure } from "@/app/_ui/Disclosure";
+import { Field } from "@/app/_ui/Field";
+import { Icon, type IconName } from "@/app/_ui/Icon";
+import { IconButton } from "@/app/_ui/IconButton";
+import { PasswordInput } from "@/app/_ui/PasswordInput";
+import { SegmentedControl } from "@/app/_ui/SegmentedControl";
+import { fmtInt } from "@/app/_ui/format";
 
 type Mode = "single" | "crawl";
 type AuthMode = ProjectConfig["auth"]["mode"];
@@ -15,11 +26,31 @@ const AUTH_MODES: [AuthMode, string][] = [
   ["auto", "Tự động (tài khoản)"],
 ];
 const SP2_OUTPUTS = ["React", "Next.js", "Vue", "WordPress"];
+const QA_MARKS: [number, string][] = [
+  [70, "70% (thoáng)"],
+  [85, "85% (cân bằng)"],
+  [95, "95% (chặt)"],
+  [100, "100% (khớp pixel)"],
+];
+
+function Section({ icon, title, hint, ui, children }: { icon: IconName; title: string; hint?: ReactNode; ui?: string; children: ReactNode }) {
+  return (
+    <section className="new-section" data-ui={ui}>
+      <div className="new-section-head">
+        <Icon name={icon} size={20} />
+        <h2 className="t-label-md">{title}</h2>
+        {hint && <span className="new-section-hint t-label-sm">{hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export function NewCloneForm({ initial }: { initial?: Initial }) {
   const router = useRouter();
   const cfg = initial?.config;
   const [url, setUrl] = useState(initial?.url ?? "");
+  const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<Mode>(initial?.mode ?? "single");
   const [maxPages, setMaxPages] = useState(cfg?.maxPages ?? 20);
   const [depth, setDepth] = useState(cfg?.depth ?? 2);
@@ -31,7 +62,8 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
   const [pass, setPass] = useState("");
   const [remember, setRemember] = useState(false);
   const [threshold, setThreshold] = useState(Math.round((cfg?.threshold ?? 0.95) * 100));
-  const [tokenBudget, setTokenBudget] = useState(cfg ? String(cfg.tokenBudget) : "");
+  const [tokenBudget, setTokenBudget] = useState(cfg ? String(cfg.tokenBudget) : ""); // digits only; "" = server default
+  const [budgetFocus, setBudgetFocus] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [created, setCreated] = useState<string | null>(null);
@@ -53,8 +85,14 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
     router.push(`/p/${id}/sitemap`);
   };
 
+  const copyUrl = () =>
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+
   // Create, then crawl the sitemap for the page picker (manual auth: after the user logged in in the window).
-  // A failed crawl leaves the draft project, linked below.
+  // A failed crawl leaves the draft project, linked in the error.
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -86,114 +124,140 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
     }
   };
 
+  const num = (value: number, set: (n: number) => void, min: number, max: number, step = 1) => (
+    <input type="number" className="num-center" min={min} max={max} step={step} required value={value} onChange={(e) => set(e.target.valueAsNumber)} />
+  );
+
   return (
-    <form className="stack" style={{ maxWidth: 820 }} onSubmit={(e) => void submit(e)}>
-      <label className="field">
-        URL
-        <input required type="url" className="mono" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
-      </label>
+    <form className="new-card" data-ui="ui_new_clone_card" onSubmit={(e) => void submit(e)}>
+      <Section icon="language" title="URL trang web" hint="HTTP/HTTPS" ui="ui_new_clone_url_input">
+        <span className="url-input">
+          <Icon name="language" />
+          <input required type="url" className="mono" aria-label="URL trang web" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <IconButton icon="content_copy" label={copied ? "Đã sao chép" : "Sao chép URL"} disabled={!url} onClick={copyUrl} />
+        </span>
+      </Section>
 
-      <fieldset>
-        <legend>Chế độ</legend>
-        <label className="row">
-          <input type="radio" name="mode" checked={mode === "single"} onChange={() => setMode("single")} />1 trang đầy đủ
-        </label>
-        <label className="row">
-          <input type="radio" name="mode" checked={mode === "crawl"} onChange={() => setMode("crawl")} />
-          Crawl nhiều trang
-        </label>
-        {mode === "crawl" && (
-          <div className="grid-3">
-            <label className="field">
-              Số trang tối đa
-              <input type="number" min={1} max={100} required value={maxPages} onChange={(e) => setMaxPages(e.target.valueAsNumber)} />
-            </label>
-            <label className="field">
-              Độ sâu
-              <input type="number" min={0} max={5} required value={depth} onChange={(e) => setDepth(e.target.valueAsNumber)} />
-            </label>
-            <label className="field">
-              Concurrency
-              <input type="number" min={1} max={5} required value={concurrency} onChange={(e) => setConcurrency(e.target.valueAsNumber)} />
-            </label>
+      <SegmentedControl<Mode>
+        data-ui="ui_new_clone_mode_toggle"
+        label="Chế độ"
+        full
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "single", label: "1 trang đầy đủ", icon: "description" },
+          { value: "crawl", label: "Crawl nhiều trang", icon: "account_tree" },
+        ]}
+      />
+      {mode === "crawl" && (
+        <Card variant="section" icon="account_tree" title="GIỚI HẠN CRAWL" data-ui="ui_new_clone_crawl_limits">
+          <div className="limits-grid">
+            <Field label="Số trang tối đa" suffix="trang">
+              {num(maxPages, setMaxPages, 1, 100)}
+            </Field>
+            <Field label="Độ sâu" suffix="cấp">
+              {num(depth, setDepth, 0, 5)}
+            </Field>
+            <Field label="Trang chụp song song" suffix="trang">
+              {num(concurrency, setConcurrency, 1, 5)}
+            </Field>
+            <Field label="Delay giữa request" suffix="ms">
+              {num(delayMs, setDelayMs, 0, 10_000, 100)}
+            </Field>
           </div>
-        )}
-        <label className="field" style={{ maxWidth: 260 }}>
-          Delay giữa các request (ms)
-          <input type="number" min={0} max={10000} step={100} required value={delayMs} onChange={(e) => setDelayMs(e.target.valueAsNumber)} />
-        </label>
-      </fieldset>
+        </Card>
+      )}
 
-      <fieldset>
-        <legend>Đăng nhập</legend>
-        <div className="row">
+      <div className="new-divider" />
+      <Section icon="lock" title="Đăng nhập" ui="ui_new_clone_auth_select">
+        <select aria-label="Cách đăng nhập" className="full" value={authMode} onChange={(e) => setAuthMode(e.target.value as AuthMode)}>
           {AUTH_MODES.map(([value, label]) => (
-            <label key={value} className="row">
-              <input type="radio" name="auth" checked={authMode === value} onChange={() => setAuthMode(value)} />
+            <option key={value} value={value}>
               {label}
-            </label>
+            </option>
           ))}
-        </div>
+        </select>
         {authMode === "auto" && (
-          <div className="grid-3">
-            <label className="field">
-              Tài khoản
+          <div className="creds-grid" data-ui="ui_new_clone_auth_credentials">
+            <Field label="Tài khoản">
               <input required autoComplete="off" value={user} onChange={(e) => setUser(e.target.value)} />
-            </label>
-            <label className="field">
-              Mật khẩu
-              <input required type="password" autoComplete="off" value={pass} onChange={(e) => setPass(e.target.value)} />
-            </label>
-            <label className="row">
+            </Field>
+            <PasswordInput label="Mật khẩu" required value={pass} onChange={(e) => setPass(e.target.value)} />
+            <label className="check">
               <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-              Ghi nhớ
+              Ghi nhớ (mã hóa trên máy này)
             </label>
           </div>
         )}
         {authMode === "auto" && (
-          <details>
-            <summary>Selector form đăng nhập (tùy chọn)</summary>
-            <div className="grid-3">
+          <Disclosure summary="Selector form đăng nhập (tùy chọn)" data-ui="ui_new_clone_auth_selectors">
+            <div className="creds-grid">
               {(["user", "pass", "submit"] as const).map((k) => (
-                <label key={k} className="field">
-                  Selector {k === "user" ? "ô tài khoản" : k === "pass" ? "ô mật khẩu" : "nút gửi"}
+                <Field key={k} label={`Selector ${k === "user" ? "ô tài khoản" : k === "pass" ? "ô mật khẩu" : "nút gửi"}`}>
                   <input className="mono" maxLength={500} placeholder="CSS selector" value={selectors[k]} onChange={(e) => setSelectors({ ...selectors, [k]: e.target.value })} />
-                </label>
+                </Field>
               ))}
             </div>
-          </details>
+          </Disclosure>
         )}
-      </fieldset>
+      </Section>
 
-      <div className="grid-3">
-        <label className="field">
-          Ngưỡng QA (%)
-          <input type="number" min={0} max={100} required value={threshold} onChange={(e) => setThreshold(e.target.valueAsNumber)} />
-        </label>
-        <label className="field">
-          Ngân sách token
-          <input type="number" min={1} step={1} placeholder="mặc định" value={tokenBudget} onChange={(e) => setTokenBudget(e.target.value)} />
-        </label>
-      </div>
-
-      <fieldset>
-        <legend>Output</legend>
-        <div className="row">
-          <label className="row">
-            <input type="radio" name="output" defaultChecked />
-            HTML
-          </label>
-          {SP2_OUTPUTS.map((o) => (
-            <label key={o} className="row muted">
-              <input type="radio" name="output" disabled />
-              {o} (SP2)
-            </label>
+      <div className="new-divider" />
+      <Section icon="difference" title="Ngưỡng QA" hint={`${threshold}%`} ui="ui_new_clone_qa_threshold">
+        <input type="range" aria-label="Ngưỡng QA" min={70} max={100} step={1} value={Math.min(100, Math.max(70, threshold))} onChange={(e) => setThreshold(e.target.valueAsNumber)} />
+        <div className="qa-marks t-label-sm">
+          {QA_MARKS.map(([v, label]) => (
+            <span key={v} style={{ left: `${((v - 70) / 30) * 100}%` }}>
+              {label}
+            </span>
           ))}
         </div>
-      </fieldset>
+        {/* D9: the number keeps every threshold the schema allows (0..100), the slider covers 70..100 */}
+        <Field label="Chính xác (%)" suffix="%" className="qa-exact">
+          <input type="number" min={0} max={100} required value={threshold} onChange={(e) => setThreshold(e.target.valueAsNumber)} />
+        </Field>
+      </Section>
+
+      <div className="new-divider" />
+      <Section icon="generating_tokens" title="Ngân sách token" ui="ui_new_clone_token_budget">
+        <span className="field-control has-suffix">
+          <input
+            type="text"
+            inputMode="numeric"
+            aria-label="Ngân sách token"
+            className="mono"
+            placeholder="2.000.000 (mặc định)"
+            value={budgetFocus || !tokenBudget ? tokenBudget : fmtInt(Number(tokenBudget))}
+            onFocus={() => setBudgetFocus(true)}
+            onBlur={() => setBudgetFocus(false)}
+            onChange={(e) => setTokenBudget(e.target.value.replace(/\D/g, "").slice(0, 12))}
+          />
+          <span className="field-suffix t-label-sm" aria-hidden="true">
+            token
+          </span>
+        </span>
+        <p className="t-body-sm text-3">Dùng cho đặt tên section và vòng sửa QA. Hết ngân sách → dừng các bước AI, dự án vẫn hoàn thành.</p>
+      </Section>
+
+      <div className="new-divider" />
+      <Section icon="output" title="Định dạng output" ui="ui_new_clone_output_format">
+        <div role="radiogroup" aria-label="Định dạng output" className="output-grid">
+          <div role="radio" aria-checked="true" tabIndex={0} className="output-card is-on">
+            <span className="mono">HTML</span>
+            <span className="t-body-sm text-2">HTML/CSS tĩnh</span>
+            <Badge tone="success">Đang dùng</Badge>
+          </div>
+          {SP2_OUTPUTS.map((o) => (
+            <div key={o} role="radio" aria-checked="false" aria-disabled="true" className="output-card">
+              <span className="mono">{o}</span>
+              <Badge>SP2</Badge>
+            </div>
+          ))}
+        </div>
+      </Section>
 
       {msg && (
-        <p className="alert" role="alert">
+        <Banner tone="danger" icon="error" data-ui="ui_new_clone_error">
           {msg}
           {created && (
             <>
@@ -201,25 +265,35 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
               <Link href={`/p/${created}/sitemap`}>mở sitemap của dự án đã tạo</Link>
             </>
           )}
-        </p>
+        </Banner>
       )}
       {loginFirst && created ? (
-        <div className="card stack" role="group" aria-label="Đăng nhập trước khi quét">
-          <span>Mở cửa sổ Chrome, đăng nhập (tự xử lý CAPTCHA nếu có), rồi bấm Quét trang — cửa sổ sẽ được đóng trước khi quét.</span>
-          <div className="row">
-            <button type="button" className="btn" disabled={busy} onClick={() => void run(() => api(`/api/projects/${created}/auth/open`, { method: "POST" }).then(() => setBusy(false)))}>
-              Mở cửa sổ đăng nhập
-            </button>
-            <button type="button" className="btn primary" disabled={busy} onClick={() => void run(() => crawl(created))}>
-              Quét trang
-            </button>
-          </div>
+        <div role="group" aria-label="Đăng nhập trước khi quét" data-ui="ui_new_clone_manual_login">
+          <Banner
+            tone="info"
+            icon="lock"
+            actions={
+              <>
+                <Button icon="open_in_new" disabled={busy} onClick={() => void run(() => api(`/api/projects/${created}/auth/open`, { method: "POST" }).then(() => setBusy(false)))}>
+                  Mở cửa sổ đăng nhập
+                </Button>
+                <Button variant="primary" icon="radar" disabled={busy} onClick={() => void run(() => crawl(created))}>
+                  Quét trang
+                </Button>
+              </>
+            }
+          >
+            Mở cửa sổ Chrome, đăng nhập (tự xử lý CAPTCHA nếu có), rồi bấm Quét trang — cửa sổ sẽ được đóng trước khi quét.
+          </Banner>
         </div>
       ) : (
-        <div>
-          <button className="btn primary" disabled={busy}>
+        <div className="new-actions">
+          <Button href="/" data-ui="ui_new_clone_cancel">
+            Hủy
+          </Button>
+          <Button type="submit" variant="primary" size="lg" icon="radar" iconEnd="arrow_forward" disabled={busy} data-ui="ui_new_clone_preview_sitemap">
             {busy ? "Đang quét…" : "Quét trang"}
-          </button>
+          </Button>
         </div>
       )}
     </form>

@@ -1,5 +1,6 @@
 import { projectConfigSchema, type ProjectConfig } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
+import { PageHeader } from "@/app/_ui/PageHeader";
 import { NewCloneForm } from "./new-clone-form";
 
 // "Clone lại" (?from=<id>) prefills URL, mode and config from that project; credentials are never prefilled.
@@ -17,7 +18,12 @@ export default async function NewPage({ searchParams }: { searchParams: Promise<
   const { from } = await searchParams;
   return (
     <>
-      <h1>Clone mới</h1>
+      <PageHeader
+        data-ui="ui_new_clone_page_header"
+        crumbs={[{ label: "Clone mới" }]}
+        title="Cấu hình clone mới"
+        subtitle="Nhập URL, chọn chế độ, cách đăng nhập, ngưỡng QA và ngân sách token."
+      />
       <NewCloneForm initial={initialFrom(typeof from === "string" ? from : undefined)} />
     </>
   );

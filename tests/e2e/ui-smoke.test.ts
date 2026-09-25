@@ -139,14 +139,54 @@ test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, fi
   }
 });
 
+test("new: centered card ≤1000px, copy-URL icon, mode toggle, crawl limits only when crawling, QA slider ⇄ number, SP2 outputs disabled", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/new`);
+  await expectUi(page, ["ui_new_clone_page_header", "ui_new_clone_card", "ui_new_clone_url_input", "ui_new_clone_mode_toggle", "ui_new_clone_auth_select", "ui_new_clone_qa_threshold", "ui_new_clone_token_budget", "ui_new_clone_output_format", "ui_new_clone_cancel", "ui_new_clone_preview_sitemap"]);
+  expect((await page.locator('[data-ui="ui_new_clone_card"]').boundingBox())!.width).toBeLessThanOrEqual(1000);
+  expect(await page.locator('[data-ui="ui_new_clone_crawl_limits"]').count()).toBe(0);
+  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
+  expect(await page.locator('[data-ui="ui_new_clone_crawl_limits"]').innerText()).toMatch(/GIỚI HẠN CRAWL[\s\S]*Số trang tối đa[\s\S]*Độ sâu[\s\S]*Trang chụp song song[\s\S]*Delay giữa request/);
+
+  const slider = page.getByRole("slider", { name: "Ngưỡng QA" });
+  const exact = page.getByRole("spinbutton", { name: "Chính xác (%)" });
+  expect(await exact.inputValue()).toBe("95");
+  await slider.focus();
+  for (let i = 0; i < 10; i++) await slider.press("ArrowLeft");
+  expect(await exact.inputValue()).toBe("85");
+  await exact.fill("99");
+  expect(await slider.inputValue()).toBe("99");
+  expect(await page.locator('[data-ui="ui_new_clone_qa_threshold"]').innerText()).toMatch(/99%[\s\S]*70% \(thoáng\)[\s\S]*85% \(cân bằng\)[\s\S]*95% \(chặt\)[\s\S]*100% \(khớp pixel\)/);
+
+  const outputs = page.getByRole("radiogroup", { name: "Định dạng output" });
+  expect(await outputs.getByRole("radio", { checked: true }).innerText()).toMatch(/HTML[\s\S]*Đang dùng/);
+  const disabled = outputs.locator('[aria-disabled="true"]');
+  expect(await disabled.count()).toBe(4);
+  for (const [i, name] of ["React", "Next.js", "Vue", "WordPress"].entries()) expect(await disabled.nth(i).innerText()).toMatch(new RegExp(`${name.replace(".", "\\.")}[\\s\\S]*SP2`));
+
+  await page.getByLabel("Cách đăng nhập").selectOption("auto");
+  await expectUi(page, ["ui_new_clone_auth_credentials", "ui_new_clone_auth_selectors"]);
+  await page.getByRole("button", { name: "Hiện mật khẩu" }).click();
+  expect(await page.getByLabel("Mật khẩu", { exact: true }).getAttribute("type")).toBe("text");
+  await page.getByRole("textbox", { name: "URL trang web" }).fill("https://example.com/");
+  expect(await page.getByRole("button", { name: "Sao chép URL" }).count()).toBe(1);
+  expect(await page.getByRole("link", { name: "Hủy" }).getAttribute("href")).toBe("/");
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  await parityShot(page, "new-clone-crawl-auto");
+  expect(foreign).toEqual([]);
+  await page.close();
+});
+
 test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async () => {
   const page = await browser.newPage();
   for (const path of ["/", "/new"]) {
     await page.goto(`${base}${path}`);
     await expectNoDrift(page);
   }
-  await page.getByLabel("URL").fill(`${site.url}/index.html`);
-  await page.getByLabel("Crawl nhiều trang").check();
+  await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
+  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
   await page.getByRole("button", { name: "Quét trang" }).click();
   await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
   const pages = page.getByRole("checkbox", { name: /^\/(index|about|pricing)\.html$/ });
@@ -164,8 +204,8 @@ test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async
 test("new (manual login): after create the login step comes before the crawl; Quét trang then crawls", async () => {
   const page = await browser.newPage();
   await page.goto(`${base}/new`);
-  await page.getByLabel("URL").fill(`${site.url}/index.html`);
-  await page.getByLabel(/^Thủ công/).check();
+  await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
+  await page.getByLabel("Cách đăng nhập").selectOption("manual");
   await page.getByRole("button", { name: "Quét trang" }).click();
   const step = page.getByRole("group", { name: "Đăng nhập trước khi quét" });
   await expect.poll(() => step.getByRole("button", { name: "Mở cửa sổ đăng nhập" }).isVisible()).toBe(true);
@@ -186,12 +226,18 @@ test("new (manual login): after create the login step comes before the crawl; Qu
   await page.close();
 });
 
-test("new: delay and optional login selectors are saved in the project config", async () => {
+test("new: delay, QA threshold, token budget and optional login selectors are saved in the project config", async () => {
   const page = await browser.newPage();
   await page.goto(`${base}/new`);
-  await page.getByLabel("URL").fill(`${site.url}/index.html`);
-  await page.getByLabel("Delay giữa các request (ms)").fill("0");
-  await page.getByLabel(/^Tự động/).check();
+  await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
+  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
+  await page.getByLabel("Delay giữa request").fill("0");
+  await page.getByRole("spinbutton", { name: "Chính xác (%)" }).fill("90");
+  const budget = page.getByRole("textbox", { name: "Ngân sách token" });
+  await budget.fill("1500000");
+  await budget.blur();
+  expect(await budget.inputValue()).toBe("1.500.000");
+  await page.getByLabel("Cách đăng nhập").selectOption("auto");
   await page.getByLabel("Tài khoản", { exact: true }).fill("u");
   await page.getByLabel("Mật khẩu", { exact: true }).fill("p");
   await page.getByText("Selector form đăng nhập (tùy chọn)").click();
@@ -205,6 +251,8 @@ test("new: delay and optional login selectors are saved in the project config", 
     const cfg = JSON.parse((db.prepare("SELECT config_json FROM projects WHERE id=?").get(id) as { config_json: string }).config_json) as ProjectConfig;
     expect(cfg.delayMs).toBe(0);
     expect(cfg.auth).toEqual({ mode: "auto", selectors: { pass: "#pw", submit: "button.go" } });
+    expect(cfg.threshold).toBe(0.9);
+    expect(cfg.tokenBudget).toBe(1_500_000);
   } finally {
     db.close();
   }
