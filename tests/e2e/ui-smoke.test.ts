@@ -286,6 +286,7 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   for (const s of ["failed", "needs_auth", "running", "interrupted", "draft"]) expect(await rows.locator(`[data-status="${s}"]`).count()).toBe(1);
   expect(await page.locator('[data-ui="ui_history_pagination"]').innerText()).toContain("Hiển thị 1–5 / 5 dự án");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // a 300-char URL never widens the page
+  expect((await page.locator('[data-ui="ui_history_url_search"]').boundingBox())?.width).toBeGreaterThanOrEqual(380); // ~400px at 1440, not squeezed to fit-content
   await expectUi(page, ["ui_shell_page_header", "ui_history_page_header", "ui_history_status_tabs", "ui_history_url_search", "ui_history_refresh", "ui_history_job_rows", "ui_history_row_url", "ui_history_row_subtitle", "ui_history_failed_error_log", "ui_history_needs_auth_status", "ui_history_status_pill", "ui_history_progress_bar", "ui_history_row_actions", "ui_history_pause_button", "ui_history_resume_button", "ui_history_open_button", "ui_history_reclone_button", "ui_history_delete_button", "ui_history_pagination"]);
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
