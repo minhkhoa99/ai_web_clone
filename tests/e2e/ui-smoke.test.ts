@@ -219,6 +219,7 @@ test("new (manual login): after create the login step comes before the crawl; Qu
   await step.getByRole("button", { name: "Quét trang" }).click();
   await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
   // session tools on the sitemap: import a storageState file, then clear the session
+  await page.locator('[data-ui="ui_sitemap_session_tools"] > summary').click();
   const session = page.getByRole("region", { name: "Phiên đăng nhập" });
   await session.getByLabel("Import cookie / storageState JSON").setInputFiles({
     name: "state.json",
@@ -261,6 +262,102 @@ test("new: delay, QA threshold, token budget and optional login selectors are sa
     expect(cfg.tokenBudget).toBe(1_500_000);
   } finally {
     db.close();
+  }
+  await page.close();
+});
+
+test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state, estimates, protected banner, action bar", async () => {
+  const db = openDb(env.DB_PATH);
+  const o = "http://sitemap.test";
+  let id = "";
+  try {
+    id = seedProject(db, { url: `${o}/`, status: "draft", mode: "crawl", tasks: [{ phase: "discover", key: `${o}/`, status: "done" }, { phase: "capture", key: "about", status: "done" }] });
+    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify([{ pageId: "about", url: `${o}/about` }]));
+    await writeWs(env.WORKSPACE_ROOT, id, "discover.json", JSON.stringify([
+      { url: `${o}/`, needsAuth: false, status: 200, loadMs: 1234, redirected: false },
+      { url: `${o}/about`, needsAuth: false, status: 200, loadMs: 80, redirected: false },
+      { url: `${o}/docs/a`, needsAuth: false, status: 200, loadMs: 90, redirected: false },
+      { url: `${o}/docs/b`, needsAuth: false, status: 200, loadMs: 95, redirected: false },
+      { url: `${o}/account`, needsAuth: true, status: 401, loadMs: 40, redirected: false },
+      { url: `${o}/old`, needsAuth: false, status: 200, loadMs: 60, redirected: true },
+      { url: `${o}/legacy`, needsAuth: false }, // written before spec §4.4: no HTTP data
+    ]));
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${id}/sitemap`);
+  const tree = page.locator('[data-ui="ui_sitemap_route_tree"]');
+  const rowOf = (text: string) => tree.locator('[role="row"]').filter({ hasText: text });
+  const pageBoxes = tree.getByRole("checkbox", { name: /^\// });
+  await expect.poll(() => rowOf("/docs (2 trang con)").count()).toBe(1);
+  expect(await rowOf("/ (trang chủ)").innerText()).toContain("200 · 1,2 s");
+  expect(await rowOf("/old").innerText()).toContain("200 · chuyển hướng");
+  expect(await rowOf("/account").innerText()).toMatch(/401[\s\S]*Cần đăng nhập/);
+  expect(await rowOf("/account").getAttribute("class")).toContain("row-warn");
+  expect(await rowOf("/legacy").locator('[data-ui="ui_sitemap_http_status"]').innerText()).toBe("—");
+  expect(await rowOf("/about").innerText()).toContain("đã chụp");
+  expect(await rowOf("/legacy").innerText()).toContain("Chưa chụp");
+  expect(await page.locator('[data-ui="ui_sitemap_select_all"]').innerText()).toMatch(/Chọn tất cả \(7\)[\s\S]*7 \/ 7 đã chọn/);
+  // defaults (fewer than 20 samples in this db): 7 pages -> 14 fix sections -> 21k + 840k tokens; ~1216 s
+  expect(await page.locator('[data-ui="ui_sitemap_cost_estimate"]').innerText()).toBe("· ~861k token (ước tính)");
+  const bar = page.locator('[data-ui="ui_sitemap_action_bar"]');
+  expect(await bar.innerText()).toMatch(/7 trang đã chọn \(1 cần đăng nhập\)[\s\S]*Ước tính ~20 phút[\s\S]*Hủy[\s\S]*Bắt đầu clone/);
+  const banner = page.locator('[data-ui="ui_sitemap_protected_banner"]');
+  expect(await banner.innerText()).toContain("Có 1 trang cần đăng nhập trong lựa chọn");
+  expect(await banner.getByRole("button", { name: "Mở cửa sổ đăng nhập" }).count()).toBe(1);
+  expect(await banner.getByText("Import cookie JSON").count()).toBe(1);
+  await expectUi(page, ["ui_sitemap_page_header", "ui_sitemap_route_search", "ui_sitemap_expand_collapse", "ui_sitemap_filter_tabs", "ui_sitemap_auth_gated_rows", "ui_sitemap_captured_at", "ui_sitemap_runtime_estimate", "ui_sitemap_cancel", "ui_sitemap_start_clone", "ui_sitemap_session_tools"]);
+  expect(await page.locator('[data-ui="ui_sitemap_page_header"]').innerText()).toMatch(/http:\/\/sitemap\.test[\s\S]*7 trang · 1 đã chụp/);
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  await parityShot(page, "sitemap");
+
+  // tri-state folder; deselecting the auth page removes the banner
+  await tree.getByRole("checkbox", { name: "/docs/a", exact: true }).uncheck();
+  expect(await tree.getByRole("checkbox", { name: "Chọn tất cả trong /docs" }).evaluate((el) => (el as HTMLInputElement).indeterminate)).toBe(true);
+  expect(await rowOf("/docs/a").getAttribute("class")).toContain("unselected");
+  await tree.getByRole("checkbox", { name: "/account", exact: true }).uncheck();
+  expect(await banner.count()).toBe(0);
+  expect(await bar.innerText()).toContain("5 trang đã chọn");
+  await tree.getByRole("checkbox", { name: "Chọn tất cả trong /docs" }).check();
+  expect(await bar.innerText()).toContain("6 trang đã chọn");
+
+  // filter tabs with counts
+  const tabs = page.getByRole("group", { name: "Bộ lọc trang" });
+  expect(await tabs.innerText()).toMatch(/Tất cả \(7\)[\s\S]*Công khai \(6\)[\s\S]*Cần đăng nhập \(1\)[\s\S]*Đã chụp < 7 ngày \(1\)/);
+  await tabs.getByRole("button", { name: /Cần đăng nhập/ }).click();
+  await expect.poll(() => pageBoxes.count()).toBe(1);
+  await tabs.getByRole("button", { name: /Tất cả/ }).click();
+
+  // search: literal, case-insensitive substring; regex characters never throw
+  const search = page.getByRole("searchbox", { name: "Lọc đường dẫn" });
+  await search.fill("[");
+  await expect.poll(() => pageBoxes.count()).toBe(0);
+  await search.fill("DOCS");
+  await expect.poll(() => pageBoxes.count()).toBe(2);
+  await search.fill("");
+
+  // expand / collapse
+  await page.getByRole("button", { name: "Thu gọn", exact: true }).click();
+  expect(await tree.getByRole("checkbox", { name: "/docs/a", exact: true }).count()).toBe(0);
+  await page.getByRole("button", { name: "Mở hết", exact: true }).click();
+  expect(await tree.getByRole("checkbox", { name: "/docs/a", exact: true }).count()).toBe(1);
+
+  // session tools sit in a closed disclosure, 16px below the action bar
+  await page.locator('[data-ui="ui_sitemap_session_tools"] > summary').click();
+  expect(await page.getByRole("region", { name: "Phiên đăng nhập" }).isVisible()).toBe(true);
+  expect(foreign).toEqual([]);
+
+  // tablet + phone: the tree/action bar never force a horizontal page scroll (P19 review focus #1)
+  for (const [w, name] of [[768, "sitemap-768"], [375, "sitemap-375"]] as const) {
+    await page.setViewportSize({ width: w, height: 900 });
+    if (process.env.PARITY_DIR) {
+      await mkdir(process.env.PARITY_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
   }
   await page.close();
 });

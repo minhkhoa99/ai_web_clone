@@ -283,8 +283,6 @@ th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-
 .log { height: 460px; overflow: auto; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 10px 12px; margin: 0; font: var(--t-label-md); white-space: pre-wrap; }
 .log .warn { color: var(--c-warn); }
 .log .error { color: var(--c-danger); }
-/* legacy: sitemap */
-.tree li { padding: 6px 0; border-bottom: 1px solid var(--c-border); display: flex; gap: 10px; align-items: center; }
 /* legacy: preview */
 .compare { height: 72vh; overflow: auto; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); padding: 12px; }
 .compare-side { display: flex; gap: 12px; align-items: flex-start; }
@@ -440,4 +438,43 @@ select.full { width: 100%; min-height: 38px; }
 }
 @media (min-width: 640px) {
   .output-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } /* mockup's sm:grid-cols-4; the 5th card wraps */
+}
+
+/* === Screen: sitemap === */
+/* .stack has no explicit grid-template-columns: its single implicit column defaults to auto track sizing, which
+   sizes to a child's min-content (here, the 4-tab filter's nowrap labels) even past the viewport (a CSS grid
+   "blowout" that widens every sibling row along with it). minmax(0, 1fr) caps the column at the container's own
+   width at every viewport, so children shrink and wrap instead. */
+.sitemap-picker { grid-template-columns: minmax(0, 1fr); }
+.sitemap-tools { display: flex; justify-content: space-between; align-items: center; gap: var(--s-md); flex-wrap: wrap; }
+.tree-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tree-conn { position: relative; width: 12px; flex: none; color: var(--c-border); font: var(--t-label-md); }
+.tree-conn::before { content: "├"; }
+.tree-conn.last::before { content: "└"; }
+.chev .icon { transition: transform 0.15s; }
+.chev.open .icon { transform: rotate(90deg); }
+.chev-space { width: 28px; flex: none; }
+.tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.grid-row.unselected .tree-label { color: var(--c-text-3); }
+/* No white-space: nowrap here: as a flex child of the inline-flex .url-chip it would otherwise floor to its own
+   (unbreakable) min-content width via the default min-width: auto, overflowing the page at narrow viewports. */
+.chip-extra { padding: 0 6px; }
+.file-btn { position: relative; }
+.file-btn:focus-within { outline: 2px solid var(--c-primary); outline-offset: 1px; }
+.action-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-md) var(--s-lg); padding: var(--s-md) var(--s-lg); background: var(--c-surface-lowest); border-top: 1px solid var(--c-border); }
+.action-bar-end { margin-left: auto; display: flex; gap: var(--s-sm); }
+.session-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-sm); }
+.file-pick { display: inline-flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
+/* Below ~640px the 3 fixed-width columns (480px together) no longer fit next to the path column: each row
+   becomes path on its own line + HTTP/auth/captured wrapped below it, headers hidden as redundant (P19 review
+   focus #1 / Task 10 lesson from Task 9: no horizontal page scroll at 375). */
+@media (max-width: 639px) {
+  [data-ui="ui_sitemap_route_tree"] .grid-head { display: none; }
+  [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-sm); padding: var(--s-sm) var(--s-md); }
+  [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) > [role="cell"] { padding: 0; }
+  [data-ui="ui_sitemap_route_tree"] .grid-row:not(.grid-head) > [role="cell"]:first-child { flex-basis: 100%; }
+  /* The .seg (filter tabs) is inline-flex with nowrap items: as a CSS grid item its default min-width:auto keeps
+     it (and every .stack sibling, sharing the same single-column track) at its unshrunk content width, forcing
+     the whole page wider than the viewport. Let it shrink and wrap onto a 2nd line instead. */
+  [data-ui="ui_sitemap_filter_tabs"] { min-width: 0; flex-wrap: wrap; }
 }
