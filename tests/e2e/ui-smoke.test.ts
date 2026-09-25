@@ -146,7 +146,7 @@ test("new: centered card ≤1000px, copy-URL icon, mode toggle, crawl limits onl
   await expectUi(page, ["ui_new_clone_page_header", "ui_new_clone_card", "ui_new_clone_url_input", "ui_new_clone_mode_toggle", "ui_new_clone_auth_select", "ui_new_clone_qa_threshold", "ui_new_clone_token_budget", "ui_new_clone_output_format", "ui_new_clone_cancel", "ui_new_clone_preview_sitemap"]);
   expect((await page.locator('[data-ui="ui_new_clone_card"]').boundingBox())!.width).toBeLessThanOrEqual(1000);
   expect(await page.locator('[data-ui="ui_new_clone_crawl_limits"]').count()).toBe(0);
-  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
+  await page.getByRole("group", { name: "Chế độ clone" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
   expect(await page.locator('[data-ui="ui_new_clone_crawl_limits"]').innerText()).toMatch(/GIỚI HẠN CRAWL[\s\S]*Số trang tối đa[\s\S]*Độ sâu[\s\S]*Trang chụp song song[\s\S]*Delay giữa request/);
 
   const slider = page.getByRole("slider", { name: "Ngưỡng QA" });
@@ -175,6 +175,12 @@ test("new: centered card ≤1000px, copy-URL icon, mode toggle, crawl limits onl
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
   await parityShot(page, "new-clone-crawl-auto");
+
+  // 375px: crawl limits + auto-auth credentials + the optional-selectors grid all expanded, no horizontal scroll.
+  await page.getByText("Selector form đăng nhập (tùy chọn)").click();
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
   expect(foreign).toEqual([]);
   await page.close();
 });
@@ -186,7 +192,7 @@ test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async
     await expectNoDrift(page);
   }
   await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
-  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
+  await page.getByRole("group", { name: "Chế độ clone" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
   await page.getByRole("button", { name: "Quét trang" }).click();
   await page.waitForURL(/\/p\/[^/]+\/sitemap$/, { timeout: 60_000 });
   const pages = page.getByRole("checkbox", { name: /^\/(index|about|pricing)\.html$/ });
@@ -230,7 +236,7 @@ test("new: delay, QA threshold, token budget and optional login selectors are sa
   const page = await browser.newPage();
   await page.goto(`${base}/new`);
   await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
-  await page.getByRole("group", { name: "Chế độ" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
+  await page.getByRole("group", { name: "Chế độ clone" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
   await page.getByLabel("Delay giữa request").fill("0");
   await page.getByRole("spinbutton", { name: "Chính xác (%)" }).fill("90");
   const budget = page.getByRole("textbox", { name: "Ngân sách token" });

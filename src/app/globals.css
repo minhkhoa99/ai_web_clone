@@ -365,27 +365,36 @@ th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-
 .page-num { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface-high); color: var(--c-text); font: var(--t-label-md); cursor: pointer; }
 .page-num[aria-current="page"] { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
 
-/* === Screen: new clone === */
+/* === Screen: new clone ===
+   Sizes derived from docs/superpowers/design/stitch/new-clone.html (Tailwind classes / tokens), never
+   from the PNG's pixels (P22: the PNG is a 2x capture of a ~1280px layout). E.g. the URL/token-budget/
+   auth-select inputs use `py-2.5` (10px) around `font-label-md` (13px/18px) -> ~38px; the crawl-limit
+   inputs use `py-1.5` (6px) around the same line-height -> ~30px, already the shared base input height. */
 .new-card { max-width: 1000px; margin: 0 auto; padding: var(--s-xl); display: grid; gap: var(--s-lg); background: var(--c-surface-low); border: 1px solid var(--c-border); border-radius: var(--r-lg); }
+/* Grid/flex items default to min-width:auto (their content's min-content size); without this, an
+   unbreakable label (e.g. the mode-toggle's nowrap button text) forces the whole card wider than the
+   viewport at narrow widths. No element here relies on an intrinsic min-width, so this is safe. */
+.new-card, .new-card * { min-width: 0; }
 .new-card-head { display: grid; gap: var(--s-xs); }
 .new-toggle-label { color: var(--c-text); margin: 0 0 var(--s-sm); }
 .new-section { display: grid; gap: var(--s-md); }
 .new-section-head { display: flex; align-items: center; gap: var(--s-sm); color: var(--c-text-2); }
+.new-section-head > .icon { color: var(--c-primary); }
 .new-section-head h2 { color: var(--c-text); flex: 1; }
 .new-section-hint { color: var(--c-text-3); }
 .new-divider { height: 1px; background: var(--c-border); }
 .sub-box { background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: var(--s-lg); display: grid; gap: var(--s-md); }
 .url-input { position: relative; display: flex; align-items: center; }
 .url-input > .icon { position: absolute; left: 12px; color: var(--c-text-3); pointer-events: none; }
-.url-input > input { flex: 1; min-height: 54px; padding-left: 38px; padding-right: 40px; background: var(--c-surface-lowest); font: var(--t-label-md); }
+.url-input > input { flex: 1; min-height: 38px; padding-left: 38px; padding-right: 40px; background: var(--c-surface-lowest); font: var(--t-label-md); }
 .url-input > .icon-btn { position: absolute; right: 8px; }
 [data-ui="ui_new_clone_mode_toggle"] .seg-item { min-height: 44px; font: var(--t-body-md); }
 [data-ui="ui_new_clone_mode_toggle"] .seg-item[aria-pressed="true"] { border: 1px solid var(--c-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
 [data-ui="ui_new_clone_crawl_limits"] .panel-head { margin: 0 var(--s-lg); padding-left: 0; padding-right: 0; }
 .limits-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-md); }
-.limits-grid input, .field-control.has-suffix > input { min-height: 44px; }
 .num-center { text-align: center; }
-select.full { width: 100%; }
+select.full { width: 100%; min-height: 38px; }
+[data-ui="ui_new_clone_token_budget"] input { min-height: 38px; }
 .creds-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-md); align-items: end; }
 .creds-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-md); }
 .creds-box { display: grid; gap: var(--s-md); }
@@ -396,9 +405,10 @@ select.full { width: 100%; }
 .qa-slider::-moz-range-track { height: 4px; background: var(--c-surface-highest); border-radius: var(--r-full); }
 .qa-slider::-moz-range-thumb { width: 16px; height: 16px; background: var(--c-primary); border: 0; border-radius: 2px; cursor: pointer; }
 .qa-marks { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px var(--s-md); color: var(--c-text-3); }
+.qa-marks > span { flex-shrink: 0; white-space: nowrap; }
 .qa-marks > span.is-active { color: var(--c-text); font-weight: 700; }
 .qa-exact { max-width: 220px; }
-.output-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-sm); }
+.output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-sm); }
 .output-card { display: grid; gap: 4px; align-content: start; padding: var(--s-md); border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface-lowest); color: var(--c-text-3); }
 .output-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-sm); width: 100%; }
 .output-card-top .mono { display: inline-flex; align-items: center; gap: 4px; }
@@ -406,3 +416,16 @@ select.full { width: 100%; }
 .output-card.is-on .output-card-top .mono { color: var(--c-primary); }
 .output-card[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; border-color: transparent; }
 .new-actions { display: flex; justify-content: space-between; gap: var(--s-sm); padding-top: var(--s-md); border-top: 1px solid var(--c-border); }
+
+/* Below ~640px (mockup's `sm` breakpoint): stack the grids the mockup collapses too, and keep the QA
+   marks on one line — no horizontal scroll (P19 review focus #1 / fix round 2 rule 2 + 6). */
+@media (max-width: 639px) {
+  .limits-grid, .creds-grid, .creds-grid-2 { grid-template-columns: 1fr; }
+  .sub-box { padding: var(--s-md); }
+  .qa-marks { flex-wrap: nowrap; gap: 4px; }
+  .qa-marks .mark-detail { display: none; }
+  [data-ui="ui_new_clone_mode_toggle"] .seg-item { white-space: normal; text-align: center; line-height: 1.15; }
+}
+@media (min-width: 640px) {
+  .output-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}

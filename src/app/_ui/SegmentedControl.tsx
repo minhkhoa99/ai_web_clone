@@ -12,6 +12,8 @@ type Props<T extends string> = {
   semantics?: "toggle" | "tabs";
   full?: boolean;
   "data-ui"?: string;
+  /** id of a visible heading to use as the group's accessible name instead of `label` (which is still required, e.g. for callers with no visible heading). */
+  "aria-labelledby"?: string;
 };
 
 // toggle: role=group + aria-pressed. tabs: role=tablist/tab + aria-selected, ←/→ move between enabled tabs.
@@ -30,7 +32,8 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
   return (
     <div
       role={tabs ? "tablist" : "group"}
-      aria-label={label}
+      aria-label={ui["aria-labelledby"] ? undefined : label}
+      aria-labelledby={ui["aria-labelledby"]}
       className={`seg${tabs ? " seg-tabs" : ""}${full ? " seg-full" : ""}`}
       onKeyDown={onKey}
       data-ui={ui["data-ui"]}

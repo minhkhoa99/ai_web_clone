@@ -37,8 +37,8 @@ function Section({ icon, title, hint, ui, children }: { icon: IconName; title: s
   return (
     <section className="new-section" data-ui={ui}>
       <div className="new-section-head">
-        <Icon name={icon} size={20} />
-        <h2 className="t-headline-sm">{title}</h2>
+        <Icon name={icon} size={16} />
+        <h2 className="t-label-md">{title}</h2>
         {hint && <span className="new-section-hint t-label-sm">{hint}</span>}
       </div>
       {children}
@@ -89,11 +89,14 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
 
   const copyUrl = () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
+    const arm = (state: "ok" | "err") => {
+      setCopyState(state);
+      copyTimer.current = setTimeout(() => setCopyState("idle"), 2000);
+    };
     void navigator.clipboard.writeText(url).then(
-      () => setCopyState("ok"),
-      () => setCopyState("err"),
+      () => arm("ok"),
+      () => arm("err"),
     );
-    copyTimer.current = setTimeout(() => setCopyState("idle"), 2000);
   };
 
   // Create, then crawl the sitemap for the page picker (manual auth: after the user logged in in the window).
@@ -158,10 +161,13 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
       </Section>
 
       <div className="new-section">
-        <h2 className="new-toggle-label t-headline-sm">Chế độ clone</h2>
+        <h2 id="new-clone-mode-label" className="new-toggle-label t-label-md">
+          Chế độ clone
+        </h2>
         <SegmentedControl<Mode>
           data-ui="ui_new_clone_mode_toggle"
-          label="Chế độ"
+          label="Chế độ clone"
+          aria-labelledby="new-clone-mode-label"
           full
           value={mode}
           onChange={setMode}
@@ -230,11 +236,16 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
         <div className="sub-box">
           <input type="range" className="qa-slider" aria-label="Ngưỡng QA" min={70} max={100} step={1} value={clampedThreshold} onChange={(e) => setThreshold(e.target.valueAsNumber)} />
           <div className="qa-marks t-label-sm">
-            {QA_MARKS.map(([v, label]) => (
-              <span key={v} className={v === activeMark ? "is-active" : undefined}>
-                {label}
-              </span>
-            ))}
+            {QA_MARKS.map(([v, label]) => {
+              const [pct, ...rest] = label.split(" ");
+              return (
+                <span key={v} className={v === activeMark ? "is-active" : undefined}>
+                  {pct}
+                  {/* hidden below ~640px so the row stays on one line without truncating the % value itself */}
+                  <span className="mark-detail"> {rest.join(" ")}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
         {/* D9: the number keeps every threshold the schema allows (0..100), the slider covers 70..100 */}
