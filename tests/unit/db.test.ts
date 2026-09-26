@@ -26,3 +26,8 @@ test("reopening a db file keeps the auth_enc migration idempotent", async () => 
   expect(cols.filter((c) => c.name === "auth_enc")).toHaveLength(1);
   db.close();
 });
+
+test("a connection waits up to 5s for another writer's lock instead of failing with 'database is locked'", () => {
+  const db = openDb(":memory:");
+  expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
+});

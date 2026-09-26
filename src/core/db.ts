@@ -14,7 +14,8 @@ const MIGRATIONS = [
 
 export function openDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
+  // busy_timeout first: even the journal_mode switch can meet another connection's lock (e2e files run in parallel)
+  db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
   for (const m of MIGRATIONS) db.exec(m);
   // idempotent column add (SQLite has no ADD COLUMN IF NOT EXISTS): remembered login credentials, encrypted
   const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
