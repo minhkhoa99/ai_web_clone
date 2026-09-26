@@ -607,18 +607,18 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     emit(projectId, reason ? { type: "status", status: "completed", reason } : { type: "status", status: "completed" });
   } catch (e) {
     if (signal.aborted) return setPaused(db, projectId); // the closed browser / aborted AI call is the pause, not a failure
-    // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.
-    if (e instanceof Error) {
-      e.message = messageFor(projectId, e);
-      if (e.stack) e.stack = redact(projectId, e.stack);
-      detailed.add(e);
-    }
-    logDetail(projectId, "error", "job", e instanceof Error ? (e.stack ?? e.message) : rawMessageOf(e));
+    // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials. A non-Error
+    // throw is wrapped now: after clearRunSecrets below nothing could scrub its raw value any more.
+    const err = e instanceof Error ? e : new Error(messageFor(projectId, e));
+    err.message = messageFor(projectId, err);
+    if (err.stack) err.stack = redact(projectId, err.stack);
+    detailed.add(err);
+    logDetail(projectId, "error", "job", err.stack ?? err.message);
     // The task that threw (ir/emit/qa/fix) is still `running`: make it failed so a resume retries it.
     db.prepare("UPDATE tasks SET status='failed',error_code=?,error_msg=?,updated_at=unixepoch() WHERE project_id=? AND status='running'")
-      .run(codeOf(e), messageFor(projectId, e), projectId);
-    setStatus(db, projectId, "failed", codeOf(e) ?? messageFor(projectId, e));
-    throw e;
+      .run(codeOf(err), err.message, projectId);
+    setStatus(db, projectId, "failed", codeOf(err) ?? err.message);
+    throw err;
   } finally {
     clearRunSecrets(projectId);
     running.delete(projectId);
