@@ -293,6 +293,8 @@ Hết ngân sách token → dừng fix, đánh dấu section còn lại; job kh�
 | `/p/[id]/editor` | GrapesJS: canvas, layer, style manager, block (section của dự án), chuyển thiết bị; layout chung = symbol (sửa 1 lần áp mọi trang); chọn nhiều section → **Gộp thành layout**; panel hiệu ứng (keyframes đã capture + preset fade/slide); Save → adapter → patch IR; undo/redo có sẵn |
 | `/p/[id]/code` | Cây file + viewer chỉ đọc (shiki); **Xuất ZIP** (stream) / **Xuất ra thư mục** |
 
+Bố cục, token và element từng màn: xem `2026-09-24-sp1-ui-stitch-parity-design.md`.
+
 Adapter editor: `irToGrapes(ir)` và `grapesToPatch(before, grapesJson)` — sinh patch IR, dùng chung `applyPatch`.
 
 ## 11. Xử lý lỗi
