@@ -209,6 +209,78 @@ test("code role gets images only when the same provider+model also serves vision
   expect(bodies.every((b) => b.includes("evidence text"))).toBe(true);
 });
 
+test("generate throws AI_QUOTA on 402 without retrying", async () => {
+  const { db } = setupProvider();
+  const fetchMock = vi.fn(async () => new Response("out of credit", { status: 402 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(generate(db, { role: "code", messages: [{ role: "user", content: "hi" }] }, async () => {})).rejects.toMatchObject({
+    code: "AI_QUOTA",
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("generate error message includes model id and a body excerpt, never the api key", async () => {
+  const { db } = setupProvider();
+  const apiKey = "sk-secret-key";
+  const fetchMock = vi.fn(async () => new Response(`{"error":"nope key=${apiKey}"}`, { status: 402 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  try {
+    await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }] }, async () => {});
+    throw new Error("expected generate to throw");
+  } catch (e) {
+    const err = e as { message: string };
+    expect(err.message).toContain('model "gpt-test"');
+    expect(err.message).toContain("nope key=[redacted]");
+    expect(err.message).not.toContain(apiKey);
+  }
+});
+
+test("generate error excerpt is cut to 300 chars", async () => {
+  const { db } = setupProvider();
+  const longBody = "x".repeat(400);
+  const fetchMock = vi.fn(async () => new Response(longBody, { status: 402 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  try {
+    await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }] }, async () => {});
+    throw new Error("expected generate to throw");
+  } catch (e) {
+    const err = e as { message: string };
+    const excerpt = err.message.split(": ").pop()!;
+    expect(excerpt.length).toBe(300);
+  }
+});
+
+test("generate calls onRetry with the failing status before succeeding", async () => {
+  const { db } = setupProvider();
+  let calls = 0;
+  const fetchMock = vi.fn(async () => {
+    calls += 1;
+    if (calls === 1) return new Response("boom", { status: 500 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "hi" } }], usage: { total_tokens: 1 } }), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const onRetry = vi.fn();
+
+  await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], onRetry }, async () => {});
+  expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ attempt: 0, status: 500 }));
+});
+
+test("generate rejects immediately without retrying when the signal is already aborted", async () => {
+  const { db } = setupProvider();
+  const fetchMock = vi.fn(async () => new Response("should not be called", { status: 500 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled by user"));
+
+  await expect(
+    generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], signal: controller.signal }, async () => {}),
+  ).rejects.toThrow("cancelled by user");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test("generate refuses before any request when the project's budget is already spent", async () => {
   const { db } = setupProvider();
   db.prepare("INSERT INTO projects(id,url,mode,config_json,status,tokens_used) VALUES(?,?,?,?,?,?)").run("p1", "http://x", "single", JSON.stringify({ tokenBudget: 5 }), "draft", 5);

@@ -30,6 +30,8 @@ export interface GenerateOptions {
   tools?: ToolDef[];
   jsonSchema?: { name: string; schema: unknown };
   projectId?: string;
+  onRetry?: (info: { attempt: number; status?: number; error?: string; delayMs: number }) => void;
+  signal?: AbortSignal;
 }
 
 export interface GenerateResult {
@@ -242,7 +244,8 @@ export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: s
   const res = await fetch(url, { headers: modelsHeaders(kind, apiKey), signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
     const { code } = mapHttpError(res.status);
-    throw new AppError(code, `fetchModels failed with status ${res.status}`, { status: res.status, url });
+    const excerpt = await bodyExcerpt(res, apiKey);
+    throw new AppError(code, `fetchModels failed with status ${res.status}${excerpt ? `: ${excerpt}` : ""}`, { status: res.status, url });
   }
   const raw = (await res.json()) as { data?: { id: string }[] };
   if (!Array.isArray(raw.data)) throw new AppError("AI_BAD_RESPONSE", "unexpected /models response shape", { url });
@@ -252,8 +255,16 @@ export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: s
 function mapHttpError(status: number): { code: Code; retryable: boolean } {
   if (status === 429) return { code: "AI_RATE_LIMIT", retryable: true };
   if (status === 401 || status === 403) return { code: "AI_AUTH", retryable: false };
+  if (status === 402) return { code: "AI_QUOTA", retryable: false };
   if (status >= 400 && status < 500) return { code: "AI_BAD_CONFIG", retryable: false };
   return { code: "AI_BAD_RESPONSE", retryable: true };
+}
+
+// Body text with the api key scrubbed, whitespace collapsed, cut to 300 chars — for informative but leak-free error messages.
+async function bodyExcerpt(res: Response, apiKey: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  const redacted = apiKey ? text.split(apiKey).join("[redacted]") : text;
+  return redacted.replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
 interface ResolvedProvider {
@@ -324,24 +335,39 @@ export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: S
   const req = toRequest(provider.kind, provider.baseUrl, apiKey, { ...opts, images, model: provider.model });
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (opts.signal?.aborted) throw opts.signal.reason ?? new Error("aborted");
+    const fetchSignal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(req.body), signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetch(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(req.body), signal: fetchSignal });
     } catch (e) {
+      if (opts.signal?.aborted) throw opts.signal.reason ?? e;
       if (attempt === MAX_RETRIES) {
-        throw new AppError("AI_BAD_RESPONSE", "network error calling provider", { provider: provider.name, url: req.url });
+        throw new AppError(
+          "AI_BAD_RESPONSE",
+          `network error calling provider "${provider.name}" model "${provider.model}": ${(e as Error).message}`,
+          { provider: provider.name, url: req.url },
+        );
       }
-      await sleep(BASE_DELAY_MS * 2 ** attempt);
+      const delayMs = BASE_DELAY_MS * 2 ** attempt;
+      opts.onRetry?.({ attempt, error: (e as Error).message, delayMs });
+      await sleep(delayMs);
       continue;
     }
 
     if (!res.ok) {
       const { code, retryable } = mapHttpError(res.status);
       if (!retryable || attempt === MAX_RETRIES) {
-        throw new AppError(code, `provider "${provider.name}" returned status ${res.status}`, { status: res.status, provider: provider.name, url: req.url });
+        const excerpt = await bodyExcerpt(res, apiKey);
+        throw new AppError(
+          code,
+          `provider "${provider.name}" model "${provider.model}" returned status ${res.status}${excerpt ? `: ${excerpt}` : ""}`,
+          { status: res.status, provider: provider.name, model: provider.model, url: req.url },
+        );
       }
       const retryAfterSec = res.status === 429 ? Number(res.headers.get("retry-after")) : NaN;
       const delay = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : BASE_DELAY_MS * 2 ** attempt;
+      opts.onRetry?.({ attempt, status: res.status, delayMs: delay });
       await sleep(delay);
       continue;
     }
