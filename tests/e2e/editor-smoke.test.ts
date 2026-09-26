@@ -36,7 +36,11 @@ async function seedCompleted(env: { DB_PATH: string; WORKSPACE_ROOT: string }): 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "editor-smoke-"));
   const env = { DB_PATH: join(tmp, "sp1.db"), WORKSPACE_ROOT: join(tmp, "workspace"), KEY_PATH: join(tmp, "secret.key") };
-  [projectId, app, browser] = await Promise.all([seedCompleted(env), startNextApp(env), chromium.launch()]);
+  // seedCompleted must fully finish (status='completed', events flushed) before the real Next server starts:
+  // its instrumentation.ts runs recoverOnStartup, which marks any row still 'running' at that instant
+  // 'interrupted' — a race that intermittently corrupted the completed run's status (fix round 1 #11).
+  [projectId, browser] = await Promise.all([seedCompleted(env), chromium.launch()]);
+  app = await startNextApp(env);
 }, 600_000);
 
 afterAll(async () => {

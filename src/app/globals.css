@@ -243,12 +243,15 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .section-gap { margin-top: var(--s-lg); }
 
 /* === LogView === */
-.log-view { overflow: auto; background: var(--c-surface-lowest); font: var(--t-label-md); padding: var(--s-sm) 0; white-space: pre; }
+.log-view { overflow: auto; background: var(--c-surface-lowest); font: var(--t-label-md); padding: var(--s-sm) 0; white-space: pre; line-height: 1.6; }
 .log-view.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-line { padding: 1px var(--s-md); border-left: 2px solid transparent; }
+.log-line + .log-line { margin-top: 6px; } /* fix round 1 #8: space-y-1.5 leading-relaxed, mockup's terminal spacing */
 .log-line.log-warn { background: color-mix(in srgb, var(--c-warn) 5%, transparent); border-left-color: var(--c-warn); }
 .log-line.log-error { background: color-mix(in srgb, var(--c-danger) 5%, transparent); border-left-color: var(--c-danger); }
-.log-time, .log-level { color: var(--c-text-3); }
+.log-time { color: var(--c-text-3); }
+.log-level { color: var(--c-text-3); font-weight: 600; }
+.log-info .log-level { color: var(--c-success); }
 .log-warn .log-level { color: var(--c-warn); }
 .log-error .log-level { color: var(--c-danger); }
 .log-empty { padding: 0 var(--s-md); color: var(--c-text-3); }
@@ -518,28 +521,49 @@ select.full { width: 100%; min-height: 38px; }
 .context-bar { display: flex; align-items: center; gap: var(--s-md); flex-wrap: wrap; padding-bottom: var(--s-md); border-bottom: 1px solid var(--c-border); }
 .context-stats { display: flex; gap: var(--s-sm); margin-left: auto; }
 .context-controls { display: flex; gap: var(--s-sm); }
-.stepper-x { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 0; overflow-x: auto; }
-.step { display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--c-text-3); white-space: nowrap; }
-.step + .step::before { content: ""; width: 20px; height: 1px; margin-right: 10px; background: var(--c-border); }
-.step-done + .step::before { background: var(--c-primary); }
-.step-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--r-full); border: 1px solid var(--c-border); background: var(--c-surface-low); }
+/* Stepper: a continuous 2px track behind pill-shaped steps spread edge to edge (fix round 1 #3). */
+.stepper-wrap { position: relative; padding: 6px var(--s-lg); }
+.stepper-track { position: absolute; left: calc(var(--s-lg) + 10px); right: calc(var(--s-lg) + 10px); top: 50%; height: 2px; background: var(--c-surface-high); transform: translateY(-50%); }
+.stepper-track-fill { height: 100%; background: var(--c-primary); }
+.stepper-x { position: relative; list-style: none; margin: 0; padding: 0; display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow-x: auto; }
+.step { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: var(--r-md); border: 1px solid transparent; background: var(--c-surface-lowest); color: var(--c-text-3); white-space: nowrap; }
+.step-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--r-sm); border: 1px solid var(--c-border); background: var(--c-surface-high); flex: none; }
 .step-done { color: var(--c-success); }
-.step-done .step-icon { border-color: color-mix(in srgb, var(--c-success) 30%, transparent); background: color-mix(in srgb, var(--c-success) 10%, transparent); }
-.step-active { color: var(--c-primary); }
-.step-active .step-icon { border-color: var(--c-primary); }
-.step-dot { position: absolute; top: -2px; right: -2px; color: var(--c-primary); }
+.step-done .step-icon { border-color: color-mix(in srgb, var(--c-success) 30%, transparent); background: color-mix(in srgb, var(--c-success) 18%, transparent); }
+.step-active { color: var(--c-primary); border-color: var(--c-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-primary) 20%, transparent); padding-inline: 10px; }
+.step-active .step-icon { border-color: var(--c-primary); background: var(--c-primary); color: var(--c-on-primary); }
 .step-error { color: var(--c-danger); }
-.step-error .step-icon { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); }
+.step-error .step-icon { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); background: color-mix(in srgb, var(--c-danger) 18%, transparent); }
 .inline-chip { padding: 1px 6px; border-radius: var(--r-sm); background: var(--c-surface-lowest); border: 1px solid var(--c-border); }
-/* ponytail: the fixed top area (~400px) is an estimate, not measured; measure it if the stepper/banners grow */
-.progress-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--s-lg); height: max(480px, calc(100vh - 400px)); }
+/* The progress screen fills the viewport below the shell chrome (72px top + 16px bottom padding from
+   .shell-main) so only the two panes scroll internally — the page itself never scrolls, banner or not
+   (fix round 1 #7). Below tablet the two panes stack instead, so the page scrolls normally there. */
+.progress-page { display: flex; flex-direction: column; gap: var(--s-md); }
+@media (min-width: 640px) {
+  .progress-page { height: calc(100vh - 88px); overflow: hidden; }
+  .progress-page > * { flex: none; }
+  .progress-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--s-md); overflow: hidden; }
+  .progress-screen > * { flex: none; }
+  .progress-grid { flex: 1; min-height: 0; }
+}
+/* Two panes edge to edge, split by one shared border (not two bordered cards with a gap, fix round 1 #6).
+   min-width: 0 on both the grid and its own item in .stack's / .progress-screen's implicit column: without it a
+   very long unbreakable page path (nowrap) bubbles its min-content size up through the grid/flex chain and
+   forces the whole page wider than the viewport (review focus #1). */
+/* below 640px .progress-screen stays a (.stack) grid: its implicit single column defaults to "auto" sizing,
+   which grows to fit content instead of the container's definite width — force it to a proper 1fr track. */
+.progress-screen { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.progress-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); min-width: 0; border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; background: var(--c-surface-low); }
 .pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.pane + .pane { border-left: 1px solid var(--c-border); }
 .pane-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; padding: var(--s-sm) var(--s-md); border-bottom: 1px solid var(--c-border); }
 .pane-toolbar .search-input { flex: 1; min-width: 0; }
 .pane .log-view { flex: 1; min-height: 0; }
-.log-toggles { display: flex; align-items: center; gap: var(--s-md); margin-left: auto; }
+.log-toggles { display: flex; align-items: center; gap: var(--s-md); }
+.log-clear-btn { margin-left: auto; }
 .page-states { list-style: none; margin: 0; padding: var(--s-xs) 0; flex: 1; overflow-y: auto; }
 .page-state { display: flex; align-items: center; gap: var(--s-sm); padding: 6px var(--s-md); }
+.page-state + .page-state { border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent); }
 .page-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state-done { color: var(--c-success); }
 .state-running { color: var(--c-primary); }
@@ -548,7 +572,12 @@ select.full { width: 100%; min-height: 38px; }
 .state-skipped, .state-pending { color: var(--c-text-3); }
 .page-state .page-path { color: var(--c-text); }
 .pane-foot { display: grid; gap: 4px; padding: var(--s-sm) var(--s-md); border-top: 1px solid var(--c-border); color: var(--c-text-2); }
-/* below tablet: the fixed 360px page-list column no longer fits beside the log column, so the two panes stack. */
+/* each "N label" phrase never breaks internally; the row wraps only at the bullet gaps (fix round 1 #2). */
+.counts-row { display: flex; align-items: baseline; gap: var(--s-sm); }
+.counts-list .nowrap { white-space: nowrap; }
+.counts-total { flex: none; margin-left: auto; }
+/* below tablet: the fixed 360px page-list column no longer fits beside the log column, so the two panes stack,
+   and the screen goes back to filling its natural (page-scrollable) height instead of the viewport. */
 @media (max-width: 639px) {
   .progress-grid { grid-template-columns: minmax(0, 1fr); height: auto; }
   .progress-grid .pane { height: 320px; }

@@ -213,7 +213,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       )}
 
       <div className="progress-grid">
-        <section className="panel pane" aria-label="Trang" data-ui="ui_progress_page_list">
+        <section className="pane" aria-label="Trang" data-ui="ui_progress_page_list">
           <div className="pane-toolbar">
             <SearchInput label="Lọc trang" placeholder={`Lọc ${initial.pages.length} trang…`} value={pageQuery} onChange={setPageQuery} />
           </div>
@@ -229,11 +229,13 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
             ))}
           </ul>
           <div className="pane-foot t-label-sm" data-ui="ui_progress_page_counts">
-            <div className="row spread">
-              <span>
-                {count("done")} xong • {count("running")} đang chạy • {count("needs_auth")} cần đăng nhập • {count("failed", "skipped")} lỗi • {count("pending")} chờ
+            <div className="counts-row">
+              <span className="counts-list">
+                <span className="nowrap">{count("done")} xong</span> • <span className="nowrap">{count("running")} đang chạy</span> •{" "}
+                <span className="nowrap">{count("needs_auth")} cần đăng nhập</span> • <span className="nowrap">{count("failed", "skipped")} lỗi</span> •{" "}
+                <span className="nowrap">{count("pending")} chờ</span>
               </span>
-              <span>{states.length} trang</span>
+              <span className="counts-total nowrap">{states.length} trang</span>
             </div>
             {running.length > 0 && (
               <div className="text-2">
@@ -248,9 +250,19 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
           </div>
         </section>
 
-        <section className="panel pane" aria-label="Log" data-ui="ui_progress_log_stream">
+        <section className="pane" aria-label="Log" data-ui="ui_progress_log_stream">
           <div className="pane-toolbar">
             <h2 className="t-label-md upper">Log</h2>
+            <div className="log-toggles" data-ui="ui_progress_log_toggles">
+              <label className="check">
+                <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
+                Tự cuộn
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
+                Xuống dòng
+              </label>
+            </div>
             <SegmentedControl<Level>
               data-ui="ui_progress_log_level_filter"
               label="Mức log"
@@ -263,17 +275,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
                 { value: "error", label: `Error (${errorN})` },
               ]}
             />
-            <div className="log-toggles" data-ui="ui_progress_log_toggles">
-              <label className="check">
-                <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
-                Tự cuộn
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
-                Xuống dòng
-              </label>
-              <IconButton icon="block" label="Xóa log đang hiển thị (lịch sử vẫn giữ)" onClick={() => setLog([])} />
-            </div>
+            <IconButton className="log-clear-btn" icon="block" label="Xóa log đang hiển thị (lịch sử vẫn giữ)" onClick={() => setLog([])} />
           </div>
           <LogView ref={logRef} lines={shownLines} wrap={wrap} empty="Đang chờ sự kiện…" onScroll={onLogScroll} lineUi="ui_progress_log_line" />
         </section>

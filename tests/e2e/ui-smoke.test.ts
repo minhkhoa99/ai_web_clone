@@ -481,6 +481,9 @@ test("progress (needs_auth): mandatory banner copy, 9-phase stepper in order, pa
   await expectUi(page, ["ui_progress_page_header", "ui_progress_context_bar", "ui_progress_stats_bar", "ui_progress_controls", "ui_progress_log_stream", "ui_progress_log_level_filter", "ui_progress_log_toggles", "ui_progress_session_tools"]);
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
+  // fix round 1 #7: the auth banner adds height above the grid, but the grid fills the rest of the viewport
+  // (not a fixed estimate) so the page itself never scrolls, banner or not.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await parityShot(page, "progress-needs-auth");
   expect(foreign).toEqual([]);
   await page.close();
@@ -505,7 +508,17 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
         { phase: "name", key: "home", status: "done" },
       ],
     });
-    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify(["home", "about", "blocked", "late"].map((p) => ({ pageId: p, url: `http://progress.test/${p === "home" ? "" : p}` }))));
+    const longPath = "very-long-segment-".repeat(20); // review focus #1: a 300+ char path never widens the page
+    await writeWs(
+      env.WORKSPACE_ROOT,
+      id,
+      "pages.json",
+      JSON.stringify(
+        ["home", "about", "blocked", "late"]
+          .map((p) => ({ pageId: p, url: `http://progress.test/${p === "home" ? "" : p}` }))
+          .concat([{ pageId: "longpath", url: `http://progress.test/${longPath}` }]),
+      ),
+    );
     const past = [
       { type: "status", status: "running", at: T },
       { type: "log", level: "warn", message: "home: slow asset", at: T + 1_000 },
@@ -519,14 +532,21 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
   const foreign = trackForeignRequests(page);
   await page.goto(`${base}/p/${id}`);
   const stats = page.locator('[data-ui="ui_progress_stats_bar"]');
-  await expect.poll(() => stats.innerText()).toMatch(/00:01:0\d/);
+  // robust against a slow CI pushing the elapsed clock past a fixed mm:ss window (fix round 1 #10): parse it
+  // and assert the numeric floor (T was 65s ago) instead of matching a narrow "00:01:0x" string.
+  const clockSeconds = (text: string) => {
+    const m = /(\d\d):(\d\d):(\d\d)/.exec(text);
+    if (!m) throw new Error(`no HH:MM:SS clock in: ${text}`);
+    return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  };
+  await expect.poll(async () => clockSeconds(await stats.innerText())).toBeGreaterThanOrEqual(65);
   expect(await stats.innerText()).toContain("0 / 2.000.000");
   const list = page.locator('[data-ui="ui_progress_page_list"]');
   expect(await list.innerText()).toMatch(/\/about\s*đang chạy · capture/);
   expect(await list.innerText()).toMatch(/\/blocked\s*bỏ qua · ROBOTS_DISALLOWED/);
   const counts = page.locator('[data-ui="ui_progress_page_counts"]');
-  expect(await counts.innerText()).toContain("1 xong • 1 đang chạy • 0 cần đăng nhập • 1 lỗi • 1 chờ");
-  expect(await counts.innerText()).toContain("4 trang");
+  expect(await counts.innerText()).toContain("1 xong • 1 đang chạy • 0 cần đăng nhập • 1 lỗi • 2 chờ");
+  expect(await counts.innerText()).toContain("5 trang");
   expect(await counts.innerText()).toContain("Task đang chạy: [capture] about");
   const log = page.getByRole("log");
   const lines = log.locator('[data-ui="ui_progress_log_line"]');
@@ -538,7 +558,7 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
   // reload: the history replaces the log (no duplicate), the SSE status snapshot does not restart the clock
   await page.reload();
   await expect.poll(() => lines.count()).toBe(3);
-  await expect.poll(() => stats.innerText()).toMatch(/00:01:\d\d/);
+  await expect.poll(async () => clockSeconds(await stats.innerText())).toBeGreaterThanOrEqual(65);
 
   const levels = page.getByRole("group", { name: "Mức log" });
   expect(await levels.innerText()).toMatch(/Warn \(1\)[\s\S]*Error \(0\)/);
@@ -555,6 +575,20 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
   expect(await list.locator("li").count()).toBe(1);
   await expectNoDrift(page);
   expect(foreign).toEqual([]);
+
+  // fix round 1 #1: no horizontal scroll at tablet/phone width, even with the 300+ char path in the list
+  await page.getByRole("searchbox", { name: "Lọc trang" }).fill("");
+  for (const [w, h, name] of [
+    [768, 900, "progress-running-768"],
+    [375, 812, "progress-running-375"],
+  ] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    if (process.env.PARITY_DIR) {
+      await mkdir(process.env.PARITY_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+  }
   await page.close();
 });
 

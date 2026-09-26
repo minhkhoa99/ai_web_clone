@@ -1,4 +1,5 @@
-import type { ProjectConfig } from "@/core/jobs-base";
+import { projectConfigSchema } from "@/core/jobs-base";
+import { config } from "@/core/config";
 import { getDb } from "@/app/_server/db";
 import { authUrl } from "@/app/_server/http";
 import { needsCredentials } from "@/app/_server/credentials";
@@ -12,10 +13,20 @@ import { SessionTools } from "./session-tools";
 const MAX_TASKS = 2_000; // pages (<=100) x phases + fix tasks per failing section: far above any real run
 const MAX_PAGES = 100; // spec §1 crawl ceiling
 
+// A row written before the config schema grew a field, or otherwise malformed: falls back to the app's
+// default budget instead of showing "NaN" (fix round 1 #9).
+function tokenBudgetOf(configJson: string): number {
+  try {
+    const parsed = projectConfigSchema.safeParse(JSON.parse(configJson));
+    return parsed.success ? parsed.data.tokenBudget : config.tokenBudget;
+  } catch {
+    return config.tokenBudget;
+  }
+}
+
 export default async function ProgressPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const project = loadProject(id);
-  const cfg = JSON.parse(project.config_json) as ProjectConfig;
   // node:sqlite rows have a null prototype, which can't cross into a client component: copy to plain objects
   const tasks = (
     getDb().prepare("SELECT phase,key,status,error_code AS errorCode FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?").all(id, MAX_TASKS) as TaskView[]
@@ -23,7 +34,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
   const pages = (await readWorkspaceJson<PageRef[]>(id, "pages.json", [])).slice(0, MAX_PAGES).map((p) => ({ pageId: p.pageId, url: p.url }));
   const auth = project.status === "needs_auth" ? await authUrl(getDb(), project) : null;
   return (
-    <>
+    <div className="progress-page">
       <PageHeader data-ui="ui_progress_page_header" crumbs={projectCrumbs(project.url, id, "Tiến độ")} title="Tiến độ clone" />
       <ProgressView
         projectId={id}
@@ -36,12 +47,12 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
           needsCredentials: needsCredentials(getDb(), id),
           pages,
           tokensUsed: project.tokens_used,
-          tokenBudget: cfg.tokenBudget,
+          tokenBudget: tokenBudgetOf(project.config_json),
         }}
       />
       <Disclosure summary="Phiên đăng nhập" className="section-gap" data-ui="ui_progress_session_tools">
         <SessionTools projectId={id} />
       </Disclosure>
-    </>
+    </div>
   );
 }

@@ -39,20 +39,28 @@ export function phaseStates(tasks: TaskLike[], status: string): Record<Phase, St
 }
 
 export function PhaseStepper({ states }: { states: Record<Phase, StepState> }) {
+  // the track's active fill spans from the first step up to the last *done* one (mockup: 1/8 done -> 12.5%)
+  const doneCount = PHASES.filter((p) => states[p] === "done").length;
+  const fillPct = (doneCount / (PHASES.length - 1)) * 100;
   return (
-    <ol className="stepper-x" aria-label="Các pha" data-ui="ui_progress_phase_stepper">
-      {PHASES.map((p) => {
-        const s = states[p];
-        return (
-          <li key={p} className={`step step-${s}`} data-state={s} aria-current={s === "active" ? "step" : undefined} title={LABEL[s]}>
-            <span className="step-icon">
-              <Icon name={s === "done" ? "check" : s === "error" ? "error" : ICON[p]} />
+    <div className="stepper-wrap">
+      <div className="stepper-track" aria-hidden="true">
+        <div className="stepper-track-fill" style={{ width: `${fillPct}%` }} />
+      </div>
+      <ol className="stepper-x" aria-label="Các pha" data-ui="ui_progress_phase_stepper">
+        {PHASES.map((p) => {
+          const s = states[p];
+          return (
+            <li key={p} className={`step step-${s}`} data-state={s} aria-current={s === "active" ? "step" : undefined} title={LABEL[s]}>
+              <span className="step-icon">
+                <Icon name={s === "done" ? "check" : s === "error" ? "error" : ICON[p]} />
+              </span>
+              <span className="step-name t-label-sm">{p}</span>
               {s === "active" && <span className="dot ping step-dot" aria-hidden="true" />}
-            </span>
-            <span className="step-name t-label-md">{p}</span>
-          </li>
-        );
-      })}
-    </ol>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
