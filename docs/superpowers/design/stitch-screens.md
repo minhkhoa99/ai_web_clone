@@ -89,11 +89,13 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_new_clone_url_input` | `feat_crawl` | `url` | "Website URL" | build |
 | `ui_new_clone_mode_toggle` | `feat_crawl` | `mode` | "Single page / Crawl site" | build |
 | `ui_new_clone_crawl_limits` | `feat_crawl` | `maxPages`, `depth`, `concurrency`, `delayMs` | "CRAWL CONSTRAINTS" | build |
+| `ui_new_headed_toggle` | `feat_headed_browser` | `headed` (config, mặc định `false`) — checkbox "Hiện trình duyệt khi chạy" (hardening §5) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_new_clone_auth_select` | `feat_auth` | `auth.mode` | "Authentication" | build |
 | `ui_new_clone_auth_credentials` | `feat_auth` | `credentials` | "Username / Password" | build |
 | `ui_new_clone_auth_selectors` | `feat_auth` | `auth.selectors` | "Optional selectors" | build |
 | `ui_new_clone_manual_login` | `feat_auth` | `POST …/auth/open`, `POST …/crawl` | — | build |
 | `ui_new_clone_qa_threshold` | `feat_qa_score` | `threshold` | "QA threshold" slider | build |
+| `ui_new_threshold_warning` | `feat_qa_score` | `threshold > 98` (client) — Banner warn "Ngưỡng rất cao: …" (hardening §6) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_new_clone_token_budget` | `feat_ai_gateway` | `tokenBudget` | "Token budget" | build |
 | `ui_new_clone_output_format` | `feat_emit_html` (SP2 card = `feat_framework_emitters_sp2`, không build) | HTML | lưới card output | build |
 | `ui_new_clone_cancel` | `feat_crawl` | route `/` | "Cancel" | build |
@@ -121,6 +123,7 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_sitemap_start_clone` | `feat_crawl`, `feat_job_queue_sse` | `POST …/start` (đóng cửa sổ đăng nhập trước, D8) | "Start clone" | build |
 | `ui_sitemap_recrawl` | `feat_crawl` | `POST …/crawl` | — | build |
 | `ui_sitemap_session_tools` | `feat_auth` | `POST …/session/clear`, `…/session/import` | — | build |
+| `ui_sitemap_locked_note` | `feat_crawl` | `status !== "draft"` — Banner info "Đã bắt đầu clone — danh sách trang đã chốt. Dùng Clone lại để quét lại." (hardening §3) | không có trong mockup, dùng token/component sẵn có | build |
 
 ## `/p/[id]` ↔ `screen_progress` ↔ `progress.png|html`
 
@@ -140,6 +143,9 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_progress_log_toggles` | `feat_job_queue_sse` | client | "Auto-scroll / Wrap lines" | build |
 | `ui_progress_log_line` | `feat_job_queue_sse` | event `at` | dòng log | build |
 | `ui_progress_session_tools` | `feat_auth` | session routes | — | build |
+| `ui_progress_reason_banner` | `feat_error_surfacing` | `status_reason` + `error_msg` + `error-hints.ts` (failed = danger, completed = warn) (hardening §4) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_progress_error_panel` | `feat_error_surfacing` | task có `error_code` (pha, trang·section, mã, thông báo, gợi ý); rỗng thì ẩn (hardening §4) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_progress_download_log` | `feat_error_surfacing` | `GET /api/projects/[id]/log` (`run.prev.log` + `run.log`) — nút "Tải log" trong `ui_progress_controls` (hardening §4) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_progress_inspect_snapshot` | `feat_capture_dom` | — | "Inspect DOM Snapshot" | out_of_scope |
 
 ## `/p/[id]/preview` ↔ `screen_qa_preview` ↔ `qa-preview.png|html`, `qa-preview-alt.png|html`
@@ -273,3 +279,15 @@ Các sửa spec parity (`2026-09-24-sp1-ui-stitch-parity-design.md`) theo ruling
 - **§4.7 (số query danh sách lịch sử):** route `/api/projects` GET chạy tối đa **4** câu SQL cố định mỗi request, đúng chữ spec (không phụ thuộc số dòng): `counts`, `rows`, `agg` (theo phase), `errs` (lastError); `total` suy ra từ `counts` theo `group` (không có query `total` riêng).
 - **Subtitle 1 trang (`ui_history_row_subtitle`):** số trang chỉ hiện ở chế độ crawl: `"Crawl · <n> trang · bắt đầu <RelTime>"`; dự án `mode=single` hiện `"1 trang · bắt đầu <RelTime>"` (không lặp "1 trang · 1 trang" như format spec §3.2 gốc). Draft chưa chọn trang giữ `"<mode> · chưa chọn trang · tạo <RelTime>"`.
 - **D1 (tự host icon):** Material Symbols Outlined tự host dưới dạng SVG subset đã commit `src/app/_ui/icons.gen.ts`, sinh bởi `scripts/gen-icons.mjs` (đọc `@material-symbols/svg-400`); không dùng icon font hay CDN lúc chạy.
+
+## Hardening sau lần chạy thật (2026-09-26)
+
+Spec: `docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md` (ghi đè spec gốc khi mâu thuẫn). 6 `ui_*` mới ở bảng trên (`ui_new_headed_toggle`, `ui_new_threshold_warning`, `ui_sitemap_locked_note`, `ui_progress_reason_banner`, `ui_progress_error_panel`, `ui_progress_download_log`) không có trong mockup Stitch. Ruling khi triển khai (`.superpowers/sdd/2026-09-26-sp1-realrun-hardening/progress.md`):
+
+- **Tạm dừng = dừng ngay** (ghi đè spec gốc §4): huỷ AI + đóng browser, task `running` → `pending`; pause giữa lúc ghi fix để lại task fix `pending` — Tiếp tục cho thêm tối đa 3 vòng mỗi section (giống khôi phục sau crash).
+- **Lỗi AI tạm thời trong fix** (không phải breaker mở): section đó đỏ, project không `failed`.
+- **Sửa tay thắng**: Lưu/Gộp layout trong Editor khi project chưa `completed` đóng mọi task fix `pending`/`failed` (`done`, "Đã sửa tay trong Editor — bỏ vòng sửa AI.").
+- **Chạy lại QA** bấm lại khi đang chờ → 409 `BAD_STATE` ("đang chạy"), không phải `PROJECT_BUSY`.
+- **Preview fix-card**: section bị dừng AI hiện "Dừng sửa: <mã>." (budget: "Dừng sửa: hết ngân sách token.").
+- **`run.log`**: dòng stack tiếp theo thụt tab (mỗi mục vẫn bắt đầu `ISO LEVEL`).
+- **Section rác**: lọc ở mọi bước unwrap (trước kiểm tra một-con), rỗng thì dùng danh sách chưa lọc; `display:contents` không tính là rác; root cỡ 0 không chấm QA.

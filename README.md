@@ -75,6 +75,9 @@ Rồi trong app:
 1. **Clone mới**: nhập URL (ví dụ `http://localhost:5050`), chọn **Crawl** (site3) hoặc **1 trang** (site1/site2), rồi bấm **Quét trang**.
 2. **Sitemap**: kiểm tra danh sách trang, mã HTTP, thời gian load và ước tính token/thời gian. Bấm **Chọn tất cả** → **Bắt đầu clone**.
 3. **Tiến độ**: stepper 9 pha và log chạy trực tiếp. Log được lưu lại, bấm F5 không mất. Chờ đến trạng thái `completed`.
+   - **Tạm dừng** dừng ngay (huỷ lời gọi AI đang chạy, đóng trình duyệt); **Tiếp tục** chạy lại từ checkpoint.
+   - Có lỗi hoặc AI dừng giữa chừng: banner lý do (mã + gợi ý xử lý) và panel **Lỗi & cảnh báo** (pha, trang/section, mã, thông báo, gợi ý).
+   - **Tải log**: tải `run.log` đầy đủ của project (gồm stack trace, từng vòng sửa AI, retry gateway).
 4. **Preview**:
    - so ảnh gốc với clone theo 375/768/1440;
    - 3 chế độ so sánh: Cạnh nhau / Chồng mờ / Trượt so sánh;
@@ -84,7 +87,8 @@ Rồi trong app:
 6. **Editor**:
    - sửa bằng GrapesJS: nháy đúp vào chữ để sửa, đổi style ở panel;
    - **Lưu** sẽ sinh lại HTML;
-   - sau khi sửa, vào Preview bấm **Chạy lại QA** để chấm điểm lại.
+   - sau khi sửa, vào Preview bấm **Chạy lại QA** để chấm điểm lại;
+   - Editor và Chạy lại QA dùng được cả khi project `failed` / `interrupted` / `paused`, miễn pha `emit` đã xong và project không chạy. Sửa tay sẽ bỏ các vòng sửa AI còn dở của project.
 7. **Lịch sử** (`/`): lọc Chưa hoàn thành / Đã hoàn thành, tìm theo URL, Tạm dừng / Tiếp tục / Clone lại / tải ZIP / Xoá.
 
 Kết quả mong đợi với site mẫu: mọi section đạt từ 95% trở lên, thường là 99–100%.
@@ -95,6 +99,9 @@ Kết quả mong đợi với site mẫu: mọi section đạt từ 95% trở l�
 - **Trang cần đăng nhập hoặc có CAPTCHA**: project chuyển sang `needs_auth`, bấm **Mở cửa sổ**, tự đăng nhập hoặc giải CAPTCHA trong Chrome, rồi bấm **Tiếp tục**. Cũng có thể **Import cookie JSON** (storageState) hoặc **Xóa phiên**. Tool **không** tự giải CAPTCHA, không giả fingerprint và không vượt anti-bot.
 - **Đăng nhập tự động**: chọn chế độ auth "tự động" ở Clone mới và nhập tài khoản. Nếu sai mật khẩu, tool dừng ngay và hỏi lại, không thử lại.
 - Section dưới ngưỡng được AI sửa tối đa 3 vòng (nếu đã có provider). Phần còn đỏ thì sửa tay trong Editor.
+- Ngưỡng QA nên để 95%. Trên 98% form hiện cảnh báo: section gần đúng cũng phải qua vòng sửa AI (tốn token).
+- Muốn xem trình duyệt đang làm gì: ở Clone mới bật **Hiện trình duyệt khi chạy** (mặc định chạy nền). Cửa sổ chỉ để xem, không đổi fingerprint hay vượt anti-bot. `CDP_URL` vẫn được ưu tiên nếu có.
+- Provider hết quota (`AI_QUOTA`, HTTP 402), sai key (`AI_AUTH`) hoặc sai base URL/model (`AI_BAD_CONFIG`): tool dừng mọi lời gọi AI còn lại nhưng project vẫn `completed` (tên section mặc định, section chưa đạt để đỏ); banner Tiến độ nêu lý do.
 
 ## 5. Biến môi trường
 
@@ -116,6 +123,7 @@ Ví dụ (PowerShell): `$env:WORKSPACE_ROOT="D:\clones"; npm start`. Với bash:
 | `workspace/<projectId>/assets/` | asset đã tải, tên theo hash |
 | `workspace/<projectId>/out/` | HTML/CSS/JS đã xuất, mở trực tiếp bằng `file://` hoặc `npx serve` |
 | `workspace/<projectId>/qa/` | ảnh orig/clone/heatmap của QA |
+| `workspace/<projectId>/run.log` | log văn bản của project, mỗi dòng `ISO-time LEVEL [phase] message`, đã lọc secret; quá 5 MB xoay sang `run.prev.log`. Tải bằng nút **Tải log** hoặc `GET /api/projects/<id>/log`. Xoá cùng project |
 | `sp1.db`, `secret.key` | database và khoá mã hoá |
 
 Muốn làm lại từ đầu: tắt server rồi xoá `workspace/` và `sp1.db`. Chỉ xoá `secret.key` khi chấp nhận mất các API key đã lưu.
@@ -138,9 +146,12 @@ npm run build       # build production, phải 0 warning
 | Trang trả 403 "loopback" | Mở bằng `127.0.0.1` hoặc `localhost`, không dùng IP LAN hay tên máy |
 | Nút bị báo `PROJECT_BUSY` (409) | Project đang crawl/chạy hoặc đang mở cửa sổ đăng nhập; chờ xong hoặc bấm Tiếp tục |
 | `QUEUE_FULL` (429) | Đã có 1 job chạy và 5 job chờ; chờ bớt rồi thử lại |
-| Test provider báo `AI_AUTH` / `AI_BAD_CONFIG` | Sai key hoặc base URL; sửa ở Cài đặt AI rồi Test lại |
+| Test provider báo `AI_AUTH` / `AI_BAD_CONFIG` | Sai key hoặc base URL; sửa ở Cài đặt AI rồi Test lại. Thông báo lỗi kèm provider, model id, HTTP status và đoạn đầu phản hồi (không có key) |
 | Project dừng ở `needs_auth` | Bấm **Mở cửa sổ**, tự đăng nhập, rồi **Tiếp tục** |
 | Server tắt giữa chừng | Mở lại app: project hiện trạng thái `interrupted`, bấm **Tiếp tục** để chạy từ checkpoint (không tự chạy lại) |
+| `AI_QUOTA` (HTTP 402) | Provider hết credit/quota: nạp thêm hoặc đổi provider ở Cài đặt AI, rồi **Chạy lại QA** / **Tiếp tục**. Project vẫn `completed`, chỉ phần AI bị dừng |
+| Project có vẻ treo (log đứng yên lâu) | Bấm **Tạm dừng**: dừng ngay, task đang chạy về chờ; rồi **Tiếp tục**. Mở **Tải log** để xem bước cuối cùng. Xoá project đang chạy cũng được (tool dừng trước, chờ tối đa 15 s) |
+| Project `failed` nhưng muốn sửa kết quả | Nếu pha `emit` đã xong: mở **Editor** sửa tay rồi **Chạy lại QA**. Lý do lỗi xem ở banner và panel **Lỗi & cảnh báo** trang Tiến độ |
 | Điểm QA thấp trên site thật | Thêm AI provider để chạy vòng sửa, hoặc sửa tay trong Editor rồi **Chạy lại QA** |
 
 ## 9. Bảo mật
@@ -154,5 +165,6 @@ npm run build       # build production, phải 0 warning
 
 - Spec engine SP1: `docs/superpowers/specs/2026-09-23-sp1-clone-engine-design.md`
 - Spec UI ↔ Stitch: `docs/superpowers/specs/2026-09-24-sp1-ui-stitch-parity-design.md`
+- Spec hardening sau lần chạy thật (lỗi AI, không treo, khôi phục, log, hiện trình duyệt): `docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md`
 - Bảng map giao diện (màn → `ui_*` → tính năng → API) và danh sách drift cấm làm: `docs/superpowers/design/stitch-screens.md`
 - Graph truy vết: `graphify-out/graph.json` (xem bằng `graphify-out/graph.html`)

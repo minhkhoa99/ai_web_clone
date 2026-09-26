@@ -166,6 +166,8 @@ INDEX tasks(project_id, status)
 
 **Tạm dừng**: không nhận task mới, chờ task đang chạy xong, rồi `paused`.
 
+> **Ghi đè (hardening `2026-09-26-sp1-realrun-hardening-design.md` §2–§4):** Tạm dừng = dừng ngay (huỷ lời gọi AI đang chạy, đóng browser; task `running` → `pending`, không task nào `failed` vì pause). Xoá project đang chạy: dừng, chờ ≤15 s rồi xoá, quá hạn → 409 `PROJECT_BUSY`. Editor/Lưu/Gộp layout/Chạy lại QA chấp nhận cả `failed`/`interrupted`/`paused` khi task `emit` đã `done`; sửa tay đóng các task fix còn dở. Cột `projects.status_reason` lưu lý do status.
+
 ## 5. Crawl (`core/crawl.ts`)
 
 - 2 chế độ: **1 trang full** (chỉ URL nhập) hoặc **crawl** (BFS cùng origin, depth, số trang tối đa).
@@ -280,6 +282,8 @@ out/
 
 Hết ngân sách token → dừng fix, đánh dấu section còn lại; job không `failed`.
 
+> **Ghi đè (hardening `2026-09-26-sp1-realrun-hardening-design.md` §1, §2, §6):** lỗi AI kéo dài (`AI_AUTH`, `AI_QUOTA`, `AI_BAD_CONFIG`) xử lý như hết ngân sách (dừng AI, section còn lại đỏ, project `completed` + `status_reason`); `document.fonts.ready` chờ ≤10 s, `page.evaluate` ≤30 s, trang clone chặn mọi request ngoài loopback; ảnh gửi AI rộng ≤1024 px, tổng ≤1.5 MB/request.
+
 ## 10. UI
 
 | Route | Nội dung |
@@ -313,6 +317,8 @@ Mỗi lỗi có mã, ghi `tasks.error_code/error_msg` kèm context (URL, pha, ke
 | `BUDGET_EXCEEDED` | dừng pha AI, đánh dấu |
 
 **Circuit breaker AI**: 5 lỗi liên tiếp → tạm dừng pha dùng AI, project `failed` kèm lý do; resume sau khi sửa config.
+
+> **Ghi đè (hardening `2026-09-26-sp1-realrun-hardening-design.md` §1, §4):** thêm `AI_QUOTA` (HTTP 402, không retry); 401/403 → `AI_AUTH`, 4xx khác → `AI_BAD_CONFIG`; thông báo gateway kèm provider, model id, status, ≤300 ký tự body đã lọc key. Log bền `workspace/<id>/run.log` (+ `run.prev.log`, xoay 5 MB), tải qua `GET /api/projects/[id]/log`; bảng gợi ý lỗi `src/app/_ui/error-hints.ts`.
 
 Resource: page/context đóng trong `finally`; listener `page.on` gỡ khi task xong; SSE stream đóng khi client ngắt; `child_process` có timeout + kill.
 
