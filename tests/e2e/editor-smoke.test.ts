@@ -10,6 +10,7 @@ import { chromium, type Browser } from "playwright";
 import { serveDir } from "@/core/serve";
 import { offline } from "./offline-deps";
 import { startNextApp } from "./next-app";
+import { parityShot } from "./parity-shots";
 
 let app: { base: string; stop(): void } | undefined;
 let browser: Browser;
@@ -22,12 +23,13 @@ let projectId = "";
 // import, so the core modules are imported only after it is set.
 async function seedCompleted(env: { DB_PATH: string; WORKSPACE_ROOT: string }): Promise<string> {
   process.env.WORKSPACE_ROOT = env.WORKSPACE_ROOT;
-  const [{ openDb }, { createProject, enqueue, runProject }] = await Promise.all([import("@/core/db"), import("@/core/jobs")]);
+  const [{ openDb }, { createProject, enqueue, runProject }, { settled }] = await Promise.all([import("@/core/db"), import("@/core/jobs"), import("@/core/event-log")]);
   site = await serveDir(fileURLToPath(new URL("../fixtures/site1", import.meta.url)));
   db = openDb(env.DB_PATH);
   const id = createProject(db, { url: `${site.url}/index.html`, mode: "single", config: { delayMs: 0 } });
   await enqueue(db, id, [`${site.url}/index.html`]);
   await runProject(db, id, { deps: offline });
+  await settled(id); // the run's events are on disk: the app process replays them
   return id;
 }
 
@@ -43,6 +45,19 @@ afterAll(async () => {
   app?.stop();
   db?.close();
   if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+test("progress (completed): the finished run's log is replayed from disk by the app; every phase done; run clock shown", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${app!.base}/p/${projectId}`);
+  const lines = page.locator('[data-ui="ui_progress_log_line"]');
+  await expect.poll(() => lines.count(), { timeout: 30_000 }).toBeGreaterThan(5);
+  expect(await page.getByRole("log").innerText()).toContain("trạng thái → completed");
+  const states = await page.locator('[data-ui="ui_progress_phase_stepper"] li').evaluateAll((els) => els.map((e) => e.getAttribute("data-state")));
+  expect(new Set(states)).toEqual(new Set(["done"]));
+  expect(await page.locator('[data-ui="ui_progress_stats_bar"]').innerText()).toMatch(/\d\d:\d\d:\d\d/);
+  await parityShot(page, "progress-completed");
+  await page.close();
 });
 
 test("editor: edit one heading in the canvas, save -> exactly one patch op, out/index.html has the new text", async () => {

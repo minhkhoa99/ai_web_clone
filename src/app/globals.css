@@ -274,16 +274,6 @@ th { text-align: left; font: var(--t-label-sm); color: var(--c-text-2); text-tra
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
 .split { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--s-lg); }
 .tag { font: var(--t-label-sm); padding: 0 6px; border-radius: var(--r-sm); border: 1px solid var(--c-warn); color: var(--c-warn); }
-/* legacy: progress */
-.stepper { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; flex-wrap: wrap; }
-.stepper li { font: var(--t-label-md); padding: 6px 12px; border: 1px solid var(--c-border); border-radius: var(--r-md); color: var(--c-text-2); }
-.stepper .done { color: var(--c-success); }
-.stepper .active { color: var(--c-text); border-color: var(--c-primary); }
-.stepper .error { color: var(--c-danger); }
-.auth-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--c-warn); border-radius: var(--r-lg); background: color-mix(in srgb, var(--c-warn) 10%, transparent); }
-.log { height: 460px; overflow: auto; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 10px 12px; margin: 0; font: var(--t-label-md); white-space: pre-wrap; }
-.log .warn { color: var(--c-warn); }
-.log .error { color: var(--c-danger); }
 /* legacy: preview */
 .compare { height: 72vh; overflow: auto; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); padding: 12px; }
 .compare-side { display: flex; gap: 12px; align-items: flex-start; }
@@ -522,4 +512,44 @@ select.full { width: 100%; min-height: 38px; }
      vertical divider (meant for one inline row) is dropped once it wraps to its own line. */
   .chip-status-group { flex-basis: 100%; padding-left: 20px; }
   .chip-divider { display: none; }
+}
+
+/* === Screen: progress === */
+.context-bar { display: flex; align-items: center; gap: var(--s-md); flex-wrap: wrap; padding-bottom: var(--s-md); border-bottom: 1px solid var(--c-border); }
+.context-stats { display: flex; gap: var(--s-sm); margin-left: auto; }
+.context-controls { display: flex; gap: var(--s-sm); }
+.stepper-x { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 0; overflow-x: auto; }
+.step { display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--c-text-3); white-space: nowrap; }
+.step + .step::before { content: ""; width: 20px; height: 1px; margin-right: 10px; background: var(--c-border); }
+.step-done + .step::before { background: var(--c-primary); }
+.step-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--r-full); border: 1px solid var(--c-border); background: var(--c-surface-low); }
+.step-done { color: var(--c-success); }
+.step-done .step-icon { border-color: color-mix(in srgb, var(--c-success) 30%, transparent); background: color-mix(in srgb, var(--c-success) 10%, transparent); }
+.step-active { color: var(--c-primary); }
+.step-active .step-icon { border-color: var(--c-primary); }
+.step-dot { position: absolute; top: -2px; right: -2px; color: var(--c-primary); }
+.step-error { color: var(--c-danger); }
+.step-error .step-icon { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); }
+.inline-chip { padding: 1px 6px; border-radius: var(--r-sm); background: var(--c-surface-lowest); border: 1px solid var(--c-border); }
+/* ponytail: the fixed top area (~400px) is an estimate, not measured; measure it if the stepper/banners grow */
+.progress-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--s-lg); height: max(480px, calc(100vh - 400px)); }
+.pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.pane-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; padding: var(--s-sm) var(--s-md); border-bottom: 1px solid var(--c-border); }
+.pane-toolbar .search-input { flex: 1; min-width: 0; }
+.pane .log-view { flex: 1; min-height: 0; }
+.log-toggles { display: flex; align-items: center; gap: var(--s-md); margin-left: auto; }
+.page-states { list-style: none; margin: 0; padding: var(--s-xs) 0; flex: 1; overflow-y: auto; }
+.page-state { display: flex; align-items: center; gap: var(--s-sm); padding: 6px var(--s-md); }
+.page-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state-done { color: var(--c-success); }
+.state-running { color: var(--c-primary); }
+.state-needs_auth { color: var(--c-warn); }
+.state-failed { color: var(--c-danger); }
+.state-skipped, .state-pending { color: var(--c-text-3); }
+.page-state .page-path { color: var(--c-text); }
+.pane-foot { display: grid; gap: 4px; padding: var(--s-sm) var(--s-md); border-top: 1px solid var(--c-border); color: var(--c-text-2); }
+/* below tablet: the fixed 360px page-list column no longer fits beside the log column, so the two panes stack. */
+@media (max-width: 639px) {
+  .progress-grid { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .progress-grid .pane { height: 320px; }
 }

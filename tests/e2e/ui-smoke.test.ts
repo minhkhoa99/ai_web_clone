@@ -202,7 +202,8 @@ test("new: crawl the site3 fixture, land on the sitemap with its 3 pages", async
   await expectNoDrift(page);
   // progress screen renders the stepper from the task rows (the discover task is done)
   await page.goto(page.url().replace(/\/sitemap$/, ""));
-  await expect.poll(() => page.getByRole("list", { name: "Các pha" }).innerText()).toContain("✓ discover");
+  await expect.poll(() => page.locator('[data-ui="ui_progress_phase_stepper"] li').first().getAttribute("data-state")).toBe("done");
+  expect(await page.getByRole("searchbox", { name: "Lọc trang" }).getAttribute("placeholder")).toBe("Lọc 0 trang…");
   await expectNoDrift(page);
   await page.close();
 });
@@ -432,10 +433,10 @@ test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resume
     await writeFile(join(env.WORKSPACE_ROOT, id, "pages.json"), JSON.stringify([{ pageId: "home", url }]));
     const page = await browser.newPage();
     await page.goto(`${base}/p/${id}`);
-    await page.getByRole("button", { name: "Tiếp tục" }).click();
+    await page.locator('[data-ui="ui_progress_controls"]').getByRole("button", { name: "Tiếp tục" }).click();
     const form = page.getByRole("form", { name: "Đăng nhập lại" });
     await form.getByLabel("Tài khoản").fill("smoke-user");
-    await form.getByLabel("Mật khẩu").fill("smoke-pass-4321");
+    await form.getByLabel("Mật khẩu", { exact: true }).fill("smoke-pass-4321");
     await form.getByLabel("Ghi nhớ").check();
     await form.getByRole("button", { name: "Tiếp tục với tài khoản này" }).click();
     await expect.poll(() => form.count()).toBe(0);
@@ -451,6 +452,110 @@ test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resume
   } finally {
     db.close();
   }
+});
+
+const PHASE_NAMES = ["discover", "capture", "assets", "ir", "name", "emit", "qa", "fix", "done"];
+
+test("progress (needs_auth): mandatory banner copy, 9-phase stepper in order, page states + counts", async () => {
+  const db = openDb(env.DB_PATH);
+  let id = "";
+  try {
+    id = seedProject(db, { url: "http://auth.test/", status: "needs_auth", mode: "crawl", tasks: [{ phase: "capture", key: "home", status: "needs_auth", errorCode: "AUTH_REQUIRED" }, { phase: "capture", key: "about", status: "pending" }] });
+    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify([{ pageId: "home", url: "http://auth.test/" }, { pageId: "about", url: "http://auth.test/about" }]));
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${id}`);
+  const banner = page.locator('[data-ui="ui_progress_auth_banner"]');
+  expect(await banner.locator(".banner-text").innerText()).toBe("Trang http://auth.test/ cần đăng nhập — Mở cửa sổ để đăng nhập, rồi bấm Tiếp tục");
+  expect(await banner.getByRole("button", { name: "Mở cửa sổ" }).count()).toBe(1);
+  expect(await banner.getByRole("button", { name: "Tiếp tục" }).count()).toBe(1);
+  const steps = page.locator('[data-ui="ui_progress_phase_stepper"] li');
+  expect(await steps.locator(".step-name").allInnerTexts()).toEqual(PHASE_NAMES);
+  expect(await steps.nth(1).getAttribute("data-state")).toBe("error");
+  const list = page.locator('[data-ui="ui_progress_page_list"]');
+  expect(await list.innerText()).toMatch(/\/\s*cần đăng nhập[\s\S]*\/about\s*chờ/);
+  expect(await page.locator('[data-ui="ui_progress_page_counts"]').innerText()).toContain("0 xong • 0 đang chạy • 1 cần đăng nhập • 0 lỗi • 1 chờ");
+  await expectUi(page, ["ui_progress_page_header", "ui_progress_context_bar", "ui_progress_stats_bar", "ui_progress_controls", "ui_progress_log_stream", "ui_progress_log_level_filter", "ui_progress_log_toggles", "ui_progress_session_tools"]);
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  await parityShot(page, "progress-needs-auth");
+  expect(foreign).toEqual([]);
+  await page.close();
+});
+
+test("progress (running): run clock from the server stamps, tokens, page list, log replayed on reload without duplicates, level filter, toggles", async () => {
+  const db = openDb(env.DB_PATH);
+  const T = Date.now() - 65_000;
+  let id = "";
+  try {
+    id = seedProject(db, {
+      url: "http://progress.test/",
+      status: "running",
+      progress: 30,
+      mode: "crawl",
+      tasks: [
+        { phase: "discover", key: "http://progress.test/", status: "done" },
+        { phase: "capture", key: "home", status: "done" },
+        { phase: "capture", key: "about", status: "running" },
+        { phase: "capture", key: "blocked", status: "failed", errorCode: "ROBOTS_DISALLOWED" },
+        { phase: "capture", key: "late", status: "pending" },
+        { phase: "name", key: "home", status: "done" },
+      ],
+    });
+    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify(["home", "about", "blocked", "late"].map((p) => ({ pageId: p, url: `http://progress.test/${p === "home" ? "" : p}` }))));
+    const past = [
+      { type: "status", status: "running", at: T },
+      { type: "log", level: "warn", message: "home: slow asset", at: T + 1_000 },
+      { type: "task", phase: "capture", key: "home", status: "done", at: T + 2_000 },
+    ];
+    await writeWs(env.WORKSPACE_ROOT, id, "events.jsonl", past.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${id}`);
+  const stats = page.locator('[data-ui="ui_progress_stats_bar"]');
+  await expect.poll(() => stats.innerText()).toMatch(/00:01:0\d/);
+  expect(await stats.innerText()).toContain("0 / 2.000.000");
+  const list = page.locator('[data-ui="ui_progress_page_list"]');
+  expect(await list.innerText()).toMatch(/\/about\s*đang chạy · capture/);
+  expect(await list.innerText()).toMatch(/\/blocked\s*bỏ qua · ROBOTS_DISALLOWED/);
+  const counts = page.locator('[data-ui="ui_progress_page_counts"]');
+  expect(await counts.innerText()).toContain("1 xong • 1 đang chạy • 0 cần đăng nhập • 1 lỗi • 1 chờ");
+  expect(await counts.innerText()).toContain("4 trang");
+  expect(await counts.innerText()).toContain("Task đang chạy: [capture] about");
+  const log = page.getByRole("log");
+  const lines = log.locator('[data-ui="ui_progress_log_line"]');
+  await expect.poll(() => lines.count()).toBe(3);
+  expect(await lines.nth(1).innerText()).toMatch(/^\[\d\d:\d\d:\d\d\.\d{3}\] \[WARN\] home: slow asset$/);
+  expect(await lines.nth(1).getAttribute("class")).toContain("log-warn");
+  await parityShot(page, "progress-running");
+
+  // reload: the history replaces the log (no duplicate), the SSE status snapshot does not restart the clock
+  await page.reload();
+  await expect.poll(() => lines.count()).toBe(3);
+  await expect.poll(() => stats.innerText()).toMatch(/00:01:\d\d/);
+
+  const levels = page.getByRole("group", { name: "Mức log" });
+  expect(await levels.innerText()).toMatch(/Warn \(1\)[\s\S]*Error \(0\)/);
+  await levels.getByRole("button", { name: /Warn/ }).click();
+  expect(await lines.count()).toBe(1);
+  await levels.getByRole("button", { name: "Tất cả" }).click();
+  expect(await lines.count()).toBe(3);
+  await page.getByLabel("Xuống dòng").uncheck();
+  expect(await log.getAttribute("class")).not.toContain("wrap");
+  await page.getByRole("button", { name: "Xóa log đang hiển thị (lịch sử vẫn giữ)" }).click();
+  expect(await lines.count()).toBe(0);
+  expect(await log.innerText()).toContain("Đang chờ sự kiện…");
+  await page.getByRole("searchbox", { name: "Lọc trang" }).fill("BLOCK");
+  expect(await list.locator("li").count()).toBe(1);
+  await expectNoDrift(page);
+  expect(foreign).toEqual([]);
+  await page.close();
 });
 
 test("history: tab counts, row states (failed code, needs_auth, running phase x/y, draft), actions, ZIP download, long URL, pagination", async () => {
