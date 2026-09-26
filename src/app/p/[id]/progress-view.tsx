@@ -17,7 +17,7 @@ import { StatusPill } from "@/app/_ui/StatusPill";
 import { UrlChip } from "@/app/_ui/UrlChip";
 import { Icon } from "@/app/_ui/Icon";
 import { fmtDuration, fmtInt } from "@/app/_ui/format";
-import { describe, pageStates, reasonOf, runSpan, spanAfter, stateLabel, type PageRef, type RunSpan, type TaskView } from "./page-states";
+import { describe, pageStates, reasonOf, runSpan, spanAfter, stateLabel, taskKey, withTaskEvent, type PageRef, type RunSpan, type TaskView } from "./page-states";
 import { ErrorPanel } from "./error-panel";
 import { PhaseStepper, phaseStates } from "./phase-stepper";
 
@@ -28,7 +28,6 @@ type Message = StampedEvent | { type: "history"; events: StampedEvent[] };
 
 const MAX_LOG = 2_000; // lines kept on the client (the server replays at most 2000)
 const MAX_RUNNING_SHOWN = 3;
-const taskKey = (t: { phase: string; key: string }) => `${t.phase}:${t.key}`;
 
 export function ProgressView({ projectId, url, initial }: { projectId: string; url: string; initial: Initial }) {
   const [status, setStatus] = useState(initial.status);
@@ -79,7 +78,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       }
       if (ev.type === "needs_auth") setAuthUrl(ev.url);
       if (ev.type === "task" && ev.phase === "login" && ev.errorCode === "LOGIN_FAILED") setNeedsCreds(true);
-      if (ev.type === "task") setTasks((prev) => new Map(prev).set(taskKey(ev), { phase: ev.phase, key: ev.key, status: ev.status, errorCode: ev.errorCode ?? null, errorMsg: ev.error ?? null }));
+      if (ev.type === "task") setTasks((prev) => withTaskEvent(prev, ev));
       const line = lineOf(ev);
       if (line.length) setLog((prev) => [...prev.slice(-(MAX_LOG - 1)), ...line]);
     };

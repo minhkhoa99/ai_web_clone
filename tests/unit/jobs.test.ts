@@ -301,6 +301,10 @@ test("AI_QUOTA in the fix phase: fix tasks done with the code + message, one war
   expect(fixes).toHaveLength(2);
   for (const t of fixes) expect(t).toMatchObject({ status: "done", error_code: "AI_QUOTA", error_msg: QUOTA_MSG });
   expect(logsOf(events, "AI dừng:")).toEqual([`AI dừng: AI_QUOTA — ${QUOTA_MSG}`]);
+  // the live task event carries the message too (the progress page's error panel shows it without a reload)
+  const done = events.filter((e) => e.type === "task" && e.phase === "fix" && e.status === "done");
+  expect(done).toHaveLength(2);
+  for (const e of done) expect(e).toMatchObject({ errorCode: "AI_QUOTA", error: QUOTA_MSG });
   expect(events.at(-1)).toMatchObject({ type: "status", status: "completed", reason: "AI_QUOTA" });
 });
 

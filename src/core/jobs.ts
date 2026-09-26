@@ -95,13 +95,13 @@ function startTask(db: DatabaseSync, projectId: string, t: TaskRow): void {
 // The checkpoint: only called once `outputPath` exists (renamed into place). `marker` + `message` record a
 // non-fatal code on a done task (BUDGET_EXCEEDED, AI stopped, an AI error answered by fallback names).
 function finishTask(db: DatabaseSync, projectId: string, t: TaskRow, outputPath: string, marker?: string, message?: string, alsoInTx?: () => void): void {
+  const error = message === undefined ? null : redact(projectId, message);
   const p = tx(db, () => {
-    db.prepare("UPDATE tasks SET status='done',output_path=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?")
-      .run(outputPath, marker ?? null, message === undefined ? null : redact(projectId, message), t.id);
+    db.prepare("UPDATE tasks SET status='done',output_path=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?").run(outputPath, marker ?? null, error, t.id);
     alsoInTx?.();
     return updateProgress(db, projectId);
   });
-  emit(projectId, { type: "task", phase: t.phase, key: t.key, status: "done", ...(marker ? { errorCode: marker } : {}) });
+  emit(projectId, { type: "task", phase: t.phase, key: t.key, status: "done", ...(marker ? { errorCode: marker } : {}), ...(error ? { error } : {}) });
   emit(projectId, { type: "progress", ...p });
 }
 

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { StampedEvent } from "@/core/jobs-base";
-import { describe as lineOf, errorRows, pageStates, reasonOf, runSpan, spanAfter, stateLabel, type TaskView } from "@/app/p/[id]/page-states";
+import { describe as lineOf, errorRows, pageStates, reasonOf, runSpan, spanAfter, stateLabel, withTaskEvent, type TaskView } from "@/app/p/[id]/page-states";
 import { ERROR_HINTS } from "@/app/_ui/error-hints";
 
 const t = (phase: string, key: string, status: string, errorCode: string | null = null): TaskView => ({ phase, key, status, errorCode });
@@ -95,4 +95,13 @@ test("reasonOf: the banner's code, hint and the latest message of that code; a f
   expect(reasonOf("AI_QUOTA", tasks)).toEqual({ title: `AI_QUOTA — ${ERROR_HINTS.AI_QUOTA}`, message: "latest 402" });
   expect(reasonOf("boom: disk full", tasks)).toEqual({ title: "boom: disk full", message: undefined });
   expect(reasonOf(null, tasks)).toBeNull();
+});
+
+test("withTaskEvent: a live SSE task event replaces its row, so the error panel shows the new code + message (hardening §4)", () => {
+  const prev = new Map([["fix:home:s1", t("fix", "home:s1", "running")], ["capture:home", t("capture", "home", "done")]]);
+  const ev = { type: "task", phase: "fix", key: "home:s1", status: "done", errorCode: "AI_QUOTA", error: "insufficient credit", at: 1 } as const;
+  const next = withTaskEvent(prev, ev);
+  expect(next).not.toBe(prev);
+  expect(prev.get("fix:home:s1")?.status).toBe("running");
+  expect(errorRows([...next.values()])).toEqual([{ phase: "fix", key: "home:s1", status: "done", errorCode: "AI_QUOTA", errorMsg: "insufficient credit" }]);
 });

@@ -1,5 +1,5 @@
 // Progress screen model (spec parity §3.5). Pure and client-safe (type-only core import).
-import type { StampedEvent } from "@/core/jobs-base";
+import type { JobEvent, StampedEvent } from "@/core/jobs-base";
 import { SKIP, STOP_AI } from "@/core/statuses";
 import { hintFor } from "@/app/_ui/error-hints";
 
@@ -48,6 +48,12 @@ export function pageStates(tasks: TaskView[], pages: PageRef[]): PageState[] {
     return { pageId, path, state: "pending" };
   });
 }
+
+export const taskKey = (t: { phase: string; key: string }) => `${t.phase}:${t.key}`;
+
+// A live SSE task event replaces its row (status, code and message), so the error panel updates without a reload.
+export const withTaskEvent = (prev: Map<string, TaskView>, ev: Extract<JobEvent, { type: "task" }>): Map<string, TaskView> =>
+  new Map(prev).set(taskKey(ev), { phase: ev.phase, key: ev.key, status: ev.status, errorCode: ev.errorCode ?? null, errorMsg: ev.error ?? null });
 
 // The "Lỗi & cảnh báo" panel rows: every task with an error code, failed first, otherwise in load (rowid) order.
 export const errorRows = (tasks: TaskView[]): TaskView[] =>
