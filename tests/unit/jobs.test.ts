@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { openDb } from "@/core/db";
 import { AppError } from "@/core/errors";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserHandle } from "@/core/browser";
 import type { CaptureNode, PageCapture } from "@/core/capture";
@@ -9,6 +9,7 @@ import { buildIR } from "@/core/ir";
 import { PNG } from "pngjs";
 import { config } from "@/core/config";
 import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
+import type { FixCtx } from "@/core/qa-fix";
 
 test("pageIdsFor: / -> home, /a/b -> a-b, .html stripped, unsafe chars sanitized, dupes get -2 in URL order", () => {
   expect(
@@ -284,6 +285,7 @@ test("a transient AI error thrown by fixAll no longer fails the project: fix tas
   const { db, id } = await fixReady([0]);
   const deps = {
     openBrowser: fakeOpen,
+    scoreSections: async () => [],
     fixAll: async (): Promise<never> => {
       throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
     },
@@ -291,6 +293,22 @@ test("a transient AI error thrown by fixAll no longer fails the project: fix tas
   await runProject(db, id, { deps });
   expect(statusOf(db, id)).toBe("completed");
   expect(tasksIn(db, id, "fix")).toEqual([expect.objectContaining({ status: "done", error_code: "AI_RATE_LIMIT", error_msg: "rate limited after 3 retries" })]);
+});
+
+test("a transient AI error after a sibling section's patch was merged: the patch is persisted, project completed", async () => {
+  const { db, id } = await fixReady([0, 1]);
+  const deps = {
+    openBrowser: fakeOpen,
+    scoreSections: async () => [],
+    fixAll: async (ctx: FixCtx): Promise<never> => {
+      ctx.ir = { ...ctx.ir, sections: ctx.ir.sections.map((s, i) => (i === 0 ? { ...s, name: "patched-by-sibling" } : s)) };
+      throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
+    },
+  };
+  await runProject(db, id, { deps });
+  expect(statusOf(db, id)).toBe("completed");
+  const saved = JSON.parse(await readFile(join(config.workspaceRoot, id, "ir.json"), "utf8")) as { sections: { name: string }[] };
+  expect(saved.sections[0]!.name).toBe("patched-by-sibling");
 });
 
 // n named pages over an empty IR (no sections): capture/ir/emit/qa done, one pending fix task.
@@ -302,7 +320,7 @@ async function namesReady(n: number) {
   const pageIds = pageIdsFor(urls);
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
-  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: pageIds.map((p) => ({ id: p, sectionIds: [] })), sections: [] }));
+  await writeFile(join(ws, "ir.json"), JSON.stringify({ ...buildIR([]), pages: pageIds.map((p) => ({ id: p, path: `/${p}`, sectionIds: [] })) }));
   const set = db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase=?");
   for (const phase of ["capture", "ir", "emit", "qa"]) set.run(id, phase);
   db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','p0:s1','pending')").run(id);
@@ -352,4 +370,24 @@ test("5 AI_BAD_RESPONSE in a row while naming still opens the circuit: project f
   const names = tasksIn(db, id, "name");
   expect(names.slice(0, 4).map((t) => [t.status, t.error_code, t.error_msg])).toEqual(Array(4).fill(["done", "AI_BAD_RESPONSE", "naming reply is not JSON"]));
   expect(names[4]).toMatchObject({ status: "failed", error_code: "AI_CIRCUIT_OPEN" });
+});
+
+test("4 naming AI failures then a transient AI error in fixAll (the 5th in a row): project failed + AI_CIRCUIT_OPEN", async () => {
+  const { db, id, pageIds } = await namesReady(4);
+  // every capture task points at `x`: a minimal capture so the fix phase can build its context
+  await writeFile(join(config.workspaceRoot, id, "x"), JSON.stringify({ pageId: pageIds[0], url: "http://x.test/p0", assets: {} }));
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = {
+    openBrowser: fakeOpen,
+    nameSections: async () => ({ names: {}, error: "AI_BAD_RESPONSE", errorMessage: "naming reply is not JSON" }),
+    fixAll: async (): Promise<never> => {
+      throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
+    },
+  };
+  await runProject(db, id, { deps });
+  off();
+  expect(statusOf(db, id)).toBe("failed");
+  expect(events.at(-1)).toMatchObject({ type: "status", status: "failed", reason: "AI_CIRCUIT_OPEN" });
+  expect(tasksIn(db, id, "fix")).toEqual([expect.objectContaining({ status: "failed", error_code: "AI_RATE_LIMIT" })]);
 });

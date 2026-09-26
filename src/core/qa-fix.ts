@@ -44,7 +44,8 @@ export type FixResult = FixTarget & {
 
 // Persistent AI errors (hardening spec §1): no later call can succeed in this run, so AI stops like on
 // BUDGET_EXCEEDED and the project still completes. The one definition core and app share.
-export const STOP_AI: ReadonlySet<string> = new Set<Code>([Codes.AI_AUTH, Codes.AI_QUOTA, Codes.AI_BAD_CONFIG]);
+const STOP_AI_CODES = [Codes.AI_AUTH, Codes.AI_QUOTA, Codes.AI_BAD_CONFIG] as const;
+export const STOP_AI: ReadonlySet<string> = new Set<Code>(STOP_AI_CODES);
 export type AiStop = { code: Code; message: string };
 // Shared by fixAll's sections: once one hits the budget or a STOP_AI error, no section starts another round.
 export type FixStop = { budget: boolean; ai?: AiStop };
@@ -95,7 +96,7 @@ const replySchema = z.object({
     .max(MAX_OPS),
 });
 
-const hasCode = (e: unknown, ...codes: Code[]) => e instanceof AppError && codes.includes(e.code);
+const hasCode = (e: unknown, ...codes: Code[]): e is AppError => e instanceof AppError && codes.includes(e.code);
 const errorText = (e: unknown) => `error: ${e instanceof Error ? e.message : String(e)}`;
 const selectorFor = (id: string) => `[data-ir-id=${JSON.stringify(id)}]`;
 
@@ -301,7 +302,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
           stop.budget = true;
           return result("budget");
         }
-        if (e instanceof AppError && STOP_AI.has(e.code)) {
+        if (hasCode(e, ...STOP_AI_CODES)) {
           stop.ai ??= { code: e.code, message: e.message };
           return result("ai_stopped");
         }

@@ -467,6 +467,14 @@ async function runQa(run: Run): Promise<boolean> {
   return true;
 }
 
+// The fixed IR -> ir.json, out/, graph, qa.json: done before the fix tasks' checkpoint.
+async function persistFixes(run: Run, ctx: FixCtx): Promise<void> {
+  run.ir = ctx.ir;
+  await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
+  await emitOut(run, run.ir);
+  await scoreAll(run, run.ir);
+}
+
 async function runFixes(run: Run): Promise<boolean> {
   const tasks = runnableOf(run, "fix");
   if (tasks.length === 0 || paused.has(run.projectId)) return true;
@@ -505,17 +513,16 @@ async function runFixes(run: Run): Promise<boolean> {
       setStatus(run.db, run.projectId, "failed", Codes.AI_CIRCUIT_OPEN);
       return false;
     }
-    // An AI error below the breaker: the sections stay red with the qa scores, the project completes.
+    // An AI error below the breaker: the tasks finish red (never retried), so keep what a sibling section
+    // already merged into ctx.ir; the project completes.
     const message = messageFor(run.projectId, e);
+    await persistFixes(run, ctx);
     if (STOP_AI.has(ai)) stopAi(run, { code: ai as AiStop["code"], message });
     for (const t of tasks) finishTask(run.db, run.projectId, t, "qa.json", ai, message);
     return true;
   }
   run.aiFailures = 0;
-  run.ir = ctx.ir;
-  await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
-  await emitOut(run, run.ir);
-  await scoreAll(run, run.ir);
+  await persistFixes(run, ctx);
   const stopped = results.find((r) => r.status === "ai_stopped" && r.errorCode);
   if (stopped) stopAi(run, { code: stopped.errorCode!, message: stopped.errorMessage ?? stopped.errorCode! });
   tasks.forEach((t, i) => {
