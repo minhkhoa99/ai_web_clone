@@ -493,7 +493,10 @@ select.full { width: 100%; min-height: 38px; }
 /* fix round 1 #3: h-14 action bar; Start follows the mockup's default (non-lg) button (P23); Cancel isn't
    stretched by its flex sibling. */
 .action-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; min-height: 56px; gap: var(--s-md) var(--s-lg); padding: var(--s-md) var(--s-lg); background: var(--c-surface-lowest); border-top: 1px solid var(--c-border); }
-.action-bar-info { flex-wrap: nowrap; }
+/* fix round 2 #2: each phrase is one unit (never breaks mid-word); the row itself wraps at narrow widths
+   instead, moving whole phrases to a 2nd line rather than squeezing one phrase's text internally. */
+.action-bar-info { flex-wrap: wrap; row-gap: 4px; }
+.action-bar-info > span { white-space: nowrap; }
 .action-bar-end { margin-left: auto; display: flex; align-items: center; gap: var(--s-sm); }
 .session-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-sm); }
 /* fix round 1 #2: raised from 639px to ~899px — at 768 the fixed HTTP/auth/captured columns (480px together)
@@ -512,6 +515,9 @@ select.full { width: 100%; min-height: 38px; }
   [data-ui="ui_sitemap_filter_tabs"] { min-width: 0; flex-wrap: wrap; }
   .sitemap-search-row { flex-wrap: wrap; }
   .sitemap-search-row [data-ui="ui_sitemap_route_search"] { max-width: none; }
+  /* the expand/collapse group's left divider (meant to sit beside the search box on one line) is dropped once
+     it wraps to its own line below, same idea as the origin chip's divider (fix round 1 #9). */
+  .sitemap-expand-group { border-left: none; padding-left: 0; }
   /* the dot + "N trang · M đã chụp" wrap down as one atomic unit instead of the text breaking mid-phrase; the
      vertical divider (meant for one inline row) is dropped once it wraps to its own line. */
   .chip-status-group { flex-basis: 100%; padding-left: 20px; }

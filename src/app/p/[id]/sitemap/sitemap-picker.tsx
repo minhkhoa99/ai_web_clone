@@ -80,7 +80,15 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
   const rows = visibleRows(filtering ? filterTree(tree, (u) => shownUrls.has(u)) : tree, filtering ? new Set<string>() : closed);
   const counts = { all: pages.length, public: pages.filter((p) => !p.needsAuth).length, auth: pages.filter((p) => p.needsAuth).length, recent: pages.filter(recent).length };
   const authSelected = pages.filter((p) => p.needsAuth && selected.has(p.url)).length;
+  const protectedBannerShown = draft && authSelected > 0;
   const est = estimateRun({ pages: selected.size, concurrency, delayMs, tokenBudget, ...rates });
+
+  // The protected-pages banner (and its "Mở cửa sổ đăng nhập" / "Import cookie JSON" actions authMsg reports
+  // on) is only reachable while shown; clear a stale message the moment it hides, so it never lingers after the
+  // triggering page is deselected and never reappears stale if the banner comes back later (fix round 2 #12).
+  useEffect(() => {
+    if (!protectedBannerShown) setAuthMsg(null);
+  }, [protectedBannerShown]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -253,7 +261,7 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
                 </span>
               </span>
               <span className="sitemap-chip t-label-sm text-3" data-ui="ui_sitemap_cost_estimate" title={ESTIMATE_TITLE}>
-                {est.cappedByBudget ? `· tối đa ${fmtTokens(tokenBudget)} token (ngân sách)` : `· ~${fmtTokens(est.tokens)} token (ước tính)`}
+                {est.cappedByBudget ? `tối đa ${fmtTokens(tokenBudget)} token (ngân sách)` : `~${fmtTokens(est.tokens)} token (ước tính)`}
               </span>
             </div>
             <div className="row sitemap-search-row">
@@ -294,37 +302,39 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
             })}
             empty={<p className="table-empty">Không có trang nào khớp bộ lọc.</p>}
           />
-          {draft && authSelected > 0 && (
-            <Banner
-              data-ui="ui_sitemap_protected_banner"
-              tone="warn"
-              icon="lock"
-              title={`Có ${authSelected} trang cần đăng nhập trong lựa chọn`}
-              actions={
-                <>
-                  <Button icon="open_in_new" disabled={openBusy} onClick={() => void openWindow()}>
-                    Mở cửa sổ đăng nhập
-                  </Button>
-                  <label className="btn btn-secondary file-btn">
-                    <Icon name="drive_folder_upload" />
-                    Import cookie JSON
-                    <input type="file" accept="application/json,.json" className="visually-hidden" onChange={importFile} />
-                  </label>
-                </>
-              }
-            >
-              Mở cửa sổ Chrome để đăng nhập (tự xử lý CAPTCHA nếu có), hoặc import cookie/storageState JSON. Phiên được lưu trong profile của dự án.
-            </Banner>
-          )}
-          {authMsg && (
-            <Banner
-              tone={authMsg.ok ? "info" : "danger"}
-              icon={authMsg.ok ? "check_circle" : "error"}
-              role={authMsg.ok ? "status" : "alert"}
-              actions={<IconButton icon="close" label="Đóng thông báo" onClick={() => setAuthMsg(null)} />}
-            >
-              {authMsg.text}
-            </Banner>
+          {protectedBannerShown && (
+            <>
+              <Banner
+                data-ui="ui_sitemap_protected_banner"
+                tone="warn"
+                icon="lock"
+                title={`Có ${authSelected} trang cần đăng nhập trong lựa chọn`}
+                actions={
+                  <>
+                    <Button icon="open_in_new" disabled={openBusy} onClick={() => void openWindow()}>
+                      Mở cửa sổ đăng nhập
+                    </Button>
+                    <label className="btn btn-secondary file-btn">
+                      <Icon name="drive_folder_upload" />
+                      Import cookie JSON
+                      <input type="file" accept="application/json,.json" className="visually-hidden" onChange={importFile} />
+                    </label>
+                  </>
+                }
+              >
+                Mở cửa sổ Chrome để đăng nhập (tự xử lý CAPTCHA nếu có), hoặc import cookie/storageState JSON. Phiên được lưu trong profile của dự án.
+              </Banner>
+              {authMsg && (
+                <Banner
+                  tone={authMsg.ok ? "info" : "danger"}
+                  icon={authMsg.ok ? "check_circle" : "error"}
+                  role={authMsg.ok ? "status" : "alert"}
+                  actions={<IconButton icon="close" label="Đóng thông báo" onClick={() => setAuthMsg(null)} />}
+                >
+                  {authMsg.text}
+                </Banner>
+              )}
+            </>
           )}
         </>
       )}

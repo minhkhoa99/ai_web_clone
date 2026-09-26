@@ -62,6 +62,15 @@ test("fix round 1 #14: percent-encoded path segments are decoded, for the row la
   expect(pathOf(`${o}/caf%C3%A9/menu`)).toBe("/café/menu");
 });
 
+test("fix round 2 #5: an escaped literal slash (%2F) inside one segment stays encoded — it never collides with a real 2-segment path", () => {
+  const tree = buildRouteTree(pages(["/a%2Fb", "/a/b"]));
+  const rows = visibleRows(tree, new Set());
+  expect(rows.map((r) => r.path).sort()).toEqual(["/a%2Fb", "/a/b"].sort()); // distinct rows, not merged into one "/a/b"
+  expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  // other escapes in the same segment still decode normally around the preserved %2F
+  expect(pathOf(`${o}/caf%C3%A9%2Fb`)).toBe("/café%2Fb");
+});
+
 test("100 pages build in < 50 ms", () => {
   const many = pages(Array.from({ length: 100 }, (_, i) => `/s${i % 10}/p${i}`));
   const t0 = performance.now();

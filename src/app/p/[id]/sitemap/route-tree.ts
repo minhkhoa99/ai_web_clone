@@ -6,10 +6,13 @@ export type RouteRow<P> = { kind: "folder" | "page"; key: string; path: string; 
 type Trie<P> = { prefix: string; page?: P; kids: Map<string, Trie<P>> };
 
 // Percent-decoded for display and for search matching (spec parity: never show raw %XX escapes); falls back to
-// the raw text for a malformed escape rather than throwing.
+// the raw text for a malformed escape rather than throwing. %2F/%2f (an escaped literal slash *inside* a
+// segment) is kept encoded — decoding it would turn one segment ("/a%2Fb") into what looks like two ("/a/b"),
+// colliding it with an unrelated, real "/a/b" page. %25 -> "%2F" -> escaped once more -> decoded back to the
+// literal text "%2F" everywhere else gets its real character.
 const decodePart = (s: string): string => {
   try {
-    return decodeURIComponent(s);
+    return decodeURIComponent(s.replace(/%2[Ff]/g, "%252F"));
   } catch {
     return s;
   }

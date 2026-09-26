@@ -301,7 +301,7 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
   expect(await rowOf("/legacy").innerText()).toContain("Chưa chụp");
   expect(await page.locator('[data-ui="ui_sitemap_select_all"]').innerText()).toMatch(/Chọn tất cả \(7\)[\s\S]*7 \/ 7 đã chọn/);
   // defaults (fewer than 20 samples in this db): 7 pages -> 14 fix sections -> 21k + 840k tokens; ~1216 s
-  expect(await page.locator('[data-ui="ui_sitemap_cost_estimate"]').innerText()).toBe("· ~861k token (ước tính)");
+  expect(await page.locator('[data-ui="ui_sitemap_cost_estimate"]').innerText()).toBe("~861k token (ước tính)");
   const bar = page.locator('[data-ui="ui_sitemap_action_bar"]');
   expect(await bar.innerText()).toMatch(/7 trang đã chọn \(1 cần đăng nhập\)[\s\S]*Ước tính ~20 phút[\s\S]*Hủy[\s\S]*Bắt đầu clone/);
   const banner = page.locator('[data-ui="ui_sitemap_protected_banner"]');
@@ -361,6 +361,9 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
   expect(await rowOf("/docs/a").getAttribute("class")).toContain("unselected");
   await tree.getByRole("checkbox", { name: "/account", exact: true }).uncheck();
   expect(await banner.count()).toBe(0);
+  // fix round 2 #12: authMsg is scoped to the (now-hidden) protected banner — it doesn't linger after /account
+  // is deselected, so re-selecting it later never resurrects a stale message either.
+  expect(await page.getByText("Đã mở cửa sổ đăng nhập.").count()).toBe(0);
   expect(await bar.innerText()).toContain("5 trang đã chọn");
   await tree.getByRole("checkbox", { name: "Chọn tất cả trong /docs" }).check();
   expect(await bar.innerText()).toContain("6 trang đã chọn");
