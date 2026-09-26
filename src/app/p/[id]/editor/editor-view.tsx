@@ -9,12 +9,23 @@ import { Badge } from "@/app/_ui/Badge";
 import { Button } from "@/app/_ui/Button";
 import { Card } from "@/app/_ui/Card";
 import { Field } from "@/app/_ui/Field";
+import { ICONS, type IconName } from "@/app/_ui/icons.gen";
 import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 
 const DEVICES = ["1440", "768", "375"] as const;
 type Device = (typeof DEVICES)[number];
 const DEFAULT_EFFECT_MS = 600;
+
+// GrapesJS panel buttons render Font Awesome classNames with no FA loaded (correctly — no icon CDN);
+// give the 4 panels we keep a real Material Symbols SVG + title instead (button.label accepts HTML).
+const svgLabel = (name: IconName) => `<svg viewBox="0 -960 960 960" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false"><path d="${ICONS[name]}"/></svg>`;
+const GJS_VIEWS_BUTTONS: { id: string; icon: IconName; title: string; active?: boolean }[] = [
+  { id: "open-sm", icon: "edit", title: "Kiểu dáng", active: true },
+  { id: "open-layers", icon: "layers", title: "Lớp" },
+  { id: "open-blocks", icon: "view_column_2", title: "Khối" },
+  { id: "open-tm", icon: "settings", title: "Thuộc tính" },
+];
 
 // GrapesJS over one page of the IR (spec §10). Save sends the editor's JSON to the adapter, which patches the IR and
 // re-emits out/; layout sections are shared, so editing one on any page edits it everywhere.
@@ -52,6 +63,24 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
         deviceManager: { devices: DEVICES.map((w) => ({ id: w, name: `${w}px`, width: `${w}px`, widthMedia: "" })) },
         blockManager: {
           blocks: data.sections.map((s) => ({ id: s.id, label: s.name, category: pathOf.get(s.pageId) ?? s.pageId, content: s.component })),
+        },
+        showDevices: false, // our own SegmentedControl "Thiết bị" is the single device selector
+        panels: {
+          // drop the default 'commands'/'options' panels (sw-visibility, code view, fullscreen, preview: all
+          // redundant with our own screens); keep 'views' (Style/Layer/Block/Trait Manager) with real icons.
+          defaults: [
+            {
+              id: "views",
+              buttons: GJS_VIEWS_BUTTONS.map((b) => ({
+                id: b.id,
+                command: b.id,
+                active: b.active,
+                togglable: false,
+                label: svgLabel(b.icon),
+                attributes: { title: b.title, "aria-label": b.title },
+              })),
+            },
+          ],
         },
       });
       // the canvas resolves urls like the emitted page (local assets in out/): <base> before the body renders

@@ -308,8 +308,24 @@ test("editor: ?page= opens that page, an unknown one falls back to the default; 
   expect(await page.getByRole("group", { name: "Thiết bị" }).getByRole("button").allInnerTexts()).toEqual(["1440", "768", "375"]);
   expect(await page.getByRole("button", { name: "Hoàn tác" }).getAttribute("title")).toBe("Hoàn tác");
   expect(await page.getByRole("button", { name: "Làm lại" }).getAttribute("title")).toBe("Làm lại");
+  // no default GrapesJS panel is left with an empty (Font Awesome, unloaded) icon: every visible one has a real
+  // svg + title (ruling P19 fix round 1 #1), and the duplicate device dropdown (#2) is gone
+  const gjsButtons = page.locator(".editor-shell .gjs-pn-btn");
+  expect(await gjsButtons.count()).toBe(4);
+  for (const btn of await gjsButtons.all()) {
+    expect(await btn.getAttribute("title")).toBeTruthy();
+    expect(await btn.locator("svg").count()).toBe(1);
+  }
+  expect(await page.locator(".editor-shell .gjs-pn-devices-c").count()).toBe(0);
   await expectNoDrift(page);
   await parityShot(page, "editor");
+
+  // tablet: toolbar + editor-grid (stacked below ~1100px) never force a horizontal page scroll
+  await page.setViewportSize({ width: 768, height: 900 });
+  await shotAt(page, "editor-768");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scrollWidth at 768").toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   await page.goto(`${base}/p/${projectId}/editor?page=nope`);
   await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
   expect(await page.getByRole("status").innerText()).toBe("");
