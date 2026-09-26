@@ -40,12 +40,12 @@ function pooled(context: BrowserContext, close: () => Promise<void>, maxPages: n
   const closed = new Promise<never>((_, reject) => (markClosed = () => reject(new AppError(Codes.BROWSER_CRASH, "browser closed"))));
   closed.catch(() => {}); // observed only by withPage
   context.once("close", markClosed);
+  // Memoized: Playwright's second close() returns before Chromium has exited, so every caller (a pause, then
+  // the run's finally) awaits the one real shutdown; a re-run or DELETE then never meets a live profile.
+  let closing: Promise<void> | undefined;
   return {
     context,
-    close: () => {
-      markClosed();
-      return close();
-    },
+    close: () => (closing ??= (markClosed(), close())),
     _semaphore: createSemaphore(maxPages),
     _closed: closed,
   };

@@ -132,7 +132,36 @@ test("pause from inside a capture: the run ends paused with every capture pendin
   startProject(db, id, { deps: offline });
   await completed;
   expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
-  expect(task(id, "capture", "index")!.attempts).toBe(2); // the attempt the pause cut off, then the resumed one
+  expect(task(id, "capture", "index")!.attempts).toBe(1); // the attempt the pause cut off is not counted
+});
+
+test("pause mid naming on the real persistent profile, then an immediate re-run on the same profile completes", { timeout: 120_000 }, async () => {
+  const id = createProject(db, { url: `${server.url}/index.html`, mode: "single", config: { delayMs: 0 } });
+  projects.push(id);
+  await enqueue(db, id, [`${server.url}/index.html`]);
+  let naming!: () => void;
+  const inName = new Promise<void>((r) => (naming = r));
+  const run = runProject(db, id, {
+    deps: {
+      ...offline,
+      // a slow AI call: only the run's abort ends it
+      nameSections: (_db, _p, _ir, _page, opts) =>
+        new Promise((resolve) => {
+          naming();
+          opts?.signal?.addEventListener("abort", () => resolve({ names: {}, error: "AI_BAD_RESPONSE" }), { once: true });
+        }),
+    },
+  });
+  await inName;
+  pauseProject(id);
+  await run;
+  expect(statusOf(id).status).toBe("paused");
+  expect(task(id, "name", "index")).toMatchObject({ status: "pending", attempts: 0 });
+  // The paused run's Chromium is gone once the run returns: its profile is removable (Windows: EBUSY otherwise,
+  // what DELETE after a pause does) and a re-run can take the same profile dir.
+  await rm(join(config.workspaceRoot, id, "profile", "Default"), { recursive: true, force: true });
+  await runProject(db, id, { deps: offline });
+  expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
 });
 
 test("auto login with a wrong password: LOGIN_FAILED is recorded on the login task, resume without credentials never retries", { timeout: 240_000 }, async () => {

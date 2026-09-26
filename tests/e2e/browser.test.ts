@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openBrowser, withPage } from "@/core/browser";
@@ -62,9 +62,14 @@ test("caps concurrent open pages at maxPages", async () => {
 });
 
 test("withPage on a handle being closed (a pause) rejects with BROWSER_CRASH instead of hanging in newPage", { timeout: 30_000 }, async () => {
-  const handle = await openBrowser({ profileDir: await mkdtemp(join(tmpdir(), "ai-web-clone-close-")) });
-  const closing = handle.close();
-  await expect(withPage(handle, async () => "never")).rejects.toMatchObject({ code: "BROWSER_CRASH" });
-  await closing;
-  await handle.close(); // a second close (the run's finally after a pause) is fine
+  const profileDir = await mkdtemp(join(tmpdir(), "ai-web-clone-close-"));
+  try {
+    const handle = await openBrowser({ profileDir });
+    const closing = handle.close();
+    await expect(withPage(handle, async () => "never")).rejects.toMatchObject({ code: "BROWSER_CRASH" });
+    expect(handle.close()).toBe(closing); // a second close (the run's finally after a pause) awaits the same shutdown
+    await closing;
+  } finally {
+    await rm(profileDir, { recursive: true, force: true, maxRetries: 3 });
+  }
 });

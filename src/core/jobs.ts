@@ -543,9 +543,10 @@ async function runFixes(run: Run): Promise<boolean> {
 
 const PHASES = [runCaptures, runIr, runNames, runEmit, runQa, runFixes];
 
-// Pause = stop now: the tasks it cut off never reached their checkpoint, so they go back to pending.
+// Pause = stop now: the tasks it cut off never reached their checkpoint, so they go back to pending, and
+// the cut-off attempt is not counted.
 function setPaused(db: DatabaseSync, projectId: string): void {
-  db.prepare("UPDATE tasks SET status='pending',updated_at=unixepoch() WHERE project_id=? AND status='running'").run(projectId);
+  db.prepare("UPDATE tasks SET status='pending',attempts=MAX(attempts-1,0),updated_at=unixepoch() WHERE project_id=? AND status='running'").run(projectId);
   setStatus(db, projectId, "paused");
 }
 
@@ -649,7 +650,7 @@ export const isWaiting = (projectId: string): boolean => waiting.some((j) => j.p
 export const queueHasRoom = (): boolean => !active || waiting.length < MAX_WAITING;
 
 // DELETE of a busy project: pause it (see pauseProject) and wait up to `ms` for its run to leave the queue.
-// true = neither running nor waiting any more.
+// true = neither running nor waiting any more. Only queued runs are awaited: the app starts every run via startProject.
 export async function stopAndWait(projectId: string, ms: number): Promise<boolean> {
   const wasActive = active === projectId;
   pauseProject(projectId);
