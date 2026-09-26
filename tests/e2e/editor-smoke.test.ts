@@ -1,6 +1,7 @@
 // Editor smoke: a completed site1 clone (real pipeline, AI steps stubbed) opened in the real GrapesJS
 // editor of a `next build` + `next start` app; one text edited like a user would, saved, re-emitted.
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -381,6 +382,41 @@ test("editor API: recovery (spec §3, ghi đè R69) — failed/interrupted/pause
     expect(noEmit.status).toBe(409);
     expect(((await noEmit.json()) as { message: string }).message).toBe("Chưa có bản clone để sửa (pha emit chưa xong). Bấm Tiếp tục ở trang Tiến độ.");
   } finally {
+    db!.prepare("UPDATE tasks SET status='done' WHERE project_id=? AND phase='emit'").run(projectId);
+    db!.prepare("UPDATE projects SET status='completed' WHERE id=?").run(projectId);
+  }
+});
+
+test("recovery (fix round 1 review): editor save on a non-completed project closes outstanding fix tasks — the manual edit wins, a later resume won't re-fix (and clobber) that section", async () => {
+  const base = app!.base;
+  const ir = JSON.parse(await readFile(join(workspaceRoot, projectId, "ir.json"), "utf8")) as { pages: { id: string }[]; sections: { id: string; pageId: string }[] };
+  const pageId = ir.pages[0]!.id;
+  const sectionId = ir.sections.find((s) => s.pageId === pageId)!.id;
+  const fixKey = `${pageId}:${sectionId}`;
+  // a fix task left over from before the project went failed (pending: never got to run; this is also what a
+  // retryable `failed` fix task looks like to runnable(), so this covers both)
+  db!.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(randomUUID(), projectId, fixKey);
+  db!.prepare("UPDATE projects SET status='failed' WHERE id=?").run(projectId);
+  try {
+    const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { pageId: string; components: unknown[] };
+    const save = await fetch(`${base}/api/projects/${projectId}/editor/save`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pageId: data.pageId, project: { components: data.components } }),
+    });
+    expect(save.status).toBe(200);
+    const fixTask = db!.prepare("SELECT status,error_code,error_msg FROM tasks WHERE project_id=? AND phase='fix' AND key=?").get(projectId, fixKey) as {
+      status: string;
+      error_code: string | null;
+      error_msg: string | null;
+    };
+    expect(fixTask).toEqual({ status: "done", error_code: null, error_msg: "Đã sửa tay trong Editor — bỏ vòng sửa AI." });
+    // runnable() (jobs.ts) only re-arms pending/retryable-failed tasks: 'done' means a later resume's runFixes
+    // never selects this task, so fixAll is never called for it and ir.json/out/qa.json are never re-patched.
+    const stillOpen = db!.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND phase='fix' AND status IN ('pending','failed')").get(projectId) as { n: number };
+    expect(stillOpen.n).toBe(0);
+  } finally {
+    db!.prepare("DELETE FROM tasks WHERE project_id=? AND phase='fix' AND key=?").run(projectId, fixKey);
     db!.prepare("UPDATE tasks SET status='done' WHERE project_id=? AND phase='emit'").run(projectId);
     db!.prepare("UPDATE projects SET status='completed' WHERE id=?").run(projectId);
   }

@@ -262,8 +262,22 @@ export async function loadEditable(db: DatabaseSync, projectId: string): Promise
   return { ir, emit };
 }
 
+// Recovery (hardening spec §3 review): a resume's fix phase loads ir.json and overwrites it (+ out/, qa.json)
+// with the AI's patch for each outstanding fix task — silently clobbering a manual edit made while the project
+// sat failed/interrupted/paused. The manual edit wins: closing every pending/failed fix task here (status='done',
+// no error) makes runnable() skip them, so a later resume never re-fixes (and re-overwrites) that section.
+const FIX_OVERRIDE_MSG = "Đã sửa tay trong Editor — bỏ vòng sửa AI.";
+
+function closeOutstandingFixes(db: DatabaseSync, projectId: string): void {
+  const { status } = db.prepare("SELECT status FROM projects WHERE id=?").get(projectId) as { status: string };
+  if (status === "completed") return; // the editor already requires the fix phase to be idle (not queued/active)
+  db.prepare(
+    "UPDATE tasks SET status='done',output_path='qa.json',error_code=NULL,error_msg=?,updated_at=unixepoch() WHERE project_id=? AND phase='fix' AND status IN ('pending','failed')",
+  ).run(FIX_OVERRIDE_MSG, projectId);
+}
+
 // ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR. The QA scores are not
-// recomputed: qa.json is marked stale.
+// recomputed: qa.json is marked stale. Used by both the editor save and promote-layout routes.
 export async function saveEdited(
   db: DatabaseSync,
   projectId: string,
@@ -285,6 +299,7 @@ export async function saveEdited(
   await writeJsonAtomic(join(src.ws, "ir.json"), ir);
   await emitOut(src, ir);
   await writeJsonAtomic(join(src.ws, "qa.json"), { scores: qa.scores, stale: true } satisfies QaFile);
+  closeOutstandingFixes(db, projectId);
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).
