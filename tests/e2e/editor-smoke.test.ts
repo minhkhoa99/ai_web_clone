@@ -152,6 +152,21 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   expect(await page.locator(".heat-overlay").count()).toBeLessThanOrEqual(at1440.filter((s) => s.heatPath).length);
 
   const card = page.locator('[data-ui="ui_qa_preview_fix_request"]').first();
+  // a short wide section's heatmap (1440×40) still reads as a thumbnail, not a thin bar: its drawn height >= 48px
+  const drawnH = await card.locator(".fix-heat img").evaluate(async (img: HTMLImageElement) => {
+    const c = Object.assign(document.createElement("canvas"), { width: 1440, height: 40 });
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#e05050";
+    g.fillRect(0, 0, 1440, 40);
+    img.src = c.toDataURL();
+    await img.decode();
+    const r = img.getBoundingClientRect();
+    const fit = getComputedStyle(img).objectFit;
+    const sx = r.width / img.naturalWidth, sy = r.height / img.naturalHeight;
+    const scale = fit === "cover" ? Math.max(sx, sy) : fit === "fill" ? sy : Math.min(sx, sy);
+    return Math.min(r.height, img.naturalHeight * scale);
+  });
+  expect(drawnH, "heat thumbnail drawn height").toBeGreaterThanOrEqual(48);
   expect(await card.getByRole("link", { name: "Sửa trong editor" }).getAttribute("href")).toBe(`/p/${projectId}/editor?page=${pageId}`);
   await page.getByRole("button", { name: "Section chưa đạt tiếp theo" }).click();
   expect(await page.locator('[data-ui="ui_qa_preview_section_scores"] li[data-marked]').count()).toBe(1);

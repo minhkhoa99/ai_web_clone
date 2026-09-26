@@ -640,7 +640,8 @@ select.full { width: 100%; min-height: 38px; }
 .fix-text { color: var(--c-text-2); }
 /* heat thumbnail in a frame: a short (wide) section's heat stays a readable box, not a thin bar */
 .fix-heat { margin: 0; display: grid; gap: 4px; padding: 6px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-sm); }
-.fix-heat img { display: block; width: 100%; min-height: 48px; max-height: 120px; object-fit: contain; }
+/* fixed-height thumbnail, cropped from the top: a short wide section (1440×40) would otherwise shrink to a thin bar */
+.fix-heat img { display: block; width: 100%; height: 96px; object-fit: cover; object-position: center top; }
 .cov-page { display: block; }
 .check-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--s-sm); align-items: center; padding: 5px 8px; border-radius: var(--r-sm); font: var(--t-label-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
 .check-captured .icon, .check-captured .check-status { color: var(--c-success); }
