@@ -7,8 +7,11 @@ import { SearchInput } from "@/app/_ui/SearchInput";
 type Dir = { name: string; path: string; dirs: Dir[]; files: string[] };
 
 const ICON_OF: Record<string, IconName> = { ".html": "html", ".css": "css", ".js": "javascript", ".json": "data_object" };
+const TONE_OF: Record<string, string> = { ".html": "tone-warn", ".css": "tone-primary", ".js": "tone-success" }; // no per-type coloured icon in the subset: tone colour instead
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|ico|avif|bmp)$/i;
-const fileIcon = (f: string): IconName => ICON_OF[f.slice(f.lastIndexOf(".")).toLowerCase()] ?? (IMAGE.test(f) ? "image" : "description");
+const ext = (f: string) => f.slice(f.lastIndexOf(".")).toLowerCase();
+const fileIcon = (f: string): IconName => ICON_OF[ext(f)] ?? (IMAGE.test(f) ? "image" : "description");
+const fileTone = (f: string): string | undefined => TONE_OF[ext(f)];
 const ancestors = (f: string) => f.split("/").slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join("/"));
 
 // out/ as a tree (<= 2000 paths, from the server listing).
@@ -53,15 +56,15 @@ export function FileTree({ files, current }: { files: string[]; current: string 
       </button>
       {isOpen(d.path) && (
         <ul>
-          {d.dirs.map((c) => dir(c, depth + 1))}
           {d.files.map((f) => (
             <li key={f}>
               <Link href={`?file=${encodeURIComponent(f)}`} className="tree-file" aria-current={f === current ? "page" : undefined} style={{ paddingLeft: 22 + (depth + 1) * 14 }}>
-                <Icon name={fileIcon(f)} />
+                <Icon name={fileIcon(f)} className={fileTone(f)} />
                 <span>{f.slice(f.lastIndexOf("/") + 1)}</span>
               </Link>
             </li>
           ))}
+          {d.dirs.map((c) => dir(c, depth + 1))}
         </ul>
       )}
     </li>

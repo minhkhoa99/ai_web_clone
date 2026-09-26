@@ -34,7 +34,9 @@ async function viewer(out: string, file: string, fileUrl: string, size: number):
   if (!lang) return { node: IMAGE.has(ext) ? <img alt={file} src={fileUrl} className="code-image" /> : <p className="text-3 pad">Không xem được loại file này.</p>, lines: null };
   if (size > MAX_VIEW_BYTES) return { node: <p className="text-3 pad">File quá lớn để xem ({Math.round(size / 1024)} KB).</p>, lines: null };
   const source = await readFile(join(out, file), "utf8");
-  const html = await codeToHtml(source, { lang, theme: "github-dark" });
+  // shiki emits one <span class="line"> per "\n" in the input, including a phantom empty one for a trailing
+  // newline (present in almost every real file) — trim that one newline so the gutter matches `lines` exactly.
+  const html = await codeToHtml(source.endsWith("\n") ? source.slice(0, -1) : source, { lang, theme: "github-dark" });
   const lines = source === "" ? 0 : source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
   return { node: <div dangerouslySetInnerHTML={{ __html: html }} />, lines }; // shiki escapes the source text
 }
@@ -44,7 +46,12 @@ export default async function CodePage({ params, searchParams }: { params: Promi
   const project = loadProject(id);
   const out = join(workspaceOf(id), "out");
   const files = await listOut(out);
-  const sizes = await mapLimit(files, STAT_CONCURRENCY, async (f) => (await stat(join(out, f))).size);
+  // a file can vanish between the listing and the stat (edited/moved out from under us) — size 0, not a 500
+  const sizes = await mapLimit(files, STAT_CONCURRENCY, async (f) =>
+    stat(join(out, f))
+      .then((s) => s.size)
+      .catch(() => 0),
+  );
   const total = sizes.reduce((a, b) => a + b, 0);
   const current = typeof file === "string" && files.includes(file) ? file : (files.find((f) => f === "index.html") ?? files[0]);
   const fileUrl = (f: string) => `/api/projects/${id}/files/out/${f.split("/").map(encodeURIComponent).join("/")}`;
@@ -73,7 +80,7 @@ export default async function CodePage({ params, searchParams }: { params: Promi
       <div className="code-grid">
         <FileTree files={files} current={current} />
         <section className="panel code-main" aria-label={current}>
-          <CodeFile projectId={id} file={current} size={fmtBytes(size)} lines={view.lines} copyable={LANG[ext] !== undefined} initialWrap={ext === ".html"}>
+          <CodeFile key={current} projectId={id} file={current} size={fmtBytes(size)} lines={view.lines} copyable={LANG[ext] !== undefined} initialWrap={ext === ".html"}>
             {view.node}
           </CodeFile>
           <footer className="code-foot t-label-sm" data-ui="ui_code_viewer_build_status">

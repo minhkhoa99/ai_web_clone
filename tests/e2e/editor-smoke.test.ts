@@ -194,6 +194,8 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   const html = await (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
   const n = html === "" ? 0 : html.split("\n").length - (html.endsWith("\n") ? 1 : 0);
   expect(await page.locator('[data-ui="ui_code_viewer_file_header"]').innerText()).toMatch(new RegExp(`out/index\\.html[\\s\\S]*\\d+(,\\d)? (B|KB)[\\s\\S]*${n} dòng`));
+  // the gutter's ".line" count matches the header's line count exactly (no phantom trailing-newline row from shiki)
+  expect(await page.locator('[data-ui="ui_code_viewer_code_pane"] .line').count()).toBe(n);
   const tree = page.locator('[data-ui="ui_code_viewer_file_tree"]');
   expect(await tree.getByRole("link", { name: "index.html" }).getAttribute("aria-current")).toBe("page");
   expect(await tree.getByRole("button", { name: /out/ }).getAttribute("aria-expanded")).toBe("true");
@@ -202,6 +204,8 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   const pane = page.locator('[data-ui="ui_code_viewer_code_pane"]');
   expect(await wrap.getAttribute("aria-pressed")).toBe("true");
   expect(await pane.getAttribute("class")).toContain("wrap");
+  // wrap on, initially: the pane itself never scrolls horizontally (the emitted HTML's one-long-line body wraps)
+  expect(await pane.evaluate((el) => el.scrollWidth <= el.clientWidth), "wrapped initially").toBe(true);
   await wrap.click();
   expect(await wrap.getAttribute("aria-pressed")).toBe("false");
   expect(await pane.getAttribute("class")).not.toContain("wrap");
@@ -210,6 +214,8 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   expect(await pane.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await wrap.click(); // back on, for the copy/clipboard check below
+  expect(await wrap.getAttribute("aria-pressed")).toBe("true");
+  expect(await pane.evaluate((el) => el.scrollWidth <= el.clientWidth), "wrapped again after re-enabling").toBe(true);
 
   await page.getByRole("button", { name: "Sao chép" }).click();
   await expect.poll(() => page.getByRole("button", { name: "Đã sao chép" }).count()).toBe(1);
@@ -220,6 +226,16 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   // filter by file name (not content): only the css file stays, its folder auto-opens
   await page.getByRole("searchbox", { name: "Lọc file" }).fill("STYLES");
   expect(await tree.getByRole("link").allInnerTexts()).toEqual(["styles.css"]);
+
+  // switching files remounts CodeFile (`key={current}`): a per-file default (wrap) never leaks from the last file
+  await tree.getByRole("link", { name: "styles.css" }).click();
+  await page.waitForURL(/file=css%2Fstyles\.css/);
+  expect(await wrap.getAttribute("aria-pressed"), "css defaults to wrap off").toBe("false");
+  await page.getByRole("searchbox", { name: "Lọc file" }).fill("");
+  await tree.getByRole("link", { name: "index.html" }).click();
+  await page.waitForURL(/file=index\.html/);
+  expect(await wrap.getAttribute("aria-pressed"), "back to html's default: wrap on").toBe("true");
+
   await page.getByRole("searchbox", { name: "Lọc file" }).fill("(");
   expect(await tree.getByRole("link").count()).toBe(0);
 

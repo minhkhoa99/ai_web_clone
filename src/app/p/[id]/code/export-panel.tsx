@@ -45,6 +45,9 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
         <input type="checkbox" checked={stripIds} onChange={(e) => setStripIds(e.target.checked)} />
         Bỏ data-ir-id
       </label>
+      <Button data-ui="ui_code_viewer_export_zip" variant="primary" icon="folder_zip" disabled={disabled || busy} onClick={() => void zip()}>
+        Xuất ZIP
+      </Button>
       <details
         ref={pop}
         className="popover"
@@ -68,9 +71,6 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
           </Button>
         </div>
       </details>
-      <Button data-ui="ui_code_viewer_export_zip" variant="primary" icon="folder_zip" disabled={disabled || busy} onClick={() => void zip()}>
-        Xuất ZIP
-      </Button>
       {msg && (
         <p className={`note tint tone-${msg.ok ? "success" : "danger"}`} role={msg.ok ? "status" : "alert"}>
           {msg.text}
