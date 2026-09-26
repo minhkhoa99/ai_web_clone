@@ -70,9 +70,10 @@ function subtitle(r: Row): ReactNode {
         {mode} · chưa chọn trang · tạo <RelTime at={r.createdAt} />
       </>
     );
+  // single mode is always 1 page: "1 trang · 1 trang" would repeat it, so the count only shows when crawling
   return (
     <>
-      {mode} · {r.pageCount} trang · bắt đầu <RelTime at={r.createdAt} />
+      {mode} · {r.mode === "crawl" && `${r.pageCount} trang · `}bắt đầu <RelTime at={r.createdAt} />
     </>
   );
 }

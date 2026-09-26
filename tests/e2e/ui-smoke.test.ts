@@ -689,6 +689,7 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   expect(await row("running").innerText()).toMatch(/capture 1\/2[\s\S]*40%/);
   expect(await row("running").getByRole("button", { name: "Tạm dừng" }).count()).toBe(1);
   expect(await row("running").innerText()).toMatch(/Crawl · 2 trang · bắt đầu/);
+  expect(await row("failed").locator('[data-ui="ui_history_row_subtitle"]').innerText()).toMatch(/^1 trang · bắt đầu /); // page count only when crawling
   expect(await row("interrupted").getByRole("button", { name: "Tiếp tục" }).getAttribute("class")).toContain("tone-warn");
   expect(await rows.filter({ hasText: "draft" }).innerText()).toContain("chưa chọn trang");
   for (const s of ["failed", "needs_auth", "running", "interrupted", "draft"]) expect(await rows.locator(`[data-status="${s}"]`).count()).toBe(1);
