@@ -29,7 +29,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
   const project = loadProject(id);
   // node:sqlite rows have a null prototype, which can't cross into a client component: copy to plain objects
   const tasks = (
-    getDb().prepare("SELECT phase,key,status,error_code AS errorCode FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?").all(id, MAX_TASKS) as TaskView[]
+    getDb().prepare("SELECT phase,key,status,error_code AS errorCode,error_msg AS errorMsg FROM tasks WHERE project_id=? ORDER BY rowid LIMIT ?").all(id, MAX_TASKS) as TaskView[]
   ).map((t) => ({ ...t }));
   const pages = (await readWorkspaceJson<PageRef[]>(id, "pages.json", [])).slice(0, MAX_PAGES).map((p) => ({ pageId: p.pageId, url: p.url }));
   const auth = project.status === "needs_auth" ? await authUrl(getDb(), project) : null;
@@ -41,6 +41,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ id: s
         url={project.url}
         initial={{
           status: project.status,
+          statusReason: project.status_reason,
           progress: project.progress,
           tasks,
           authUrl: auth,

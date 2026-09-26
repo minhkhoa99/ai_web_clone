@@ -19,6 +19,7 @@ import { mapLimit } from "./limit";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
 import { attrsSchema, tagSchema } from "./safe-names";
 import { serveDir } from "./serve";
+import { STOP_AI, STOP_AI_CODES } from "./statuses";
 
 export type FixCtx = {
   db: DatabaseSync;
@@ -45,10 +46,7 @@ export type FixResult = FixTarget & {
   errorMessage?: string;
 };
 
-// Persistent AI errors (hardening spec §1): no later call can succeed in this run, so AI stops like on
-// BUDGET_EXCEEDED and the project still completes. The one definition core and app share.
-const STOP_AI_CODES = [Codes.AI_AUTH, Codes.AI_QUOTA, Codes.AI_BAD_CONFIG] as const;
-export const STOP_AI: ReadonlySet<string> = new Set<Code>(STOP_AI_CODES);
+export { STOP_AI }; // defined in ./statuses (client-safe: the progress page counts these as page errors)
 export type AiStop = { code: Code; message: string };
 // Shared by fixAll's sections: once one hits the budget or a STOP_AI error, no section starts another round.
 export type FixStop = { budget: boolean; ai?: AiStop };

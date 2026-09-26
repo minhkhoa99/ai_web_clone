@@ -1,15 +1,18 @@
 import { expect, test } from "vitest";
 import { checklistLabel, fixText, meanScore, type Fix } from "@/app/p/[id]/preview/preview-model";
 
-const fix = (status: Fix["status"], errorCode: string | null = null): Fix => ({ pageId: "home", sectionId: "s", status, errorCode });
+const fix = (status: Fix["status"], errorCode: string | null = null, errorMsg: string | null = null): Fix => ({ pageId: "home", sectionId: "s", status, errorCode, errorMsg });
 
-test("fix card text from the fix task", () => {
-  expect(fixText(undefined)).toBe("Chưa qua vòng sửa tự động.");
-  expect(fixText(fix("pending"))).toBe("Đang sửa…");
-  expect(fixText(fix("running"))).toBe("Đang sửa…");
-  expect(fixText(fix("failed", "AI_AUTH"))).toBe("Vòng sửa lỗi: AI_AUTH.");
-  expect(fixText(fix("done", "BUDGET_EXCEEDED"))).toBe("Dừng sửa: hết ngân sách token.");
-  expect(fixText(fix("done"))).toBe("Đã chạy vòng sửa tự động (tối đa 3 vòng), vẫn dưới ngưỡng.");
+test("fix card text from the fix task; \"Đang sửa…\" only while the project runs (hardening §4)", () => {
+  expect(fixText(undefined, "completed")).toBe("Chưa qua vòng sửa tự động.");
+  expect(fixText(fix("pending"), "running")).toBe("Đang sửa…");
+  expect(fixText(fix("running"), "running")).toBe("Đang sửa…");
+  expect(fixText(fix("pending"), "failed")).toBe("Chưa sửa (project failed)");
+  expect(fixText(fix("running"), "paused")).toBe("Chưa sửa (project paused)");
+  expect(fixText(fix("failed", "AI_AUTH"), "failed")).toBe("Vòng sửa lỗi: AI_AUTH.");
+  expect(fixText(fix("done", "BUDGET_EXCEEDED"), "completed")).toBe("Dừng sửa: hết ngân sách token.");
+  expect(fixText(fix("done", "AI_QUOTA", "provider \"apmix\" returned status 402"), "completed")).toBe("Dừng sửa: AI_QUOTA.");
+  expect(fixText(fix("done"), "completed")).toBe("Đã chạy vòng sửa tự động (tối đa 3 vòng), vẫn dưới ngưỡng.");
 });
 
 test("checklist labels are deterministic from kind + trigger (no AI), trigger cut at 60 chars", () => {

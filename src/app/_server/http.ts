@@ -68,10 +68,10 @@ export async function handle(req: Request, fn: () => Promise<Response> | Respons
   }
 }
 
-export type ProjectRow = { id: string; url: string; status: string; auth_enc: string | null };
+export type ProjectRow = { id: string; url: string; status: string; status_reason: string | null; auth_enc: string | null };
 
 export function requireProject(db: DatabaseSync, id: string): ProjectRow {
-  const row = db.prepare("SELECT id,url,status,auth_enc FROM projects WHERE id=?").get(id) as ProjectRow | undefined;
+  const row = db.prepare("SELECT id,url,status,status_reason,auth_enc FROM projects WHERE id=?").get(id) as ProjectRow | undefined;
   if (!row) throw new ApiError(404, "NOT_FOUND", `project ${id} not found`);
   return row;
 }

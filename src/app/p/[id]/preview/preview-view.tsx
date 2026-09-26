@@ -375,6 +375,7 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
                     {scores.map((s) => {
                       const ok = s.score >= threshold;
                       const name = names.get(s.sectionId)?.name ?? s.sectionId;
+                      const fix = fixes.get(`${s.pageId}:${s.sectionId}`);
                       return (
                         <li key={s.sectionId} className={ok ? undefined : "section-fail"} data-marked={marked === s.sectionId ? "true" : undefined}>
                           <button type="button" className="section-row" onClick={() => pick(s.sectionId)}>
@@ -387,7 +388,10 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
                             <div className="fix-card" data-ui="ui_qa_preview_fix_request">
                               <div className="fix-status">
                                 <Badge tone="danger">cần sửa</Badge>
-                                <span className="t-body-sm fix-text">{fixText(fixes.get(`${s.pageId}:${s.sectionId}`))}</span>
+                                <span className="t-body-sm fix-text">
+                                  {fixText(fix, status)}
+                                  {fix?.errorMsg && <span className="fix-msg">{fix.errorMsg}</span>}
+                                </span>
                               </div>
                               {s.heatPath && (
                                 <figure className="fix-heat">

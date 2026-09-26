@@ -1,8 +1,9 @@
 // Progress screen model (spec parity §3.5). Pure and client-safe (type-only core import).
 import type { StampedEvent } from "@/core/jobs-base";
-import { SKIP } from "@/core/statuses";
+import { SKIP, STOP_AI } from "@/core/statuses";
+import { hintFor } from "@/app/_ui/error-hints";
 
-export type TaskView = { phase: string; key: string; status: string; errorCode: string | null };
+export type TaskView = { phase: string; key: string; status: string; errorCode: string | null; errorMsg?: string | null };
 export type PageRef = { pageId: string; url: string };
 export type PageState = { pageId: string; path: string; state: "done" | "running" | "needs_auth" | "failed" | "skipped" | "pending"; phase?: string; code?: string };
 export type RunSpan = { start: number | null; end: number | null };
@@ -14,6 +15,10 @@ function pageOf(t: TaskView): string | null {
   const i = t.key.indexOf(":");
   return i > 0 ? t.key.slice(0, i) : t.key;
 }
+
+// Done but degraded (hardening §4): AI stopped, budget spent, or the AI failed and a fallback was used.
+const TROUBLE: ReadonlySet<string> = new Set([...STOP_AI, "BUDGET_EXCEEDED", "AI_BAD_RESPONSE", "AI_RATE_LIMIT"]);
+const isTrouble = (t: TaskView) => t.status === "failed" || (t.status === "done" && TROUBLE.has(t.errorCode ?? ""));
 
 export function pageStates(tasks: TaskView[], pages: PageRef[]): PageState[] {
   const byPage = new Map<string, TaskView[]>();
@@ -37,9 +42,24 @@ export function pageStates(tasks: TaskView[], pages: PageRef[]): PageState[] {
       const code = capture.errorCode ?? undefined;
       return { pageId, path, state: code && SKIP.has(code) ? "skipped" : "failed", code };
     }
+    const bad = own.find(isTrouble);
+    if (bad) return { pageId, path, state: "failed", code: bad.errorCode ?? undefined };
     if (capture?.status === "done" && (!name || name.status === "done")) return { pageId, path, state: "done" };
     return { pageId, path, state: "pending" };
   });
+}
+
+// The "Lỗi & cảnh báo" panel rows: every task with an error code, failed first, otherwise in load (rowid) order.
+export const errorRows = (tasks: TaskView[]): TaskView[] =>
+  tasks.filter((t) => t.errorCode).sort((a, b) => Number(b.status === "failed") - Number(a.status === "failed"));
+
+// The status reason banner: `<code> — <hint>` (a free-text reason, e.g. an unexpected error's message, as is) and
+// the latest task message of that code.
+export function reasonOf(reason: string | null, tasks: TaskView[]): { title: string; message: string | undefined } | null {
+  if (!reason) return null;
+  const hint = hintFor(reason);
+  const message = tasks.findLast((t) => t.errorCode === reason && t.errorMsg)?.errorMsg ?? undefined;
+  return { title: hint ? `${reason} — ${hint}` : reason, message };
 }
 
 export function stateLabel(p: PageState): string {

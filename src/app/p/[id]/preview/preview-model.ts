@@ -1,14 +1,16 @@
 // Preview & QA screen model (spec parity §3.6). Pure, client-safe.
 import type { TaskStatus } from "@/core/jobs-base";
 
-export type Fix = { pageId: string; sectionId: string; status: TaskStatus; errorCode: string | null };
+export type Fix = { pageId: string; sectionId: string; status: TaskStatus; errorCode: string | null; errorMsg: string | null };
 
-// The "cần sửa" card: what the automatic fix loop did for this section (no diagnostic numbers).
-export function fixText(fix: Fix | undefined): string {
+// The "cần sửa" card: what the automatic fix loop did for this section (no diagnostic numbers; the task's
+// error message is shown under it). A pending/running task only means "being fixed" while the project runs.
+export function fixText(fix: Fix | undefined, projectStatus: string): string {
   if (!fix) return "Chưa qua vòng sửa tự động.";
-  if (fix.status === "pending" || fix.status === "running") return "Đang sửa…";
+  if (fix.status === "pending" || fix.status === "running") return projectStatus === "running" ? "Đang sửa…" : `Chưa sửa (project ${projectStatus})`;
   if (fix.status !== "done") return `Vòng sửa lỗi: ${fix.errorCode ?? fix.status}.`;
   if (fix.errorCode === "BUDGET_EXCEEDED") return "Dừng sửa: hết ngân sách token.";
+  if (fix.errorCode) return `Dừng sửa: ${fix.errorCode}.`;
   return "Đã chạy vòng sửa tự động (tối đa 3 vòng), vẫn dưới ngưỡng.";
 }
 

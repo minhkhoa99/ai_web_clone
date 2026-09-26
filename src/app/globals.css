@@ -581,6 +581,18 @@ select.full { width: 100%; min-height: 38px; }
   .progress-screen > * { flex: none; }
   .progress-grid { flex: 1; min-height: 0; }
 }
+/* "Lỗi & cảnh báo": up to 2000 rows must not push the panes off a locked-height screen — the table scrolls itself.
+   Below 900px the 5 columns no longer fit: each row stacks (phase · page · code on one line, message and hint below). */
+[data-ui="ui_progress_error_panel"] .panel-body { padding: 0; }
+[data-ui="ui_progress_error_panel"] .grid-table { max-height: 188px; overflow-y: auto; border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+@media (max-width: 899px) {
+  [data-ui="ui_progress_error_panel"] .grid-head { display: none; }
+  [data-ui="ui_progress_error_panel"] .grid-table { max-height: 320px; } /* the screen scrolls naturally here: room for more rows */
+  [data-ui="ui_progress_error_panel"] .grid-row:not(.grid-head) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s-sm); padding: var(--s-sm) var(--s-md); }
+  [data-ui="ui_progress_error_panel"] .grid-row > [role="cell"] { padding: 0; }
+  [data-ui="ui_progress_error_panel"] .grid-row > [role="cell"]:nth-child(2) { flex: 1 1 0; }
+  [data-ui="ui_progress_error_panel"] .grid-row > [role="cell"]:nth-child(n+4) { flex: 1 1 100%; }
+}
 /* below tablet: the fixed 360px page-list column no longer fits beside the log column, so the two panes stack,
    and the screen goes back to filling its natural (page-scrollable) height instead of the viewport. */
 @media (max-width: 639px) {
@@ -638,6 +650,7 @@ select.full { width: 100%; min-height: 38px; }
 .fix-card { display: grid; gap: var(--s-sm); padding: 0 10px 10px; }
 .fix-status { display: flex; align-items: flex-start; gap: var(--s-sm); padding: 8px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
 .fix-text { color: var(--c-text-2); }
+.fix-msg { display: block; margin-top: 2px; color: var(--c-text-3); overflow-wrap: anywhere; }
 /* heat thumbnail in a frame: a short (wide) section's heat stays a readable box, not a thin bar */
 .fix-heat { margin: 0; display: grid; gap: 4px; padding: 6px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-sm); }
 /* fixed-height thumbnail, cropped from the top: a short wide section (1440×40) would otherwise shrink to a thin bar */

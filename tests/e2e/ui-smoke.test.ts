@@ -677,6 +677,59 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
   await page.close();
 });
 
+test("progress (failed, hardening §4): reason banner, Lỗi & cảnh báo panel, page lỗi counts, Tải log; no sideways scroll", async () => {
+  const db = openDb(env.DB_PATH);
+  const quota = `provider "apmix" model "m1" returned status 402: ${"insufficient credit ".repeat(12)}`;
+  let id = "";
+  try {
+    id = seedProject(db, {
+      url: "http://failed.test/",
+      status: "failed",
+      progress: 80,
+      tasks: [
+        { phase: "capture", key: "home", status: "done" },
+        { phase: "name", key: "home", status: "done" },
+        { phase: "fix", key: "home:hero-with-a-long-section-id", status: "done", errorCode: "AI_QUOTA", errorMsg: quota },
+        { phase: "qa", key: "all", status: "failed", errorCode: "BROWSER_CRASH", errorMsg: "Target page, context or browser has been closed" },
+      ],
+    });
+    db.prepare("UPDATE projects SET status_reason='BROWSER_CRASH' WHERE id=?").run(id);
+    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify([{ pageId: "home", url: "http://failed.test/" }]));
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${id}`);
+  const banner = page.locator('[data-ui="ui_progress_reason_banner"]');
+  expect(await banner.locator(".banner-title").innerText()).toBe("BROWSER_CRASH — Trình duyệt lỗi hoặc bị đóng. Tiếp tục để thử lại.");
+  expect(await banner.locator(".banner-text").innerText()).toBe("Target page, context or browser has been closed");
+  const panel = page.locator('[data-ui="ui_progress_error_panel"]');
+  expect(await panel.locator("h2").innerText()).toBe("Lỗi & cảnh báo (2)");
+  const rows = panel.locator('[role="row"]:not(.grid-head)');
+  expect(await rows.count()).toBe(2);
+  expect(await rows.nth(0).innerText()).toContain("BROWSER_CRASH"); // failed first
+  const quotaRow = rows.nth(1);
+  expect(await quotaRow.innerText()).toContain("AI_QUOTA");
+  expect(await quotaRow.innerText()).toContain("Provider hết credit/quota. Nạp thêm hoặc đổi provider ở Cài đặt AI, rồi Chạy lại QA / Tiếp tục.");
+  expect(await quotaRow.locator("[title]").evaluateAll((els) => els.map((e) => e.getAttribute("title")))).toContain(quota); // truncated cell, full text in title
+  // the page counts its fix's AI stop: no more "xong · 0 lỗi" beside a failed run
+  expect(await page.locator('[data-ui="ui_progress_page_list"]').innerText()).toMatch(/\/\s*lỗi · AI_QUOTA/);
+  expect(await page.locator('[data-ui="ui_progress_page_counts"]').innerText()).toContain("0 xong • 0 đang chạy • 0 cần đăng nhập • 1 lỗi • 0 chờ");
+  const dl = page.locator('[data-ui="ui_progress_download_log"]');
+  expect([await dl.innerText(), await dl.getAttribute("href")]).toEqual(["Tải log", `/api/projects/${id}/log`]);
+  await expectNoDrift(page);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true); // locked screen: the panel never pushes the panes off
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scrollWidth at 1440").toBe(true);
+  await parityShot(page, "hardening-progress-1440");
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scrollWidth at 375").toBe(true);
+  expect(await hittable(page, '[data-ui="ui_progress_download_log"]')).toEqual([]);
+  await parityShot(page, "hardening-progress-375", 375);
+  expect(foreign).toEqual([]);
+  await page.close();
+});
+
 test("history: tab counts, row states (failed code, needs_auth, running phase x/y, draft), actions, ZIP download, long URL, pagination", async () => {
   const db = openDb(env.DB_PATH);
   const pfx = `http://history.test/${crypto.randomUUID()}`;

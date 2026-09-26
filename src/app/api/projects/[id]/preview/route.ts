@@ -41,10 +41,15 @@ export function GET(req: Request, { params }: IdCtx) {
     const interactions = (ir?.interactions ?? []).map((i) => ({ id: i.id, pageId: i.pageId, kind: i.kind, trigger: i.trigger, status: i.status }));
     // the fix-loop outcome per section (key pageId:sectionId) for the preview's "cần sửa" cards
     const fixes = (
-      db.prepare("SELECT key,status,error_code FROM tasks WHERE project_id=? AND phase='fix' ORDER BY rowid LIMIT 2000").all(id) as { key: string; status: TaskStatus; error_code: string | null }[]
+      db.prepare("SELECT key,status,error_code,error_msg FROM tasks WHERE project_id=? AND phase='fix' ORDER BY rowid LIMIT 2000").all(id) as {
+        key: string;
+        status: TaskStatus;
+        error_code: string | null;
+        error_msg: string | null;
+      }[]
     ).map((t) => {
       const i = t.key.indexOf(":");
-      return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code };
+      return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
     return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isEditable(db, project), interactions, coverage: coverage(db, id), fixes });

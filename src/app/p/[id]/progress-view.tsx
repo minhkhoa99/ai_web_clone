@@ -15,12 +15,14 @@ import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { StatTile } from "@/app/_ui/StatTile";
 import { StatusPill } from "@/app/_ui/StatusPill";
 import { UrlChip } from "@/app/_ui/UrlChip";
+import { Icon } from "@/app/_ui/Icon";
 import { fmtDuration, fmtInt } from "@/app/_ui/format";
-import { describe, pageStates, runSpan, spanAfter, stateLabel, type PageRef, type RunSpan, type TaskView } from "./page-states";
+import { describe, pageStates, reasonOf, runSpan, spanAfter, stateLabel, type PageRef, type RunSpan, type TaskView } from "./page-states";
+import { ErrorPanel } from "./error-panel";
 import { PhaseStepper, phaseStates } from "./phase-stepper";
 
 export type { TaskView };
-type Initial = { status: string; progress: number; tasks: TaskView[]; authUrl: string | null; needsCredentials: boolean; pages: PageRef[]; tokensUsed: number; tokenBudget: number };
+type Initial = { status: string; statusReason: string | null; progress: number; tasks: TaskView[]; authUrl: string | null; needsCredentials: boolean; pages: PageRef[]; tokensUsed: number; tokenBudget: number };
 type Level = "all" | LogLine["level"];
 type Message = StampedEvent | { type: "history"; events: StampedEvent[] };
 
@@ -30,6 +32,7 @@ const taskKey = (t: { phase: string; key: string }) => `${t.phase}:${t.key}`;
 
 export function ProgressView({ projectId, url, initial }: { projectId: string; url: string; initial: Initial }) {
   const [status, setStatus] = useState(initial.status);
+  const [reason, setReason] = useState(initial.statusReason); // the latest status event's (the SSE snapshot carries the persisted one)
   const [progress, setProgress] = useState(initial.progress);
   const [tokensUsed, setTokensUsed] = useState(initial.tokensUsed);
   const [tasks, setTasks] = useState(() => new Map(initial.tasks.map((t) => [taskKey(t), t])));
@@ -65,6 +68,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       }
       if (ev.type === "status") {
         setStatus(ev.status);
+        setReason(ev.reason ?? null);
         setQueued(ev.queued ?? false); // any status the job itself emits means it left the queue
         if (ev.queued !== undefined) return; // the SSE's snapshot of the current status: not a transition, not a log line
         setSpan((s) => spanAfter(s, ev));
@@ -75,7 +79,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
       }
       if (ev.type === "needs_auth") setAuthUrl(ev.url);
       if (ev.type === "task" && ev.phase === "login" && ev.errorCode === "LOGIN_FAILED") setNeedsCreds(true);
-      if (ev.type === "task") setTasks((prev) => new Map(prev).set(taskKey(ev), { phase: ev.phase, key: ev.key, status: ev.status, errorCode: ev.errorCode ?? null }));
+      if (ev.type === "task") setTasks((prev) => new Map(prev).set(taskKey(ev), { phase: ev.phase, key: ev.key, status: ev.status, errorCode: ev.errorCode ?? null, errorMsg: ev.error ?? null }));
       const line = lineOf(ev);
       if (line.length) setLog((prev) => [...prev.slice(-(MAX_LOG - 1)), ...line]);
     };
@@ -135,6 +139,7 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
   const shownLines = level === "all" ? log : log.filter((l) => l.level === level);
   const warnN = log.filter((l) => l.level === "warn").length;
   const errorN = log.filter((l) => l.level === "error").length;
+  const why = status === "failed" || status === "completed" ? reasonOf(reason, all) : null;
 
   return (
     <div className="stack progress-screen">
@@ -148,6 +153,11 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
           <StatTile label="Token đã dùng" value={`${fmtInt(tokensUsed)} / ${fmtInt(initial.tokenBudget)}`} tone={tokensUsed >= 0.9 * initial.tokenBudget ? "warn" : undefined} />
         </div>
         <div className="context-controls" data-ui="ui_progress_controls">
+          {/* a plain <a download>: an attachment from an API route, not a page to prefetch/navigate */}
+          <a className="btn btn-secondary" href={`/api/projects/${projectId}/log`} download data-ui="ui_progress_download_log">
+            <Icon name="download" size={16} />
+            Tải log
+          </a>
           {status === "running" && (
             <Button icon="pause" disabled={busy} onClick={() => void call("pause")}>
               Tạm dừng
@@ -183,6 +193,12 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
           Trang <code className="inline-chip">{authUrl ?? url}</code> cần đăng nhập — Mở cửa sổ để đăng nhập, rồi bấm Tiếp tục
         </Banner>
       )}
+      {why && (
+        <Banner data-ui="ui_progress_reason_banner" tone={status === "failed" ? "danger" : "warn"} icon={status === "failed" ? "error" : "warning"} title={why.title}>
+          {why.message}
+        </Banner>
+      )}
+      <ErrorPanel tasks={all} />
       {askFor && (
         <Card data-ui="ui_progress_credentials_form" title="Đăng nhập lại">
           <form className="stack" aria-label="Đăng nhập lại" onSubmit={(e) => void submitCreds(e)}>
