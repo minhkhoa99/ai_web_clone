@@ -86,11 +86,28 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   const forced = qa.scores[0]!.sectionId;
   for (const s of qa.scores) if (s.sectionId === forced) s.score = 0.5;
   await writeFile(qaPath, JSON.stringify(qa));
+  // site1 captures every interaction: mark one skipped for this page load only (ir.json is restored right after)
+  const irPath = join(workspaceRoot, projectId, "ir.json");
+  const irText = await readFile(irPath, "utf8");
+  const ir = JSON.parse(irText) as { interactions: { status: string }[] };
+  ir.interactions[0]!.status = "skipped";
+  await writeFile(irPath, JSON.stringify(ir));
 
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const foreign = trackForeignRequests(page);
-  await page.goto(`${base}/p/${projectId}/preview`);
-  await page.locator('[data-ui="ui_qa_preview_match_score"]').waitFor(); // the view loads its data client-side
+  try {
+    await page.goto(`${base}/p/${projectId}/preview`);
+    await page.locator('[data-ui="ui_qa_preview_match_score"]').waitFor(); // the view loads its data client-side
+  } finally {
+    await writeFile(irPath, irText);
+  }
+  // every toolbar item sits on one row at 1440, in each compare mode: same vertical center ±2px (the items are
+  // centered and differ in height — the slider label is shorter than a segmented control — so tops differ by design)
+  const oneRow = async (label: string) => {
+    const mids = await page.locator(".qa-toolbar .qa-tools > *").evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; }));
+    expect(Math.max(...mids) - Math.min(...mids), `toolbar one row (${label})`).toBeLessThanOrEqual(2);
+  };
+  await oneRow("side");
   await expectUi(page, ["ui_qa_preview_page_header", "ui_qa_preview_page_select", "ui_qa_preview_breakpoint_switch", "ui_qa_preview_compare_modes", "ui_qa_preview_heatmap_toggle", "ui_qa_preview_match_score", "ui_qa_preview_export_button", "ui_qa_preview_side_by_side_panes", "ui_qa_preview_sync_scroll", "ui_qa_preview_rail_tabs", "ui_qa_preview_summary", "ui_qa_preview_section_scores", "ui_qa_preview_fix_request", "ui_qa_preview_next_diff"]);
   const data = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as PreviewData;
   const at1440 = data.scores.filter((s) => s.pageId === pageId && s.bp === 1440);
@@ -104,8 +121,8 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   const area = (await page.locator('[data-ui="ui_qa_preview_sync_scroll"]').boundingBox())!;
   const panes = page.locator('[data-ui="ui_qa_preview_side_by_side_panes"] .pane-sticky');
   await expect.poll(async () => (await panes.first().boundingBox())!.width * 2 + 12).toBeGreaterThan(area.width - 24 - 4);
-  expect(await panes.first().locator(".pane-head").innerText()).toMatch(/^Gốc · 1440 × \d+px$/);
-  expect(await panes.nth(1).locator(".pane-head").innerText()).toMatch(/^Clone · 1440 × \d+px$/);
+  expect(await panes.first().locator(".pane-head").textContent()).toMatch(/^Gốc · 1440 × \d+px$/);
+  expect(await panes.nth(1).locator(".pane-head").textContent()).toMatch(/^Clone · 1440 × \d+px$/);
   await parityShot(page, "preview-side");
   await page.setViewportSize({ width: 1920, height: 1080 });
   await expect.poll(async () => (await panes.first().boundingBox())!.width).toBeGreaterThanOrEqual(500);
@@ -114,11 +131,16 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
 
   const modes = page.getByRole("group", { name: "Chế độ so sánh" });
   await modes.getByRole("button", { name: "Chồng mờ" }).click();
-  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').innerText()).toContain("Độ trong 50%");
+  // compact slider: "<n>%" shown, the name is the slider's accessible name
+  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').innerText()).toBe("50%");
+  expect(await page.getByRole("slider", { name: "Độ trong" }).getAttribute("aria-valuetext")).toBe("50%");
   expect(await page.locator(".clone-frame").evaluate((el) => (el as HTMLElement).style.opacity)).toBe("0.5");
+  await oneRow("onion");
   await parityShot(page, "preview-onion");
   await modes.getByRole("button", { name: "Trượt so sánh" }).click();
-  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').innerText()).toContain("Vị trí 50%");
+  expect(await page.getByRole("slider", { name: "Vị trí" }).getAttribute("aria-valuetext")).toBe("50%");
+  await oneRow("swipe");
+  await parityShot(page, "preview-swipe");
   expect(await page.locator("body").innerText()).not.toContain("Chồng lớp");
   await modes.getByRole("button", { name: "Cạnh nhau" }).click();
   expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').count()).toBe(0);
@@ -140,11 +162,21 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
     await page.setViewportSize({ width: w, height: 900 });
     await shotAt(page, `preview-${w}`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+    // the pane header keeps "· 1440 × <h>px" fully visible (only the label may truncate)
+    for (const size of await page.locator(".pane-size").all()) expect(await size.evaluate((el) => el.getBoundingClientRect().right <= el.parentElement!.getBoundingClientRect().right), `pane size visible at ${w}`).toBe(true);
+    // the compare modes stay one row of whole buttons
+    const heights = await page.locator('[data-ui="ui_qa_preview_compare_modes"]').evaluate((g) => [g.getBoundingClientRect().height, g.querySelector("button")!.getBoundingClientRect().height]);
+    expect(heights[0]!, `compare modes one row at ${w}`).toBeLessThan(heights[1]! * 1.5);
+    expect(await modes.getByRole("button", { name: "Trượt so sánh" }).count()).toBe(1);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.getByRole("tablist", { name: "Bảng bên" }).getByRole("tab", { name: /Checklist độ phủ/ }).click();
   expect(await page.locator('[data-ui="ui_qa_preview_coverage_checklist"]').innerText()).toMatch(/CHECKLIST ĐỘ PHỦ[\s\S]*\d+\/\d+ đã chụp/);
+  const skipped = page.locator('[data-ui="ui_qa_preview_skipped_item"]');
+  expect(await skipped.count()).toBe(1);
+  expect(await skipped.locator(".check-status").innerText()).toBe("bỏ qua");
+  expect(await skipped.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(144, 143, 160)"); // --c-text-3
   await parityShot(page, "preview-checklist");
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);

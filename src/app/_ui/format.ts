@@ -25,8 +25,3 @@ export function fmtDuration(ms: number): string {
 
 export const fmtMinutes = (s: number): string => (s < 60 ? "<1 phút" : `~${Math.round(s / 60)} phút`);
 
-// "stripe.com/pricing": the breadcrumb label of a project.
-export function hostPath(url: string): string {
-  const u = new URL(url);
-  return u.host + (u.pathname === "/" ? "" : u.pathname);
-}

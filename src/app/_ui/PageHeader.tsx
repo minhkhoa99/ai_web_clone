@@ -1,13 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { hostPath } from "./format";
 
 export type Crumb = { label: string; href?: string };
 
-// "Lịch sử / <host+path> / <screen>" for every /p/[id] screen (no "Task #", no "Pipelines").
+// "Lịch sử / <host> / <screen>" for every /p/[id] screen (spec §3.4–3.8; no "Task #", no "Pipelines").
 export const projectCrumbs = (url: string, id: string, screen: string): Crumb[] => [
   { label: "Lịch sử", href: "/" },
-  { label: hostPath(url), href: `/p/${id}` },
+  { label: new URL(url).host, href: `/p/${id}` },
   { label: screen },
 ];
 

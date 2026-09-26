@@ -50,22 +50,19 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
   const esRef = useRef<EventSource | null>(null);
   const posting = useRef(false); // one POST per run even if a second click lands before the disabled re-render
 
+  // rejects on an API error: the first load shows it in place of the screen, a re-score follow reports it in the banner
   const load = useCallback(
     () =>
-      api<Data>(`/api/projects/${projectId}/preview`).then(
-        (d) => {
-          setData(d);
-          setPageId((cur) => (d.pages.some((p) => p.pageId === cur) ? cur : (d.pages[0]?.pageId ?? "")));
-          return d;
-        },
-        (e: unknown) => {
-          setMsg(errorText(e));
-          return null;
-        },
-      ),
+      api<Data>(`/api/projects/${projectId}/preview`).then((d) => {
+        setData(d);
+        setPageId((cur) => (d.pages.some((p) => p.pageId === cur) ? cur : (d.pages[0]?.pageId ?? "")));
+        return d;
+      }),
     [projectId],
   );
-  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    load().catch((e: unknown) => setMsg(errorText(e)));
+  }, [load]);
   useEffect(() => () => esRef.current?.close(), []);
 
   const hasPage = !!data?.pages.some((p) => p.pageId === pageId);
@@ -155,15 +152,20 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
       posting.current = false;
       setRescore(r);
     };
+    let completions = 0;
     es.onmessage = (m: MessageEvent<string>) => {
       const e = JSON.parse(m.data) as { type: string; status?: string; reason?: string; queued?: boolean };
       if (e.type !== "status") return;
       if (e.status === "completed" && !e.queued) {
-        // the connect snapshot can still say `completed` before the queued job flips to running: only a
-        // fresh (non-stale) qa.json means the re-score is done — otherwise keep listening
-        void load().then((d) => {
-          if (d && !d.stale) finish("idle");
-        });
+        // the connect snapshot can still say `completed` before the queued job flips to running: a fresh
+        // (non-stale) qa.json means the re-score is done; a second `completed` ends the follow either way
+        const last = ++completions >= 2;
+        load().then(
+          (d) => {
+            if (!d.stale || last) finish("idle");
+          },
+          (err: unknown) => finish({ failed: errorText(err) }),
+        );
       } else if (e.status === "failed" || e.status === "paused" || e.status === "interrupted") {
         finish({ failed: e.reason ?? e.status });
       }
@@ -213,9 +215,9 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
           <i />
           <i />
         </span>
-        <span className="ellipsis">
-          {label} · {bp} × {Math.round(h)}px
-        </span>
+        {/* a narrow pane truncates the label, never the size */}
+        <span className="pane-name">{label}</span>
+        <span className="pane-size">{` · ${bp} × ${Math.round(h)}px`}</span>
       </div>
     </div>
   );
@@ -246,18 +248,35 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
             label="Chế độ so sánh"
             value={mode}
             onChange={setMode}
+            // the slider needs the room at 1440: its modes drop their icons (the labels stay)
             options={[
-              { value: "side", label: "Cạnh nhau", icon: "view_column_2" },
-              { value: "onion", label: "Chồng mờ", icon: "opacity" },
-              { value: "swipe", label: "Trượt so sánh", icon: "compare" },
+              { value: "side", label: "Cạnh nhau", icon: mode === "side" ? "view_column_2" : undefined },
+              { value: "onion", label: "Chồng mờ", icon: mode === "side" ? "opacity" : undefined },
+              {
+                value: "swipe",
+                label: (
+                  <>
+                    Trượt<span className="mode-long"> so sánh</span>
+                  </>
+                ),
+                icon: mode === "side" ? "compare" : undefined,
+              },
             ]}
           />
           {mode !== "side" && (
             <label className="inline-field overlay-slider" data-ui="ui_qa_preview_overlay_slider">
-              <span className="t-label-md text-2">
-                {mode === "onion" ? "Độ trong" : "Vị trí"} {slider}%
-              </span>
-              <input type="range" className="qa-slider" min={0} max={100} value={slider} aria-label={mode === "onion" ? "Độ trong" : "Vị trí"} onChange={(e) => setSlider(e.target.valueAsNumber)} />
+              {/* compact for the one-row toolbar: the value shows, the name ("Độ trong" / "Vị trí") is the slider's aria-label */}
+              <span className="t-label-md text-2 slider-value">{slider}%</span>
+              <input
+                type="range"
+                className="qa-slider"
+                min={0}
+                max={100}
+                value={slider}
+                aria-label={mode === "onion" ? "Độ trong" : "Vị trí"}
+                aria-valuetext={`${slider}%`}
+                onChange={(e) => setSlider(e.target.valueAsNumber)}
+              />
             </label>
           )}
         </div>
@@ -369,7 +388,12 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
                                 <Badge tone="danger">cần sửa</Badge>
                                 <span className="t-body-sm fix-text">{fixText(fixes.get(`${s.pageId}:${s.sectionId}`))}</span>
                               </div>
-                              {s.heatPath && <img className="fix-heat" alt={`Heatmap ${name}`} src={fileUrl(s.heatPath)} />}
+                              {s.heatPath && (
+                                <figure className="fix-heat">
+                                  <img alt={`Heatmap ${name}`} src={fileUrl(s.heatPath)} />
+                                  <figcaption className="t-label-sm text-3">Heatmap · {s.bp}px</figcaption>
+                                </figure>
+                              )}
                               <Button variant="primary" icon="edit" href={`/p/${projectId}/editor?page=${encodeURIComponent(s.pageId)}`}>
                                 Sửa trong editor
                               </Button>

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fmtBytes, fmtDuration, fmtInt, fmtMinutes, fmtPct, fmtTokens, hostPath } from "@/app/_ui/format";
+import { fmtBytes, fmtDuration, fmtInt, fmtMinutes, fmtPct, fmtTokens } from "@/app/_ui/format";
 import { clock } from "@/app/_ui/LogView";
 import { relative } from "@/app/_ui/RelTime";
 
@@ -11,7 +11,6 @@ test("format.ts (vi-VN)", () => {
   expect([fmtBytes(512), fmtBytes(19_046), fmtBytes(3 * 1024 * 1024)]).toEqual(["512 B", "18,6 KB", "3,0 MB"]);
   expect([fmtDuration(252_000), fmtDuration(0), fmtDuration(3_723_000)]).toEqual(["00:04:12", "00:00:00", "01:02:03"]);
   expect([fmtMinutes(45), fmtMinutes(360), fmtMinutes(1216.5)]).toEqual(["<1 phút", "~6 phút", "~20 phút"]);
-  expect([hostPath("https://stripe.com/"), hostPath("https://stripe.com/pricing?x=1")]).toEqual(["stripe.com", "stripe.com/pricing"]);
 });
 
 test("relative time (vi) and log clock", () => {

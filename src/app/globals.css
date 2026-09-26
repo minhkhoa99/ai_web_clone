@@ -44,6 +44,10 @@
   --s-lg: 16px;
   --s-xl: 24px;
 
+  /* .shell-main padding around the page: fixed 56px header + 16px, and 16px below */
+  --shell-pad-top: 72px;
+  --shell-pad-bottom: 16px;
+
   color-scheme: dark;
 }
 
@@ -121,7 +125,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .nav-item { display: flex; align-items: center; gap: var(--s-sm); height: 32px; padding: 0 var(--s-sm); border-left: 2px solid transparent; border-radius: var(--r-sm); color: var(--c-text-2); text-decoration: none; font: var(--t-label-md); }
 .nav-item:hover { background: var(--c-surface-low); color: var(--c-text); }
 .nav-item[aria-current="page"] { background: var(--c-surface-highest); color: var(--c-primary); border-left-color: var(--c-primary); }
-.shell-main { padding: 72px 16px 16px 240px; min-width: 0; }
+.shell-main { padding: var(--shell-pad-top) 16px var(--shell-pad-bottom) 240px; min-width: 0; }
 @media (max-width: 1023px) {
   .shell-sidebar { width: 56px; padding: var(--s-md) var(--s-xs); }
   .nav-group, .nav-label { display: none; }
@@ -577,7 +581,7 @@ select.full { width: 100%; min-height: 38px; }
    screen lock to the viewport height instead of flowing naturally; declared after the base rules above so its
    min-height: 0 wins over .progress-grid's 320px floor and lets flex:1 size it exactly. */
 @media (min-width: 640px) and (min-height: 800px) {
-  .progress-page { height: calc(100vh - 88px); overflow: hidden; }
+  .progress-page { height: calc(100vh - var(--shell-pad-top) - var(--shell-pad-bottom)); overflow: hidden; }
   .progress-page > * { flex: none; }
   .progress-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--s-md); overflow: hidden; }
   .progress-screen > * { flex: none; }
@@ -590,21 +594,25 @@ select.full { width: 100%; min-height: 38px; }
   .progress-grid .pane { height: 320px; }
 }
 /* === Screen: preview & QA === */
-.qa-toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
-.qa-tools { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.qa-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qa-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .qa-tools .seg { max-width: 100%; flex-wrap: wrap; }
-.qa-tools .seg-item { padding-inline: 9px; }
+/* compact enough for one row at 1440 in every compare mode (224px sidebar + Vietnamese labels) */
+.qa-tools .seg-item { padding-inline: 7px; }
 .inline-field { display: inline-flex; align-items: center; gap: var(--s-sm); min-width: 0; }
-.inline-field select { max-width: 220px; }
-.overlay-slider .qa-slider { width: 110px; margin: 0; }
+.inline-field select { max-width: 160px; }
+.overlay-slider .qa-slider { width: 80px; margin: 0; }
+.slider-value { min-width: 4ch; text-align: right; }
 .match-chip { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: var(--r-sm); font: var(--t-label-md); font-weight: 600; white-space: nowrap; }
 .qa-body { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--s-lg); }
 .compare-area { height: max(420px, 70vh); overflow: auto; padding: 12px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-lg); }
 .compare-side { display: flex; align-items: flex-start; }
 .pane-col { flex: none; box-shadow: 0 0 0 1px var(--c-border); border-radius: var(--r-md); background: var(--c-surface-low); }
 .pane-sticky { position: sticky; top: -12px; z-index: 2; }
-.pane-head { display: flex; align-items: center; gap: var(--s-sm); height: 28px; padding: 0 10px; background: var(--c-surface-low); border-bottom: 1px solid var(--c-border); border-radius: var(--r-md) var(--r-md) 0 0; color: var(--c-text-2); font: var(--t-label-sm); }
-.pane-dots { display: inline-flex; gap: 4px; flex: none; }
+.pane-head { display: flex; align-items: center; height: 28px; padding: 0 10px; background: var(--c-surface-low); border-bottom: 1px solid var(--c-border); border-radius: var(--r-md) var(--r-md) 0 0; color: var(--c-text-2); font: var(--t-label-sm); }
+.pane-dots { display: inline-flex; gap: 4px; flex: none; margin-right: var(--s-sm); }
+.pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-size { flex: none; white-space: pre; }
 .pane-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--c-surface-highest); }
 .orig-shot { display: block; }
 .frame { position: relative; overflow: hidden; background: #fff; }
@@ -636,7 +644,9 @@ select.full { width: 100%; min-height: 38px; }
 .fix-card { display: grid; gap: var(--s-sm); padding: 0 10px 10px; }
 .fix-status { display: flex; align-items: flex-start; gap: var(--s-sm); padding: 8px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
 .fix-text { color: var(--c-text-2); }
-.fix-heat { max-width: 100%; display: block; border: 1px solid var(--c-border); border-radius: var(--r-sm); }
+/* heat thumbnail in a frame: a short (wide) section's heat stays a readable box, not a thin bar */
+.fix-heat { margin: 0; display: grid; gap: 4px; padding: 6px; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-sm); }
+.fix-heat img { display: block; width: 100%; min-height: 48px; max-height: 120px; object-fit: contain; }
 .cov-page { display: block; }
 .check-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--s-sm); align-items: center; padding: 5px 8px; border-radius: var(--r-sm); font: var(--t-label-sm); color: var(--c-text-2); overflow-wrap: anywhere; }
 .check-captured .icon, .check-captured .check-status { color: var(--c-success); }
@@ -646,7 +656,7 @@ select.full { width: 100%; min-height: 38px; }
 /* wide + tall enough: the screen fills the viewport below the shell (72px top + 16px bottom padding) and the
    compare area + rail take whatever the page header and the (possibly wrapped) toolbar leave — only they scroll */
 @media (min-width: 1100px) and (min-height: 640px) {
-  .qa-page { height: calc(100vh - 88px); display: flex; flex-direction: column; }
+  .qa-page { height: calc(100vh - var(--shell-pad-top) - var(--shell-pad-bottom)); display: flex; flex-direction: column; }
   .qa-page > .page-header { flex: none; }
   .qa-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .qa-screen > .qa-toolbar { flex: none; }
@@ -661,5 +671,9 @@ select.full { width: 100%; min-height: 38px; }
   .rail-box { max-height: 70vh; }
 }
 @media (max-width: 639px) {
-  .pane-dots { display: none; } /* phone: the narrow pane header keeps its label */
+  .pane-dots { display: none; } /* phone: the narrow pane header keeps its size */
+  .pane-head { padding: 0 6px; }
+  /* "Trượt so sánh" -> "Trượt": the rest is clipped, not removed, so the button keeps its full accessible name */
+  .mode-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [data-ui="ui_qa_preview_compare_modes"] .seg-item { padding-inline: 6px; }
 }
