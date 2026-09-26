@@ -1653,6 +1653,398 @@
       "source_url": null
     },
     {
+      "id": "hspec_s0",
+      "label": "\u00a70 B\u1eb1ng ch\u1ee9ng l\u1ea7n ch\u1ea1y th\u1eadt: E1 402\u2192AI_BAD_CONFIG fail, E2 fix treo (fonts.ready kh\u00f4ng timeout), E3 editor 409 khi failed, E4 kh\u00f4ng log/l\u00fd do, E5 kh\u00f4ng xem \u0111\u01b0\u1ee3c browser, E6 request AI 5.1 MB + section r\u00e1c",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a70 bang chung lan chay that: e1 402\u2192ai_bad_config fail, e2 fix treo (fonts.ready khong timeout), e3 editor 409 khi failed, e4 khong log/ly do, e5 khong xem \u0111uoc browser, e6 request ai 5.1 mb + section rac",
+      "rationale": null,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s1",
+      "label": "\u00a71 L\u1ed7i AI: AI_QUOTA (402, kh\u00f4ng retry), th\u00f4ng b\u00e1o gateway c\u00f3 provider/model/status/\u2264300 k\u00fd t\u1ef1 body \u0111\u00e3 l\u1ecdc key; AI_AUTH/AI_QUOTA/AI_BAD_CONFIG d\u1eebng AI nh\u01b0 BUDGET_EXCEEDED, project v\u1eabn completed; breaker gi\u1eef nguy\u00ean; onRetry",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a71 loi ai: ai_quota (402, khong retry), thong bao gateway co provider/model/status/\u2264300 ky tu body \u0111a loc key; ai_auth/ai_quota/ai_bad_config dung ai nhu budget_exceeded, project van completed; breaker giu nguyen; onretry",
+      "rationale": "ghi \u0111\u00e8 spec g\u1ed1c \u00a79, \u00a711",
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s2",
+      "label": "\u00a72 Kh\u00f4ng treo, d\u1eebng ngay: fonts.ready \u226410 s, page.evaluate \u226430 s \u2192 BROWSER_CRASH, trang clone ch\u1eb7n request ngo\u00e0i loopback; T\u1ea1m d\u1eebng = d\u1eebng ngay (abort AI + \u0111\u00f3ng browser, running\u2192pending); Xo\u00e1 khi ch\u1ea1y ch\u1edd \u226415 s r\u1ed3i 409 PROJECT_BUSY",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a72 khong treo, dung ngay: fonts.ready \u226410 s, page.evaluate \u226430 s \u2192 browser_crash, trang clone chan request ngoai loopback; tam dung = dung ngay (abort ai + \u0111ong browser, running\u2192pending); xoa khi chay cho \u226415 s roi 409 project_busy",
+      "rationale": "ghi \u0111\u00e8 spec g\u1ed1c \u00a74 T\u1ea1m d\u1eebng",
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s3",
+      "label": "\u00a73 Kh\u00f4i ph\u1ee5c: Editor/L\u01b0u/G\u1ed9p layout/Ch\u1ea1y l\u1ea1i QA nh\u1eadn completed|failed|interrupted|paused khi emit done v\u00e0 kh\u00f4ng ch\u1ea1y; sitemap non-draft hi\u1ec7n d\u00f2ng gi\u1ea3i th\u00edch",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a73 khoi phuc: editor/luu/gop layout/chay lai qa nhan completed|failed|interrupted|paused khi emit done va khong chay; sitemap non-draft hien dong giai thich",
+      "rationale": "ghi \u0111\u00e8 R69",
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s4",
+      "label": "\u00a74 Hi\u1ec3n th\u1ecb l\u1ed7i v\u00e0 log: projects.status_reason, error_msg cho task done k\u00e8m m\u00e3, workspace/<id>/run.log (redact, xoay 5 MB \u2192 run.prev.log, xo\u00e1 c\u00f9ng project), GET /api/projects/[id]/log, console [job <id8>], log v\u00f2ng fix, banner l\u00fd do, panel L\u1ed7i & c\u1ea3nh b\u00e1o, T\u1ea3i log, b\u1ea3ng g\u1ee3i \u00fd error-hints.ts",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a74 hien thi loi va log: projects.status_reason, error_msg cho task done kem ma, workspace/<id>/run.log (redact, xoay 5 mb \u2192 run.prev.log, xoa cung project), get /api/projects/[id]/log, console [job <id8>], log vong fix, banner ly do, panel loi & canh bao, tai log, bang goi y error-hints.ts",
+      "rationale": null,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s5",
+      "label": "\u00a75 Hi\u1ec7n tr\u00ecnh duy\u1ec7t khi ch\u1ea1y: projectConfigSchema.headed (m\u1eb7c \u0111\u1ecbnh false), checkbox \u1edf /new, m\u1ecdi openBrowser c\u1ee7a project truy\u1ec1n headed; CDP_URL v\u1eabn \u01b0u ti\u00ean; kh\u00f4ng li\u00ean quan anti-bot",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a75 hien trinh duyet khi chay: projectconfigschema.headed (mac \u0111inh false), checkbox o /new, moi openbrowser cua project truyen headed; cdp_url van uu tien; khong lien quan anti-bot",
+      "rationale": null,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s6",
+      "label": "\u00a76 \u0110\u1ed9 trung th\u1ef1c + c\u1ee1 request AI: t\u1ea3i asset @font-face, splitSections \u0111i v\u00e0o wrapper ch\u1ee9a main + l\u1ecdc node r\u00e1c, \u1ea3nh AI r\u1ed9ng \u22641024 px t\u1ed5ng \u22641.5 MB, prompt \u0111\u1eb7t t\u00ean \u226424 000 k\u00fd t\u1ef1, c\u1ea3nh b\u00e1o ng\u01b0\u1ee1ng QA > 98%",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a76 \u0111o trung thuc + co request ai: tai asset @font-face, splitsections \u0111i vao wrapper chua main + loc node rac, anh ai rong \u22641024 px tong \u22641.5 mb, prompt \u0111at ten \u226424 000 ky tu, canh bao nguong qa > 98%",
+      "rationale": null,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76",
+      "source_url": null
+    },
+    {
+      "id": "hspec_s7",
+      "label": "\u00a77 Kh\u00f4ng l\u00e0m: kh\u00f4ng gi\u1ea3i CAPTCHA/stealth, kh\u00f4ng drift_*, kh\u00f4ng gi\u1eef log sau khi xo\u00e1 project, kh\u00f4ng SP2/SP3",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "\u00a77 khong lam: khong giai captcha/stealth, khong drift_*, khong giu log sau khi xoa project, khong sp2/sp3",
+      "rationale": null,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a77",
+      "source_url": null
+    },
+    {
+      "id": "htask_T1",
+      "label": "Hardening Task 1: Gateway \u2014 AI_QUOTA, informative errors, retry callback (spec \u00a71)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 1: gateway \u2014 ai_quota, informative errors, retry callback (spec \u00a71)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 1",
+      "source_url": null
+    },
+    {
+      "id": "htask_T10",
+      "label": "Hardening Task 10: Docs, README, graph (spec all)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 10: docs, readme, graph (spec all)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10",
+      "source_url": null
+    },
+    {
+      "id": "htask_T2",
+      "label": "Hardening Task 2: Persistent AI errors stop AI, project completes (spec \u00a71)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 2: persistent ai errors stop ai, project completes (spec \u00a71)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2",
+      "source_url": null
+    },
+    {
+      "id": "htask_T3",
+      "label": "Hardening Task 3: No hangs, immediate pause, delete while running (spec \u00a72)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 3: no hangs, immediate pause, delete while running (spec \u00a72)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3",
+      "source_url": null
+    },
+    {
+      "id": "htask_T4",
+      "label": "Hardening Task 4: Recovery from failed / interrupted / paused (spec \u00a73)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 4: recovery from failed / interrupted / paused (spec \u00a73)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4",
+      "source_url": null
+    },
+    {
+      "id": "htask_T5",
+      "label": "Hardening Task 5: Backend error surfacing \u2014 status_reason, error_msg, run.log, console, fix-round logs, log route (spec \u00a74)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 5: backend error surfacing \u2014 status_reason, error_msg, run.log, console, fix-round logs, log route (spec \u00a74)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5",
+      "source_url": null
+    },
+    {
+      "id": "htask_T6",
+      "label": "Hardening Task 6: UI error surfacing \u2014 hint table, reason banner, error panel, page l\u1ed7i states, T\u1ea3i log (spec \u00a74)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 6: ui error surfacing \u2014 hint table, reason banner, error panel, page loi states, tai log (spec \u00a74)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "source_url": null
+    },
+    {
+      "id": "htask_T7",
+      "label": "Hardening Task 7: 'Hi\u1ec7n tr\u00ecnh duy\u1ec7t khi ch\u1ea1y' (headed per project) (spec \u00a75)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 7: 'hien trinh duyet khi chay' (headed per project) (spec \u00a75)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7",
+      "source_url": null
+    },
+    {
+      "id": "htask_T8",
+      "label": "Hardening Task 8: Clone fidelity \u2014 @font-face assets, section splitting (spec \u00a76)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 8: clone fidelity \u2014 @font-face assets, section splitting (spec \u00a76)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8",
+      "source_url": null
+    },
+    {
+      "id": "htask_T9",
+      "label": "Hardening Task 9: AI request size caps + threshold warning (spec \u00a76)",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "hardening task 9: ai request size caps + threshold warning (spec \u00a76)",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9",
+      "source_url": null
+    },
+    {
+      "id": "hruling_fixcard_stop_copy",
+      "label": "Ruling: fix-card hi\u1ec7n 'D\u1eebng s\u1eeda: <m\u00e3>.' cho section b\u1ecb d\u1eebng AI",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: fix-card hien 'dung sua: <ma>.' cho section bi dung ai",
+      "rationale": "Ch\u1eef c\u0169 n\u00f3i sai l\u00e0 d\u01b0\u1edbi ng\u01b0\u1ee1ng; budget: 'D\u1eebng s\u1eeda: h\u1ebft ng\u00e2n s\u00e1ch token.'",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_manual_edit_wins",
+      "label": "Ruling: s\u1eeda tay th\u1eafng \u2014 L\u01b0u/G\u1ed9p layout khi ch\u01b0a completed \u0111\u00f3ng task fix c\u00f2n d\u1edf",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: sua tay thang \u2014 luu/gop layout khi chua completed \u0111ong task fix con do",
+      "rationale": "Task fix pending/failed \u2192 done, msg '\u0110\u00e3 s\u1eeda tay trong Editor \u2014 b\u1ecf v\u00f2ng s\u1eeda AI.'; Ti\u1ebfp t\u1ee5c kh\u00f4ng ghi \u0111\u00e8 b\u1ea3n s\u1eeda tay.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_noise_every_unwrap",
+      "label": "Ruling: l\u1ecdc node r\u00e1c \u1edf m\u1ecdi b\u01b0\u1edbc unwrap, r\u1ed7ng th\u00ec d\u00f9ng danh s\u00e1ch ch\u01b0a l\u1ecdc; display:contents kh\u00f4ng ph\u1ea3i r\u00e1c",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: loc node rac o moi buoc unwrap, rong thi dung danh sach chua loc; display:contents khong phai rac",
+      "rationale": "D\u1ea1ng Next.js th\u1eadt body>(#__next, announcer).",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_pause_during_fix_persist",
+      "label": "Ruling: pause l\u00fac ghi fix \u2192 Ti\u1ebfp t\u1ee5c cho th\u00eam \u22643 v\u00f2ng m\u1ed7i section",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: pause luc ghi fix \u2192 tiep tuc cho them \u22643 vong moi section",
+      "rationale": "ir.json \u0111\u00e3 s\u1eeda nh\u01b0ng task fix c\u00f2n pending; gi\u1ed1ng kh\u00f4i ph\u1ee5c sau crash, kh\u00f4ng h\u1ecfng (ghi nguy\u00ean t\u1eed).",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_pause_immediate",
+      "label": "Ruling: T\u1ea1m d\u1eebng = d\u1eebng ngay, task running \u2192 pending",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: tam dung = dung ngay, task running \u2192 pending",
+      "rationale": "Hu\u1ef7 AI + \u0111\u00f3ng browser; ghi \u0111\u00e8 SP1 \u00a74 'ch\u1edd task \u0111ang ch\u1ea1y xong'; task d\u1edf ch\u1ea1y l\u1ea1i t\u1eeb checkpoint (an to\u00e0n).",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_rescore_bad_state",
+      "label": "Ruling: b\u1ea5m Ch\u1ea1y l\u1ea1i QA l\u1ea7n hai khi \u0111ang ch\u1edd \u2192 409 BAD_STATE ('\u0111ang ch\u1ea1y')",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: bam chay lai qa lan hai khi \u0111ang cho \u2192 409 bad_state ('\u0111ang chay')",
+      "rationale": "M\u1ed9t c\u1ed5ng chung requireEditable; kh\u00f4ng tr\u1ea3 PROJECT_BUSY.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_runlog_stack_indent",
+      "label": "Ruling: run.log \u2014 d\u00f2ng stack ti\u1ebfp theo th\u1ee5t tab",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: run.log \u2014 dong stack tiep theo thut tab",
+      "rationale": "M\u1ed7i m\u1ee5c v\u1eabn b\u1eaft \u0111\u1ea7u 'ISO LEVEL'; parser \u0111\u1ecdc theo d\u00f2ng th\u1ea5y th\u00eam d\u00f2ng.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_sse_snapshot_reason",
+      "label": "Ruling: snapshot SSE mang status_reason",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: snapshot sse mang status_reason",
+      "rationale": "Banner l\u00fd do \u0111\u00fang ngay khi m\u1edf trang, kh\u00f4ng ch\u1edd s\u1ef1 ki\u1ec7n status m\u1edbi.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_transient_fix_red",
+      "label": "Ruling: l\u1ed7i AI t\u1ea1m th\u1eddi trong fix \u2192 section \u0111\u1ecf, project kh\u00f4ng failed",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: loi ai tam thoi trong fix \u2192 section \u0111o, project khong failed",
+      "rationale": "L\u1ed7i AI t\u1ea1m th\u1eddi (kh\u00f4ng ph\u1ea3i breaker m\u1edf) \u0111\u00e1nh d\u1ea5u section \u0111\u1ecf thay v\u00ec fail project \u2014 spec \u00a71 'project kh\u00f4ng failed' + SP1 \u00a74 'completed with red'.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
+      "id": "hruling_zero_size_roots",
+      "label": "Ruling: root c\u1ee1 0 (container s\u1ee5p) kh\u00f4ng ch\u1ea5m QA nh\u01b0 section",
+      "author": null,
+      "captured_at": null,
+      "community": 10,
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "ruling: root co 0 (container sup) khong cham qa nhu section",
+      "rationale": "Ch\u1ea5p nh\u1eadn theo spec \u00a76; n\u1ed9i dung \u0111\u00f3 kh\u00f4ng c\u00f3 \u0111i\u1ec3m.",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "source_url": null
+    },
+    {
       "id": "drift_history_copy_icon",
       "label": "icon copy/docs tr\u00ean h\u00e0ng completed",
       "author": null,
@@ -1845,6 +2237,20 @@
       "norm_label": "\"project alpha\" + chon workspace",
       "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7Drift table (danh s\u00e1ch ch\u00ednh th\u1ee9c 59 id)",
+      "source_url": null
+    },
+    {
+      "id": "feat_headed_browser",
+      "label": "Headed browser toggle per project (Hi\u1ec7n tr\u00ecnh duy\u1ec7t khi ch\u1ea1y)",
+      "author": null,
+      "captured_at": null,
+      "community": 2,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "headed browser toggle per project (hien trinh duyet khi chay)",
+      "rationale": "Ch\u1ec9 \u0111\u1ec3 xem; kh\u00f4ng \u0111\u1ed5i fingerprint, kh\u00f4ng v\u01b0\u1ee3t anti-bot",
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75",
       "source_url": null
     },
     {
@@ -2119,6 +2525,34 @@
       "norm_label": "website url input + ping",
       "rationale": null,
       "source_file": "docs/superpowers/design/stitch/new-clone.html",
+      "source_location": "\u00a7/new table",
+      "source_url": null
+    },
+    {
+      "id": "ui_new_headed_toggle",
+      "label": "Checkbox 'Hi\u1ec7n tr\u00ecnh duy\u1ec7t khi ch\u1ea1y' + d\u00f2ng ph\u1ee5",
+      "author": null,
+      "captured_at": null,
+      "community": 2,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "checkbox 'hien trinh duyet khi chay' + dong phu",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "source_url": null
+    },
+    {
+      "id": "ui_new_threshold_warning",
+      "label": "C\u1ea3nh b\u00e1o ng\u01b0\u1ee1ng QA > 98% ('Ng\u01b0\u1ee1ng r\u1ea5t cao\u2026Khuy\u00ean d\u00f9ng 95%.')",
+      "author": null,
+      "captured_at": null,
+      "community": 2,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "canh bao nguong qa > 98% ('nguong rat cao...khuyen dung 95%.')",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7/new table",
       "source_url": null
     },
@@ -4006,6 +4440,20 @@
       "source_url": null
     },
     {
+      "id": "ui_sitemap_locked_note",
+      "label": "D\u00f2ng gi\u1ea3i th\u00edch sitemap \u0111\u00e3 ch\u1ed1t ('\u0110\u00e3 b\u1eaft \u0111\u1ea7u clone \u2014 danh s\u00e1ch trang \u0111\u00e3 ch\u1ed1t. D\u00f9ng Clone l\u1ea1i \u0111\u1ec3 qu\u00e9t l\u1ea1i.')",
+      "author": null,
+      "captured_at": null,
+      "community": 6,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "dong giai thich sitemap \u0111a chot ('\u0111a bat \u0111au clone \u2014 danh sach trang \u0111a chot. dung clone lai \u0111e quet lai.')",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id]/sitemap table",
+      "source_url": null
+    },
+    {
       "id": "ui_sitemap_page_header",
       "label": "breadcrumb + title + chip origin",
       "author": null,
@@ -4281,6 +4729,34 @@
       "source_url": null
     },
     {
+      "id": "mod_error_hints",
+      "label": "src/app/_ui/error-hints.ts - ERROR_HINTS + hintFor(code), \u0111\u00fang b\u1ea3ng spec \u00a74",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "src/app/_ui/error-hints.ts - error_hints + hintfor(code), \u0111ung bang spec \u00a74",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "source_url": null
+    },
+    {
+      "id": "mod_run_log",
+      "label": "src/core/run-log.ts - appendRunLog/readRunLog, workspace/<id>/run.log, xoay 5 MB \u2192 run.prev.log, kh\u00f4ng t\u1ea1o l\u1ea1i th\u01b0 m\u1ee5c",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "code",
+      "norm_label": "src/core/run-log.ts - appendrunlog/readrunlog, workspace/<id>/run.log, xoay 5 mb \u2192 run.prev.log, khong tao lai thu muc",
+      "rationale": null,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5",
+      "source_url": null
+    },
+    {
       "id": "drift_progress_worker_tags",
       "label": "\"[worker#01]\", \"Thread #04\", \"stdout & ast-worker.log PID 4921\"",
       "author": null,
@@ -4291,6 +4767,20 @@
       "norm_label": "\"[worker#01]\", \"thread #04\", \"stdout & ast-worker.log pid 4921\"",
       "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7Drift table (danh s\u00e1ch ch\u00ednh th\u1ee9c 59 id)",
+      "source_url": null
+    },
+    {
+      "id": "feat_error_surfacing",
+      "label": "Error surfacing: status_reason, run.log + download, reason banner, L\u1ed7i & c\u1ea3nh b\u00e1o panel, hint table",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "error surfacing: status_reason, run.log + download, reason banner, loi & canh bao panel, hint table",
+      "rationale": "L\u00fd do status l\u01b0u DB; log v\u0103n b\u1ea3n b\u1ec1n theo project (redact, 5 MB rotation); UI n\u00eau m\u00e3 + g\u1ee3i \u00fd x\u1eed l\u00fd",
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74",
       "source_url": null
     },
     {
@@ -4469,6 +4959,34 @@
       "source_url": null
     },
     {
+      "id": "ui_progress_download_log",
+      "label": "N\u00fat 'T\u1ea3i log' \u2192 GET /api/projects/[id]/log",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "nut 'tai log' \u2192 get /api/projects/[id]/log",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "source_url": null
+    },
+    {
+      "id": "ui_progress_error_panel",
+      "label": "Panel 'L\u1ed7i & c\u1ea3nh b\u00e1o' (pha, trang\u00b7section, m\u00e3, th\u00f4ng b\u00e1o, g\u1ee3i \u00fd; r\u1ed7ng th\u00ec \u1ea9n)",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "panel 'loi & canh bao' (pha, trang\u00b7section, ma, thong bao, goi y; rong thi an)",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "source_url": null
+    },
+    {
       "id": "ui_progress_log_level_filter",
       "label": "\"All/Info/Warn/Error\"",
       "author": null,
@@ -4572,6 +5090,20 @@
       "norm_label": "phase stepper: discover/capture/assets/ir/name/emit/qa/fix/done",
       "rationale": null,
       "source_file": "docs/superpowers/design/stitch/progress.html",
+      "source_location": "\u00a7/p/[id] progress table",
+      "source_url": null
+    },
+    {
+      "id": "ui_progress_reason_banner",
+      "label": "Banner l\u00fd do status (m\u00e3 + th\u00f4ng b\u00e1o + g\u1ee3i \u00fd; failed=danger, completed=warn)",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "banner ly do status (ma + thong bao + goi y; failed=danger, completed=warn)",
+      "rationale": "kh\u00f4ng c\u00f3 trong mockup, d\u00f9ng token/component s\u1eb5n c\u00f3",
+      "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7/p/[id] progress table",
       "source_url": null
     },
@@ -5229,6 +5761,26 @@
       "weight": 1.0
     },
     {
+      "source": "mod_api_routes",
+      "target": "mod_run_log",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5: GET /api/projects/[id]/log \u2192 readRunLog",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_jobs_base",
+      "target": "mod_run_log",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5: emit \u2192 appendRunLog",
+      "weight": 1.0
+    },
+    {
       "source": "drift_settings_ai_aes_vault_claim",
       "target": "rule_no_captcha_bypass",
       "relation": "conceptually_related_to",
@@ -5379,6 +5931,16 @@
       "weight": 1.0
     },
     {
+      "source": "feat_headed_browser",
+      "target": "rule_no_captcha_bypass",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 kh\u00f4ng li\u00ean quan anti-bot",
+      "weight": 1.0
+    },
+    {
       "source": "feat_history_resume",
       "target": "sp1_clone_engine",
       "relation": "conceptually_related_to",
@@ -5459,6 +6021,186 @@
       "weight": 1.0
     },
     {
+      "source": "hspec_s0",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "rule_secret_encryption",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 kh\u00f4ng key trong th\u00f4ng b\u00e1o",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "rule_deterministic_clone",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 QA t\u1ea5t \u0111\u1ecbnh",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "rule_no_progress_loss",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 checkpoint an to\u00e0n",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "rule_bounded_workload",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 timeout",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "rule_secret_encryption",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 redact",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "rule_no_captcha_bypass",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "rule_bounded_workload",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 gi\u1edbi h\u1ea1n request",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s7",
+      "target": "sp1_clone_engine",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "ti\u00eau \u0111\u1ec1: SP1 \u2014 Hardening",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s7",
+      "target": "rule_no_captcha_bypass",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a77",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s7",
+      "target": "sp2_framework_arch",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a77",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s7",
+      "target": "sp3_design",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a77",
+      "weight": 1.0
+    },
+    {
       "source": "mod_estimate",
       "target": "rule_dep_direction",
       "relation": "conceptually_related_to",
@@ -5516,6 +6258,26 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/specs/2026-09-24-sp1-ui-stitch-parity-design.md",
       "source_location": "\u00a73.4",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_run_log",
+      "target": "rule_dep_direction",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5: core, no app import",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_run_log",
+      "target": "rule_secret_encryption",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 lu\u00f4n l\u1ecdc qua redact",
       "weight": 1.0
     },
     {
@@ -6089,6 +6851,536 @@
       "weight": 1.0
     },
     {
+      "source": "htask_T1",
+      "target": "mod_errors",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 1 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T1",
+      "target": "mod_gateway",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 1 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T1",
+      "target": "feat_ai_gateway",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 1",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "mod_jobs",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "mod_naming",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "mod_qa",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "feat_fix_loop",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "feat_section_naming",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_api_routes",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_browser",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_capture",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_inspector",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_jobs",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "mod_qa",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "feat_history_resume",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "feat_qa_score",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "mod_api_routes",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "mod_ui_pages",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "feat_editor",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "feat_rescore",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "ui_sitemap_locked_note",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_api_routes",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_db",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_jobs",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_jobs_base",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_qa",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "mod_run_log",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "feat_fix_loop",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "mod_error_hints",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "mod_page_states",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "mod_ui_pages",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "ui_progress_download_log",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "ui_progress_error_panel",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "ui_progress_reason_banner",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "mod_jobs",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "mod_jobs_base",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "mod_ui_pages",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "feat_headed_browser",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "ui_new_headed_toggle",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "mod_assets",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "mod_capture",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "mod_ir",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "feat_asset_download",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "feat_ir",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "mod_naming",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "mod_qa",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "mod_ui_pages",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9 Files",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "feat_fix_loop",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "feat_qa_score",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "feat_section_naming",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "ui_new_threshold_warning",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9",
+      "weight": 1.0
+    },
+    {
       "source": "mock_code_viewer",
       "target": "screen_code_viewer",
       "relation": "implements",
@@ -6199,6 +7491,36 @@
       "weight": 1.0
     },
     {
+      "source": "mod_browser",
+      "target": "feat_headed_browser",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 openBrowser headed",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_db",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 projects.status_reason",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_error_hints",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 b\u1ea3ng g\u1ee3i \u00fd",
+      "weight": 1.0
+    },
+    {
       "source": "mod_estimate",
       "target": "feat_estimate",
       "relation": "implements",
@@ -6246,6 +7568,46 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/specs/2026-09-24-sp1-ui-stitch-parity-design.md",
       "source_location": "\u00a74.1",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_jobs_base",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 console + run.log",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_jobs_base",
+      "target": "feat_headed_browser",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 projectConfigSchema.headed",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_page_states",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 tr\u1ea1ng th\u00e1i trang \u0111\u1ebfm l\u1ed7i naming + fix",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_run_log",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 run.log",
       "weight": 1.0
     },
     {
@@ -8009,6 +9371,26 @@
       "weight": 1.0
     },
     {
+      "source": "ui_new_headed_toggle",
+      "target": "feat_headed_browser",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_new_threshold_warning",
+      "target": "feat_qa_score",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "weight": 1.0
+    },
+    {
       "source": "ui_progress_auth_banner",
       "target": "feat_auth",
       "relation": "implements",
@@ -8066,6 +9448,36 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/specs/2026-09-24-sp1-ui-stitch-parity-design.md",
       "source_location": "\u00a73.5",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_download_log",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_download_log",
+      "target": "feat_persisted_log",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_error_panel",
+      "target": "feat_error_surfacing",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
       "weight": 1.0
     },
     {
@@ -8221,6 +9633,16 @@
     {
       "source": "ui_progress_phase_stepper",
       "target": "feat_job_queue_sse",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_reason_banner",
+      "target": "feat_error_surfacing",
       "relation": "implements",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
@@ -9076,6 +10498,16 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/specs/2026-09-24-sp1-ui-stitch-parity-design.md",
       "source_location": "\u00a73.4",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_sitemap_locked_note",
+      "target": "feat_crawl",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id]/sitemap table",
       "weight": 1.0
     },
     {
@@ -10866,6 +12298,506 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/plans/2026-09-24-sp1-ui-stitch-parity.md",
       "source_location": "task heading / Step 0 trace",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_fixcard_stop_copy",
+      "target": "hspec_s4",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_fixcard_stop_copy",
+      "target": "ui_qa_preview_fix_request",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_manual_edit_wins",
+      "target": "feat_editor",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_manual_edit_wins",
+      "target": "feat_fix_loop",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_manual_edit_wins",
+      "target": "hspec_s3",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_manual_edit_wins",
+      "target": "ui_editor_toolbar",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_noise_every_unwrap",
+      "target": "feat_ir",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_noise_every_unwrap",
+      "target": "hspec_s6",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_noise_every_unwrap",
+      "target": "mod_ir",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_during_fix_persist",
+      "target": "feat_fix_loop",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_during_fix_persist",
+      "target": "hspec_s2",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_during_fix_persist",
+      "target": "rule_no_progress_loss",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_immediate",
+      "target": "feat_history_resume",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_immediate",
+      "target": "hspec_s2",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_immediate",
+      "target": "spec_s4",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_immediate",
+      "target": "ui_history_pause_button",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_pause_immediate",
+      "target": "ui_progress_controls",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_rescore_bad_state",
+      "target": "feat_rescore",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_rescore_bad_state",
+      "target": "hspec_s3",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_rescore_bad_state",
+      "target": "ui_qa_preview_rerun_qa",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_runlog_stack_indent",
+      "target": "hspec_s4",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_runlog_stack_indent",
+      "target": "mod_run_log",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_sse_snapshot_reason",
+      "target": "feat_job_queue_sse",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_sse_snapshot_reason",
+      "target": "hspec_s4",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_sse_snapshot_reason",
+      "target": "ui_progress_reason_banner",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_transient_fix_red",
+      "target": "feat_fix_loop",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_transient_fix_red",
+      "target": "hspec_s1",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_transient_fix_red",
+      "target": "mod_jobs",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_zero_size_roots",
+      "target": "feat_qa_score",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_zero_size_roots",
+      "target": "hspec_s6",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hruling_zero_size_roots",
+      "target": "rule_measure_not_trust",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7Hardening sau l\u1ea7n ch\u1ea1y th\u1eadt (2026-09-26)",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "feat_fix_loop",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 Fix",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "feat_section_naming",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 Naming",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "feat_ai_gateway",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "feat_qa_score",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 QA",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "feat_history_resume",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 T\u1ea1m d\u1eebng/Xo\u00e1",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "feat_capture_dom",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 capture fonts",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "feat_inspector",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 evaluate timeout",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "feat_job_queue_sse",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "feat_rescore",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73 Ch\u1ea1y l\u1ea1i QA",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "feat_crawl",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73 sitemap",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "feat_editor",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "feat_persisted_log",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 run.log",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "feat_error_surfacing",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "feat_headed_browser",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "feat_asset_download",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 @font-face",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "feat_qa_score",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 ng\u01b0\u1ee1ng",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "feat_section_naming",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 prompt \u0111\u1eb7t t\u00ean",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "feat_ir",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 splitSections",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "feat_fix_loop",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 \u1ea3nh fix",
       "weight": 1.0
     },
     {
@@ -14009,6 +15941,626 @@
       "weight": 1.0
     },
     {
+      "source": "hspec_s0",
+      "target": "pspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "d\u00f2ng 3: b\u1ed5 sung spec parity",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "mod_errors",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 AI_QUOTA",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "spec_s2",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 gateway",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "spec_s11",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 ghi \u0111\u00e8 \u00a711",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "spec_s9",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71 ghi \u0111\u00e8 \u00a79",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "mod_gateway",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s1",
+      "target": "mod_jobs",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a71",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_api_routes",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 DELETE",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "spec_s9",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 QA",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "spec_s6",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 capture fonts",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "spec_s4",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72 ghi \u0111\u00e8 \u00a74 T\u1ea1m d\u1eebng",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_browser",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_capture",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_inspector",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_jobs",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s2",
+      "target": "mod_qa",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a72",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "spec_s10",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73 editor/sitemap",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s3",
+      "target": "mod_api_routes",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_api_routes",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 GET log",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_error_hints",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 b\u1ea3ng g\u1ee3i \u00fd",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "spec_s11",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 m\u00e3 l\u1ed7i",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "spec_s4",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 schema status_reason",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_db",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 status_reason",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_page_states",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 tr\u1ea1ng th\u00e1i trang",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_jobs_base",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s4",
+      "target": "mod_run_log",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "spec_s3",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 browser",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "mod_browser",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 openBrowser",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s5",
+      "target": "mod_jobs_base",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a75 projectConfigSchema",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "spec_s6",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 asset",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "mod_ir",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 splitSections",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "spec_s7",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 splitSections",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "mod_qa",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 \u1ea3nh fix",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "spec_s9",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 \u1ea3nh fix",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "mod_assets",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "mod_capture",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s6",
+      "target": "mod_naming",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76",
+      "weight": 1.0
+    },
+    {
+      "source": "hspec_s7",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E1..E6",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T1",
+      "target": "hspec_s1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 1 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s0",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s2",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s3",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s4",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s5",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s6",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "hspec_s7",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "design_stitch_system",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 10 stitch-screens.md ui_* ids",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "hspec_s1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 2 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "hspec_s2",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 3 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "hspec_s3",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 4 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "hspec_s4",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "hspec_s4",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "hspec_s5",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 7 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "hspec_s6",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 8 heading",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "hspec_s6",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 9 heading",
+      "weight": 1.0
+    },
+    {
       "source": "pdec_D1",
       "target": "pspec_s0",
       "relation": "references",
@@ -14670,6 +17222,26 @@
     },
     {
       "source": "screen_new_clone",
+      "target": "ui_new_headed_toggle",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "weight": 1.0
+    },
+    {
+      "source": "screen_new_clone",
+      "target": "ui_new_threshold_warning",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "weight": 1.0
+    },
+    {
+      "source": "screen_new_clone",
       "target": "ui_new_clone_auth_credentials",
       "relation": "references",
       "confidence": "EXTRACTED",
@@ -14766,6 +17338,36 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/design/stitch/new-clone.html",
       "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "screen_progress",
+      "target": "ui_progress_download_log",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "screen_progress",
+      "target": "ui_progress_error_panel",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "screen_progress",
+      "target": "ui_progress_reason_banner",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
       "weight": 1.0
     },
     {
@@ -15086,6 +17688,16 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/design/stitch/settings-ai.html",
       "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "screen_sitemap",
+      "target": "ui_sitemap_locked_note",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id]/sitemap table",
       "weight": 1.0
     },
     {
@@ -16479,6 +19091,16 @@
       "weight": 1.0
     },
     {
+      "source": "ui_new_threshold_warning",
+      "target": "ui_new_clone_qa_threshold",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 ng\u01b0\u1ee1ng QA > 98%",
+      "weight": 1.0
+    },
+    {
       "source": "ui_progress_auth_banner",
       "target": "mock_progress",
       "relation": "references",
@@ -16516,6 +19138,16 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_download_log",
+      "target": "ui_progress_controls",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "n\u00fat n\u1eb1m trong ui_progress_controls",
       "weight": 1.0
     },
     {
@@ -18299,6 +20931,46 @@
       "weight": 1.0
     },
     {
+      "source": "ui_new_headed_toggle",
+      "target": "mod_jobs_base",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/new table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_download_log",
+      "target": "mod_run_log",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_error_panel",
+      "target": "mod_error_hints",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_error_panel",
+      "target": "mod_page_states",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 errorRows",
+      "weight": 1.0
+    },
+    {
       "source": "ui_progress_log_line",
       "target": "mod_jobs_base",
       "relation": "shares_data_with",
@@ -18316,6 +20988,26 @@
       "confidence_score": 1.0,
       "source_file": "docs/superpowers/design/stitch-screens.md",
       "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_reason_banner",
+      "target": "mod_error_hints",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "\u00a7/p/[id] progress table",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_reason_banner",
+      "target": "mod_page_states",
+      "relation": "shares_data_with",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 6 status_reason + errorMsg",
       "weight": 1.0
     },
     {
@@ -20089,6 +22781,166 @@
       "weight": 1.0
     },
     {
+      "source": "feat_error_surfacing",
+      "target": "feat_persisted_log",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E4 events.jsonl",
+      "weight": 1.0
+    },
+    {
+      "source": "feat_error_surfacing",
+      "target": "feat_job_queue_sse",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a74 status_reason tr\u00ean s\u1ef1 ki\u1ec7n status",
+      "weight": 1.0
+    },
+    {
+      "source": "feat_headed_browser",
+      "target": "feat_auth",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a70 E5 ch\u1ec9 c\u1eeda s\u1ed5 \u0111\u0103ng nh\u1eadp m\u1edf headed",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T10",
+      "target": "htask_T9",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T2",
+      "target": "htask_T1",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T3",
+      "target": "htask_T2",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T4",
+      "target": "htask_T3",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T5",
+      "target": "htask_T4",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T6",
+      "target": "htask_T5",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T7",
+      "target": "htask_T6",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T8",
+      "target": "htask_T7",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "htask_T9",
+      "target": "htask_T8",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "tasks run sequentially (ledger pre-flight)",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_new_threshold_warning",
+      "target": "feat_fix_loop",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a76 t\u1ed1n v\u00f2ng s\u1eeda AI",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_sitemap_locked_note",
+      "target": "feat_history_resume",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/specs/2026-09-26-sp1-realrun-hardening-design.md",
+      "source_location": "\u00a73 D\u00f9ng Clone l\u1ea1i",
+      "weight": 1.0
+    },
+    {
+      "source": "mod_run_log",
+      "target": "mod_event_log",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/plans/2026-09-26-sp1-realrun-hardening.md",
+      "source_location": "Task 5: per-project write chain like event-log",
+      "weight": 1.0
+    },
+    {
+      "source": "ui_progress_reason_banner",
+      "target": "ui_progress_auth_banner",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "docs/superpowers/design/stitch-screens.md",
+      "source_location": "c\u00f9ng Banner",
+      "weight": 1.0
+    },
+    {
       "source": "ui_history_resume_button",
       "target": "screen_progress",
       "relation": "calls",
@@ -21462,5 +24314,5 @@
       "source_file": "docs/superpowers/design/stitch/qa-preview.html"
     }
   ],
-  "built_at_commit": "abc6220104254b5c454a5f9751aa52df4d52d6a7"
+  "built_at_commit": "84607c9684d1374ea2415010dbff405f70b981fd"
 }
