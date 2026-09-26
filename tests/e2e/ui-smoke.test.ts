@@ -598,7 +598,9 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
   await expect.poll(async () => clockSeconds(await stats.innerText())).toBeGreaterThanOrEqual(65);
 
   const levels = page.getByRole("group", { name: "Mức log" });
-  expect(await levels.innerText()).toMatch(/Warn \(1\)[\s\S]*Error \(0\)/);
+  // the count sits in its own <span> now (fix round 3 #1: hideable below 900px), so innerText can put a line
+  // break between the label and "(N)" even though they render on the same visual line — allow either.
+  expect(await levels.innerText()).toMatch(/Warn\s*\(1\)[\s\S]*Error\s*\(0\)/);
   await levels.getByRole("button", { name: /Warn/ }).click();
   expect(await lines.count()).toBe(1);
   await levels.getByRole("button", { name: "Tất cả" }).click();
@@ -625,10 +627,14 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
       await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
-    // fix round 2 #3: the level filter no longer overflows the pane itself (it shrinks + scrolls internally)
-    const seg = page.locator('[data-ui="ui_progress_log_level_filter"]');
-    const paneW = (await page.locator('[data-ui="ui_progress_log_stream"]').boundingBox())!.width;
-    expect((await seg.boundingBox())!.width, `level filter width at ${w}`).toBeLessThanOrEqual(paneW);
+    // fix round 3 #1: every level-filter option is fully visible inside the pane (no clip, no scroll needed) —
+    // below 900px its count drops and padding shrinks so "Warn (0)"/"Error (0)" fit as "Warn"/"Error".
+    const paneBox = (await page.locator('[data-ui="ui_progress_log_stream"]').boundingBox())!;
+    const options = page.locator('[data-ui="ui_progress_log_level_filter"] .seg-item');
+    for (const box of await options.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))) {
+      expect(box.x, `option left edge at ${w}`).toBeGreaterThanOrEqual(paneBox.x);
+      expect(box.x + box.width, `option right edge at ${w}`).toBeLessThanOrEqual(paneBox.x + paneBox.width + 0.5);
+    }
   }
   await page.close();
 });

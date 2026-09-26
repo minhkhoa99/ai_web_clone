@@ -273,8 +273,22 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
               options={[
                 { value: "all", label: "Tất cả" },
                 { value: "info", label: "Info" },
-                { value: "warn", label: `Warn (${warnN})` },
-                { value: "error", label: `Error (${errorN})` },
+                {
+                  value: "warn",
+                  label: (
+                    <>
+                      Warn<span className="seg-count"> ({warnN})</span>
+                    </>
+                  ),
+                },
+                {
+                  value: "error",
+                  label: (
+                    <>
+                      Error<span className="seg-count"> ({errorN})</span>
+                    </>
+                  ),
+                },
               ]}
             />
             <IconButton className="log-clear-btn" icon="block" label="Xóa log đang hiển thị (lịch sử vẫn giữ)" onClick={() => setLog([])} />

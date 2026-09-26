@@ -560,10 +560,15 @@ select.full { width: 100%; min-height: 38px; }
 .pane .log-view { flex: 1; min-height: 0; }
 .log-toggles { display: flex; align-items: center; gap: var(--s-md); }
 .log-clear-btn { margin-left: auto; }
-/* narrow panes: the level filter (4 nowrap buttons) can outgrow the pane before the toolbar itself would wrap
-   onto a new line for it — scroll it horizontally in place instead of letting .pane's overflow:hidden clip
-   "Error (0)" off the edge (fix round 2 #3). */
+/* narrow panes: the level filter (4 buttons) can outgrow the pane. min-width:0 + overflow-x:auto is a safety
+   net (fix round 2 #3), but below ~900px the fix that actually keeps every option fully visible (fix round 3)
+   is shorter labels: the " (N)" count drops (still in the DOM, just not painted) and button padding shrinks,
+   so "Warn (0)"/"Error (0)" become "Warn"/"Error" and all 4 options fit with no scrolling needed. */
 [data-ui="ui_progress_log_level_filter"] { min-width: 0; max-width: 100%; overflow-x: auto; }
+@media (max-width: 899px) {
+  [data-ui="ui_progress_log_level_filter"] .seg-count { display: none; }
+  [data-ui="ui_progress_log_level_filter"] .seg-item { padding-inline: 8px; }
+}
 .page-states { list-style: none; margin: 0; padding: var(--s-xs) 0; flex: 1; overflow-y: auto; }
 .page-state { display: flex; align-items: center; gap: var(--s-sm); padding: 6px var(--s-md); }
 .page-state + .page-state { border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent); }
