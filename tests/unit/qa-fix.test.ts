@@ -1,5 +1,13 @@
-import { expect, test } from "vitest";
-import { parseOps } from "@/core/qa-fix";
+import { expect, test, vi } from "vitest";
+import type { Page } from "playwright";
+import { PNG } from "pngjs";
+import { generate } from "@/core/gateway";
+import { asTools } from "@/core/inspector";
+import { MAX_IMAGE_WIDTH, MAX_IMAGES_B64 } from "@/core/naming";
+import { ask, parseOps, type FixCtx } from "@/core/qa-fix";
+
+vi.mock("@/core/gateway", async (orig) => ({ ...(await orig<typeof import("@/core/gateway")>()), generate: vi.fn() }));
+vi.mock("@/core/inspector", async (orig) => ({ ...(await orig<typeof import("@/core/inspector")>()), asTools: vi.fn() }));
 
 const allowed = new Set(["s:0", "s:0.1"]);
 const reply = (ops: unknown[]) => JSON.stringify({ ops });
@@ -34,4 +42,25 @@ test("replaceSubtree deeper than 20 or larger than 500 nodes is rejected", () =>
   for (let i = 0; i < 20; i++) deep = node("div", {}, [deep]);
   rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: deep }]));
   rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: node("div", {}, Array.from({ length: 500 }, () => node("span"))) }]));
+});
+
+test("ask: the inspector's tool screenshots go through fitImages too (every request's images <= 1.5 MB base64, <= 1024 px wide)", async () => {
+  const noise = () => {
+    const png = new PNG({ width: 800, height: 800 });
+    for (let i = 0; i < png.data.length; i++) png.data[i] = i % 4 === 3 ? 255 : Math.floor(Math.random() * 256);
+    return PNG.sync.write(png).toString("base64");
+  };
+  const shots = [noise(), noise(), noise()]; // ~3.4 MB base64 each: three tool screenshots in one round
+  vi.mocked(asTools).mockReturnValue({ tools: [], call: async () => ({}), calls: () => 1, takeImages: () => shots });
+  const sent: (string[] | undefined)[] = [];
+  vi.mocked(generate).mockImplementation(async (_db, opts) => {
+    sent.push(opts.images);
+    return sent.length === 1 ? { text: "", tokens: 1, toolCalls: [{ name: "screenshot", args: {} }] } : { text: "done", tokens: 1 };
+  });
+  const ctx = { db: {}, projectId: "p1" } as unknown as FixCtx;
+  expect(await ask(ctx, {} as Page, [{ role: "user", content: "fix" }], [])).toBe("done");
+  const second = sent[1]!;
+  expect(second.length).toBeGreaterThan(0);
+  expect(second.reduce((n, b) => n + b.length, 0)).toBeLessThanOrEqual(MAX_IMAGES_B64);
+  for (const b of second) expect(PNG.sync.read(Buffer.from(b, "base64")).width).toBeLessThanOrEqual(MAX_IMAGE_WIDTH);
 });

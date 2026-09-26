@@ -218,8 +218,9 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
 }
 
 // Generate <-> tool-call loop on the clone page; returns the final reply text. The evidence images go with the
-// first call only; a later call carries just the screenshots the AI asked for with the tool.
-async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
+// first call only; a later call carries just the screenshots the AI asked for with the tool, under the same caps
+// (hardening spec §6: every request <= 1.5 MB). Exported for tests.
+export async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
   const inspector = asTools({ clone: page });
   let attach = images;
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
@@ -231,7 +232,8 @@ async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: str
     const turn = `${res.text}
 TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then the results
     messages = [...messages, { role: "assistant", content: turn }, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
-    attach = inspector.takeImages();
+    const shots = inspector.takeImages().map((b64) => Buffer.from(b64, "base64"));
+    attach = fitImages(shots, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
   }
   throw new AppError(Codes.AI_BAD_RESPONSE, `no patch after ${MAX_GENERATE_CALLS} generate calls`, { projectId: ctx.projectId });
 }
