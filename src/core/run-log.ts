@@ -12,6 +12,8 @@ type Chain = { writes: Promise<void>; pending: number };
 const chains = new Map<string, Chain>(); // only projects with a write in flight
 const warned = new Set<string>(); // ponytail: grows by one id per project whose log can't be written; tiny in practice
 
+// A path parameter, like readOr below: a stat on the inline workspace join made Turbopack trace the whole project.
+const sizeOf = async (path: string) => (await stat(path)).size;
 const filesOf = (id: string) => ({ current: join(workspaceOf(id), "run.log"), prev: join(workspaceOf(id), "run.prev.log") });
 
 export function appendRunLog(projectId: string, level: LogLevel, phase: string, message: string): void {
@@ -25,7 +27,7 @@ export function appendRunLog(projectId: string, level: LogLevel, phase: string, 
     const { current, prev } = filesOf(projectId);
     try {
       await appendFile(current, line); // creates the file, never the directory (a deleted project stays deleted)
-      if ((await stat(current)).size >= MAX_RUN_LOG_BYTES) await rename(current, prev); // atomic, replaces the older segment
+      if ((await sizeOf(current)) >= MAX_RUN_LOG_BYTES) await rename(current, prev); // atomic, replaces the older segment
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT" && !warned.has(projectId)) {
         warned.add(projectId); // once per project: a log write failure never breaks a job
