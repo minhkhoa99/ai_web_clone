@@ -15,6 +15,7 @@ import { emit } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import * as providers from "@/app/api/providers/route";
 import * as providerTest from "@/app/api/providers/test/route";
+import * as providerModels from "@/app/api/providers/models/route";
 import * as providerOne from "@/app/api/providers/[id]/route";
 import * as projects from "@/app/api/projects/route";
 import * as project from "@/app/api/projects/[id]/route";
@@ -200,6 +201,36 @@ test("providers: GET masks the key; /test decrypts it server-side and counts mod
     expect(seen.authorization).toBe("Bearer sk-unsaved-key-5555");
     getDb().prepare("DELETE FROM providers WHERE id=?").run(id);
   } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("providers/test (P27): a saved provider tested with an edited, unsaved baseUrl — the override is called with the stored key, never echoed", async () => {
+  const hits: { url: string; auth: string | undefined }[] = [];
+  const server = createServer((req, res) => {
+    hits.push({ url: req.url ?? "", auth: req.headers.authorization });
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "m1" }] }));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const apiKey = "sk-stored-key-override-4242";
+  let id = "";
+  try {
+    id = ((await (await providers.POST(post({ name: "p27", kind: "openai", baseUrl: `${origin}/saved/v1`, apiKey, roles: {} }))).json()) as { id: string }).id;
+    const res = await providerTest.POST(post({ providerId: id, kind: "openai", baseUrl: `${origin}/edited/v1/` }));
+    const text = await res.text();
+    expect(JSON.parse(text)).toMatchObject({ ok: true, models: 1, httpStatus: 200 });
+    expect(text).not.toContain(apiKey);
+    expect(hits).toEqual([{ url: "/edited/v1/models", auth: `Bearer ${apiKey}` }]);
+    // the models route takes the same body
+    const models = (await (await providerModels.POST(post({ providerId: id, baseUrl: `${origin}/edited/v1` }))).json()) as { models: string[] };
+    expect(models.models).toEqual(["m1"]);
+    expect(hits.at(-1)?.url).toBe("/edited/v1/models");
+    // a saved provider's body still rejects a typed key alongside the id, and a bad override URL is a 400
+    expect((await providerTest.POST(post({ providerId: id, apiKey: "sk-x" }))).status).toBe(400);
+    expect((await providerTest.POST(post({ providerId: id, baseUrl: "ftp://nope" }))).status).toBe(400);
+  } finally {
+    if (id) getDb().prepare("DELETE FROM providers WHERE id=?").run(id);
     await new Promise((r) => server.close(r));
   }
 });

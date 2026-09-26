@@ -4,8 +4,6 @@ import { decrypt } from "@/core/crypto";
 import type { ProviderKind } from "@/core/gateway";
 import { ApiError } from "./http";
 
-export const providerIdSchema = z.object({ providerId: z.string().min(1) }).strict();
-
 const model = z.string().min(1).max(200).optional();
 export const rolesSchema = z.object({ vision: model, code: model, design: model }).strict();
 export const baseUrlSchema = z.url({ protocol: /^https?$/ }).transform((u) => u.replace(/\/+$/, ""));
@@ -22,12 +20,18 @@ export function storedProvider(db: DatabaseSync, id: string): { kind: ProviderKi
 // "sk-…abcd": first 3 + last 4; short keys show only the ellipsis so nothing meaningful leaks.
 export const maskKey = (key: string) => (key.length < 12 ? "…" : `${key.slice(0, 3)}…${key.slice(-4)}`);
 
-// /models and /test (D7): a form's unsaved values, or a saved provider (its key decrypted server-side only).
+const kindSchema = z.enum(["anthropic", "openai"]);
+
+// /models and /test (D7): a form's unsaved values, or a saved provider (its key decrypted server-side only) with an
+// optional kind/baseUrl override — an edited-but-unsaved base URL is what gets tested (P27); a typed key goes the
+// first way.
 export const providerBodySchema = z.union([
-  z.object({ kind: z.enum(["anthropic", "openai"]), baseUrl: baseUrlSchema, apiKey: z.string().min(1).max(4096) }).strict(),
-  providerIdSchema,
+  z.object({ kind: kindSchema, baseUrl: baseUrlSchema, apiKey: z.string().min(1).max(4096) }).strict(),
+  z.object({ providerId: z.string().min(1), kind: kindSchema.optional(), baseUrl: baseUrlSchema.optional() }).strict(),
 ]);
 
 export function resolveProvider(db: DatabaseSync, body: z.infer<typeof providerBodySchema>): { kind: ProviderKind; baseUrl: string; apiKey: string } {
-  return "providerId" in body ? storedProvider(db, body.providerId) : body;
+  if (!("providerId" in body)) return body;
+  const stored = storedProvider(db, body.providerId);
+  return { kind: body.kind ?? stored.kind, baseUrl: body.baseUrl ?? stored.baseUrl, apiKey: stored.apiKey };
 }

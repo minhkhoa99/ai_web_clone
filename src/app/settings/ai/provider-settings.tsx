@@ -91,8 +91,9 @@ export function ProviderSettings() {
     setDraft(null);
   };
 
-  // editing without a new key: the saved provider (its key decrypted server-side); otherwise the typed values (D7)
-  const bodyOf = (d: Draft) => (d.id && !d.apiKey ? { providerId: d.id } : { kind: d.kind, baseUrl: d.baseUrl, apiKey: d.apiKey });
+  // editing without a new key: the saved provider's key (decrypted server-side) against the form's current, maybe
+  // unsaved, base URL (P27); otherwise the typed values (D7)
+  const bodyOf = (d: Draft) => (d.id && !d.apiKey ? { providerId: d.id, kind: d.kind, baseUrl: d.baseUrl } : { kind: d.kind, baseUrl: d.baseUrl, apiKey: d.apiKey });
 
   const fetchModels = () =>
     run(async () => {
@@ -106,7 +107,8 @@ export function ProviderSettings() {
     const token = ++testToken.current;
     setFormTest("running");
     const body = bodyOf(draft);
-    const saved = "providerId" in body ? body.providerId : null; // the row's dot/latency only reflect the saved provider
+    // the row's dot/latency only reflect the saved provider as saved (not an edited base URL)
+    const saved = "providerId" in body && providers.some((p) => p.id === body.providerId && p.baseUrl === body.baseUrl) ? body.providerId : null;
     const r = await runTest(body);
     if (testToken.current !== token) return; // the draft changed (or another test started) while this one was in flight
     setFormTest(r);
