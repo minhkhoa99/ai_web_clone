@@ -153,6 +153,44 @@ test("sections: landmarks, main children, blocks; single wrappers unwrapped; bod
   expect(ir.sections.every((s) => /^[0-9a-f]{6}$/.test(s.hash))).toBe(true);
 });
 
+test("sections: a non-landmark wrapper holding main among siblings is descended; noise is not a section but stays in the shell", () => {
+  const cap = capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", { id: "__next" }, [
+          el("div", { class: "page-wrapper" }, [
+            header(),
+            el("main", {}, [el("section", { id: "s1" }, [txt("a")]), el("section", { id: "s2" }, [txt("b")])]),
+            el("footer", {}, [txt("f")]),
+          ]),
+        ]),
+        el("next-route-announcer", {}, [el("p", {}, [txt("")])]),
+        el("div", { id: "hidden" }, [txt("h")], { style: { display: "none" } }),
+        el("div", { id: "invisible" }, [txt("v")], { style: { visibility: "hidden" } }),
+        el("div", { id: "flat" }, [txt("z")], { bbox: [0, 0, 1440, 0] }),
+      ]),
+  );
+  const ir = buildIR([cap]);
+
+  expect(ir.sections.map((s) => [s.role, s.root.tag, s.root.attrs.id ?? ""])).toEqual([
+    ["header", "header", ""],
+    ["block", "section", "s1"],
+    ["block", "section", "s2"],
+    ["footer", "footer", ""],
+  ]);
+  const body = ir.pages[0]!.shell.children.find((c) => c.tag === "body")!;
+  expect(body.children.map((c) => c.tag)).toEqual(["div", "next-route-announcer", "div", "div", "div"]);
+  // Same capture -> same ids.
+  const ids = (x: IR) => x.sections.map((s) => [s.id, s.root.id]);
+  expect(ids(buildIR([cap]))).toEqual(ids(ir));
+});
+
+test("sections: when every candidate is noise, the unfiltered list is kept", () => {
+  const ir = buildIR([capture("p1", "https://x.test/", doc([el("div", { id: "a" }, [txt("a")], { bbox: [0, 0, 0, 0] }), el("div", { id: "b" }, [txt("b")], { bbox: [0, 0, 0, 0] })]))]);
+  expect(ir.sections.map((s) => s.root.attrs.id)).toEqual(["a", "b"]);
+});
+
 test("component: >=3 same-structure siblings with element descendants", () => {
   const item = (t: string) => el("li", { class: "i" }, [el("a", {}, [txt(t)])]);
   const ir = buildIR([

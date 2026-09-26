@@ -96,7 +96,17 @@ export function collectAssetUrls(dom: CaptureNode, networkUrls: string[], baseUr
   const raw: string[] = [];
   collectFromNode(dom, raw);
   raw.push(...networkUrls);
+  return resolveUnique(raw, baseUrl);
+}
 
+// PURE: url()s inside captured @font-face rules. The browser only fetches faces
+// the page uses, so unused ones never show up in the network list. Relative
+// urls resolve against the page URL (best effort: the sheet URL is unknown).
+export function urlsFromFontFaces(fontFace: string[], baseUrl: string): string[] {
+  return resolveUnique(fontFace.flatMap((rule) => urlsFromCssValue(rule)), baseUrl);
+}
+
+function resolveUnique(raw: string[], baseUrl: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const value of raw) {

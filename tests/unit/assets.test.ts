@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { assetExt, collectAssetUrls } from "@/core/assets";
+import { assetExt, collectAssetUrls, urlsFromFontFaces } from "@/core/assets";
 import type { CaptureNode } from "@/core/capture";
 
 const BASE = "https://example.com/page";
@@ -100,6 +100,20 @@ test("data: and blob: urls are skipped, unresolvable urls are skipped", () => {
     ],
   });
   expect(collectAssetUrls(dom, [], BASE)).toEqual([]);
+});
+
+test("urlsFromFontFaces: absolute kept, relative resolved against the page URL, local()/data: skipped, deduped", () => {
+  const fontFace = [
+    '@font-face { font-family: A; src: url("https://cdn.test/_next/static/media/a.woff2") format("woff2"), local("A"); }',
+    "@font-face { font-family: FA; src: url(/webfonts/fa-solid.woff2) format('woff2'), url('../fonts/b.woff') format('woff'); }",
+    '@font-face { font-family: D; src: url(data:font/woff2;base64,AAAA); }',
+    '@font-face { font-family: A2; src: url("https://cdn.test/_next/static/media/a.woff2"); }',
+  ];
+  expect(urlsFromFontFaces(fontFace, BASE)).toEqual([
+    "https://cdn.test/_next/static/media/a.woff2",
+    "https://example.com/webfonts/fa-solid.woff2",
+    "https://example.com/fonts/b.woff",
+  ]);
 });
 
 test("assetExt: only passive media extensions survive; html/js/css (by type or by url) become .bin", () => {

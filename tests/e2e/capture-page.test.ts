@@ -71,6 +71,8 @@ test("captures site1 and writes capture.json + shots for all 3 breakpoints", asy
   expect(Array.isArray(raw.interactions)).toBe(true);
   expect(typeof raw.assets).toBe("object");
   expect(Array.isArray(raw.skippedAssets)).toBe(true);
+  // Unused @font-face url() (never requested by the browser) is still downloaded.
+  expect(raw.assets[`${site1.url}/unused-font.woff2`]).toMatch(/^assets\/[0-9a-f]+\.woff2$/);
 
   for (const bp of [375, 768, 1440]) {
     const shotPath = join(dir, meta.shots[bp]!);

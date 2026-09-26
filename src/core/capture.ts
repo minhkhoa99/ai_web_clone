@@ -9,7 +9,7 @@ import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, re
 import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
 import { scanInteractions, type Interaction } from "./interactions";
-import { trackResponses, collectAssetUrls, downloadAssets, type DownloadResult } from "./assets";
+import { trackResponses, collectAssetUrls, urlsFromFontFaces, downloadAssets, type DownloadResult } from "./assets";
 
 // Runs `run` (a page.evaluate call) and rethrows any failure (crashed page,
 // detached frame, throw inside the page) as AppError(BROWSER_CRASH, …) with
@@ -145,11 +145,12 @@ function assertSafePageId(pageId: string): void {
 const EMPTY_DOM: CaptureNode = { tag: "", attrs: {}, style: {}, bbox: [0, 0, 0, 0], children: [] };
 
 // Union of every asset reference across all 3 breakpoint DOMs (responsive
-// layouts can swap images) plus the network-observed URLs, deduped.
-function collectAllAssetUrls(breakpoints: ResponsiveCapture[], networkUrls: string[], baseUrl: string): string[] {
+// layouts can swap images), the network-observed URLs and the @font-face
+// url()s (so the emitted CSS never points at the live site), deduped.
+function collectAllAssetUrls(breakpoints: ResponsiveCapture[], networkUrls: string[], fontFace: string[], baseUrl: string): string[] {
   const fromDoms = breakpoints.flatMap((bp) => collectAssetUrls(bp.dom, [], baseUrl));
   const fromNetwork = collectAssetUrls(EMPTY_DOM, networkUrls, baseUrl);
-  return [...new Set([...fromDoms, ...fromNetwork])];
+  return [...new Set([...fromDoms, ...fromNetwork, ...urlsFromFontFaces(fontFace, baseUrl)])];
 }
 
 // title + head meta[name]/meta[property] -> content.
@@ -290,7 +291,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
       const interactions = await scanInteractions(page, { stateSelectors: cssom.stateSelectors });
       const { title, meta } = await readPageMeta(page);
 
-      const assetUrls = collectAllAssetUrls(breakpoints, tracker.urls(), url);
+      const assetUrls = collectAllAssetUrls(breakpoints, tracker.urls(), cssom.fontFace, url);
       const { assets, skipped, bytes } = await downloadAssets(handle.context, assetUrls, join(workspaceDir, "assets"), {
         budgetBytes,
       });

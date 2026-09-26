@@ -225,6 +225,20 @@ test("URL rewrite: assets -> relative, cloned page links -> local .html, others 
   expect(emitSection(ir, ir.sections[0]!.id, opts)).toContain('src="assets/aaa.png"');
 });
 
+test("@font-face urls downloaded by absolute URL are rewritten to ../assets (absolute and root-relative)", () => {
+  const ir = buildIR([
+    capture("p1", "https://x.test/", doc([el("p", {}, [txt("x")])]), {
+      fontFace: ['@font-face { font-family: A; src: url("https://x.test/_next/static/media/a.woff2") format("woff2"), url(/webfonts/fa.woff2); }'],
+    }),
+  ]);
+  const opts: RenderOpts = {
+    assetMap: { "https://x.test/_next/static/media/a.woff2": "assets/aaa.woff2", "https://x.test/webfonts/fa.woff2": "assets/fa.woff2" },
+    pageUrls: { p1: "https://x.test/" },
+  };
+  const css = renderSite(ir, opts)["css/styles.css"]!;
+  expect(css).toContain('src: url("../assets/aaa.woff2") format("woff2"), url(../assets/fa.woff2);');
+});
+
 test("page file names are flat, deterministic and collision-free; renders are byte-identical", () => {
   const page = (id: string, url: string) => capture(id, url, doc([el("p", {}, [txt(id)])]));
   const caps = [page("a", "https://x.test/"), page("b", "https://x.test/a/b"), page("c", "https://x.test/A/B"), page("d", "https://x.test/index.html")];

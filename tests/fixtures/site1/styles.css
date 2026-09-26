@@ -7,6 +7,12 @@
   src: local("Arial");
 }
 
+/* Never used on the page, so the browser never requests it: capture must still download it. */
+@font-face {
+  font-family: "UnusedFont";
+  src: url("unused-font.woff2") format("woff2");
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

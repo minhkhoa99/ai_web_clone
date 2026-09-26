@@ -4,7 +4,8 @@ import type { CaptureNode } from "./capture";
 import { hash6, structuralHash, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import type { IRNode } from "./ir";
 
-export type Draft = StyledNode & { text?: string; hidden?: boolean; children: Draft[] };
+// zeroBox: 1440 bbox width or height is 0 (kept only to skip it as a section root).
+export type Draft = StyledNode & { text?: string; hidden?: boolean; zeroBox?: boolean; children: Draft[] };
 export type Extras = Pick<IRNode, "states" | "behavior">;
 export type Walk = { pageId: string; canvasAssets: Map<number, string>; canvasSeen: number };
 
@@ -12,6 +13,7 @@ const MAX_UNWRAP = 3;
 const MIN_COMPONENT_SIBLINGS = 3;
 const LANDMARK_TAGS = new Set(["header", "nav", "footer"]);
 const LANDMARK_ROLES: Record<string, string> = { banner: "header", navigation: "nav", contentinfo: "footer" };
+const NOISE_TAGS = new Set(["script", "style", "noscript", "template", "next-route-announcer"]);
 
 const elements = (node: Draft) => node.children.filter((c) => c.tag !== "#text");
 
@@ -36,6 +38,7 @@ export function toDraft(node: CaptureNode, path: string, at768: CaptureNode | un
   if (at375?.tag === node.tag) style.media!["375"] = diffDecl(node.style, at375.style);
   const draft: Draft = { id, tag: node.tag, attrs: node.attrs, style, children: [] };
   if (node.hidden) draft.hidden = true;
+  if (node.bbox[2] === 0 || node.bbox[3] === 0) draft.zeroBox = true;
 
   if (node.attrs["data-dynamic"] === "canvas") {
     const src = walk.canvasAssets.get(walk.canvasSeen++);
@@ -59,24 +62,32 @@ function landmarkOf(node: Draft): string | undefined {
 }
 
 const isMain = (node: Draft) => node.tag === "main" || node.attrs.role === "main";
+const isWrapper = (node: Draft) => !landmarkOf(node) && !isMain(node) && elements(node).length > 0;
+const hasMainWithin = (node: Draft, depth: number): boolean =>
+  elements(node).some((c) => isMain(c) || (depth > 1 && hasMainWithin(c, depth - 1)));
+const isNoise = (node: Draft) =>
+  NOISE_TAGS.has(node.tag) || !!node.zeroBox || node.style.base.display === "none" || node.style.base.visibility === "hidden";
 
-// Body element children (after unwrapping single non-landmark wrappers) -> sections;
-// `main` contributes each element child. Body, wrappers and main stay in the page shell.
+// Body element children -> sections, after unwrapping (up to MAX_UNWRAP times) a single
+// non-landmark wrapper, or the one wrapper among siblings that holds `main` (so header/footer
+// beside main become sections); `main` contributes each element child. Noise (hidden,
+// zero-size, script-like) is never a section root. Body, wrappers, main and noise stay in the shell.
 export function splitSections(html: Draft): { role: string; root: Draft }[] {
   const body = html.children.find((c) => c.tag === "body");
   if (!body) return [];
   let candidates = elements(body);
-  for (let depth = 0; depth < MAX_UNWRAP && candidates.length === 1; depth++) {
-    const only = candidates[0]!;
-    const inner = elements(only);
-    if (landmarkOf(only) || isMain(only) || inner.length === 0) break;
-    candidates = inner;
+  for (let depth = 0; depth < MAX_UNWRAP; depth++) {
+    const wrappers = candidates.length === 1 ? candidates.filter(isWrapper) : candidates.filter((c) => isWrapper(c) && hasMainWithin(c, MAX_UNWRAP));
+    if (wrappers.length !== 1) break;
+    const wrapper = wrappers[0]!;
+    candidates = candidates.flatMap((c) => (c === wrapper ? elements(c) : [c]));
   }
-  return candidates.flatMap((node) => {
+  const all = candidates.flatMap((node) => {
     const kids = isMain(node) ? elements(node) : [];
-    const roots = kids.length > 0 ? kids : [node];
-    return roots.map((root) => ({ role: landmarkOf(root) ?? "block", root }));
+    return kids.length > 0 ? kids : [node];
   });
+  const kept = all.filter((node) => !isNoise(node));
+  return (kept.length > 0 ? kept : all).map((root) => ({ role: landmarkOf(root) ?? "block", root }));
 }
 
 // html minus head, with every section root swapped for its placeholder (keyed by root node id).
