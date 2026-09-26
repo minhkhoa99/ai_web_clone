@@ -8,10 +8,10 @@ import { getDb } from "@/app/_server/db";
 import { workspaceOf } from "@/app/_server/http";
 
 // No auth_enc: the screens never need the (encrypted) credentials.
-export type ProjectView = { id: string; url: string; status: string; progress: number; config_json: string; tokens_used: number };
+export type ProjectView = { id: string; url: string; status: string; status_reason: string | null; progress: number; config_json: string; tokens_used: number };
 
 export function loadProject(id: string): ProjectView {
-  const row = getDb().prepare("SELECT id,url,status,progress,config_json,tokens_used FROM projects WHERE id=?").get(id) as ProjectView | undefined;
+  const row = getDb().prepare("SELECT id,url,status,status_reason,progress,config_json,tokens_used FROM projects WHERE id=?").get(id) as ProjectView | undefined;
   if (!row) notFound();
   return row;
 }

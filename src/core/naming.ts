@@ -3,7 +3,7 @@ import { PNG } from "pngjs";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { AppError } from "./errors";
-import { generate } from "./gateway";
+import { generate, type GenerateOptions } from "./gateway";
 import type { IR, IRNode, Section } from "./ir";
 
 const MAX_TAG_DEPTH = 3;
@@ -102,7 +102,7 @@ export async function nameSections(
   projectId: string,
   ir: IR,
   pageId: string,
-  opts: { thumbnail?: string; signal?: AbortSignal } = {},
+  opts: { thumbnail?: string; signal?: AbortSignal; onRetry?: GenerateOptions["onRetry"] } = {},
 ): Promise<{ names: SectionNames; error?: string; errorMessage?: string }> {
   const page = ir.pages.find((p) => p.id === pageId);
   const sectionIds = page?.sectionIds ?? [];
@@ -130,6 +130,7 @@ export async function nameSections(
       },
       ...(opts.thumbnail ? { images: [opts.thumbnail] } : {}),
       signal: opts.signal,
+      onRetry: opts.onRetry,
     });
     text = result.text;
   } catch (e) {

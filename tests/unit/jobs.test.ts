@@ -459,3 +459,42 @@ test("pause mid naming: the aborted call's fallback is not kept, name tasks back
   expect(tasksIn(db, id, "name").map((t) => [t.status, t.error_code])).toEqual([["pending", null], ["pending", null]]);
   expect(failedOf(db, id)).toEqual([]);
 });
+
+// --- error surfacing (hardening spec §4) ----------------------------------------------------
+
+const reasonOf = (db: ReturnType<typeof openDb>, id: string) => (db.prepare("SELECT status_reason FROM projects WHERE id=?").get(id) as { status_reason: string | null }).status_reason;
+
+test("status_reason: persisted on failed, cleared when the next run starts, set to the AI stop code on completed", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='pages/home/missing.json' WHERE project_id=? AND phase='capture'").run(id);
+  await expect(runProject(db, id, { deps: { openBrowser: fakeOpen } })).rejects.toThrow(/ENOENT/);
+  expect(statusOf(db, id)).toBe("failed");
+  expect(reasonOf(db, id)).toMatch(/ENOENT/);
+  let atStart: string | null = "unset";
+  const stop = new Error("stop");
+  await expect(runProject(db, id, { deps: { openBrowser: async () => ((atStart = reasonOf(db, id)), Promise.reject(stop)) } })).rejects.toBe(stop);
+  expect(atStart).toBeNull();
+
+  const ready = await fixReady([0]);
+  const deps = {
+    openBrowser: fakeOpen,
+    scoreSections: async () => [],
+    fixAll: async () => ready.targets.map((t) => ({ ...t, finalScore: 0.5, scores: { 375: 0.5, 768: 0.5, 1440: 0.5 }, rounds: 1, patched: false, status: "ai_stopped" as const, errorCode: "AI_QUOTA" as const, errorMessage: QUOTA_MSG })),
+  };
+  await runProject(ready.db, ready.id, { deps });
+  expect([statusOf(ready.db, ready.id), reasonOf(ready.db, ready.id)]).toEqual(["completed", "AI_QUOTA"]);
+});
+
+test("a completed run with no AI stop / budget has no status_reason, even with an older marker task", async () => {
+  const { db, id } = await fixReady([0]);
+  db.prepare("UPDATE tasks SET error_code='AI_BAD_RESPONSE',error_msg='old' WHERE project_id=? AND phase='name'").run(id);
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = { openBrowser: fakeOpen, scoreSections: async () => [], fixAll: async (ctx: FixCtx, ts: { pageId: string; sectionId: string }[]) => ts.map((t) => ({ ...t, finalScore: 1, scores: { 375: 1, 768: 1, 1440: 1 }, rounds: 0, patched: false, status: "pass" as const })) };
+  await runProject(db, id, { deps });
+  off();
+  expect([statusOf(db, id), reasonOf(db, id)]).toEqual(["completed", null]);
+  expect(events.at(-1)).toEqual({ type: "status", status: "completed", at: expect.any(Number) });
+});

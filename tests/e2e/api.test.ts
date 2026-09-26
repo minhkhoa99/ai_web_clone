@@ -27,6 +27,7 @@ import * as events from "@/app/api/projects/[id]/events/route";
 import * as files from "@/app/api/projects/[id]/files/[...path]/route";
 import * as exportRoute from "@/app/api/projects/[id]/export/route";
 import * as preview from "@/app/api/projects/[id]/preview/route";
+import * as runLog from "@/app/api/projects/[id]/log/route";
 
 const created: string[] = [];
 const tmpDirs: string[] = [];
@@ -62,7 +63,7 @@ test("POST /api/projects returns an id; GET /api/projects lists it", async () =>
   const body = (await res.json()) as { total: number; projects: { id: string; url: string; status: string }[] };
   expect(res.status).toBe(200);
   expect(body.total).toBe(1);
-  expect(body.projects[0]).toMatchObject({ id, url, status: "draft" });
+  expect(body.projects[0]).toMatchObject({ id, url, status: "draft", statusReason: null });
   const completed = (await (await projects.GET(new Request(`http://127.0.0.1/api/projects?group=completed&q=${encodeURIComponent(url)}`))).json()) as { total: number };
   expect(completed.total).toBe(0);
 });
@@ -444,6 +445,22 @@ test("DELETE removes the rows and the workspace; unknown id is 404", async () =>
   expect(existsSync(ws)).toBe(false);
   expect(getDb().prepare("SELECT id FROM projects WHERE id=?").get(id)).toBeUndefined();
   expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }))).status).toBe(404);
+});
+
+test("GET log: run.prev.log + run.log as a text/plain attachment; empty log 200; unknown id 404; non-loopback 403", async () => {
+  const id = await newProject();
+  const get = (pid: string, headers?: Record<string, string>) => runLog.GET(new Request("http://127.0.0.1/api", { headers }), ctx({ id: pid }));
+  const empty = await get(id);
+  expect([empty.status, await empty.text()]).toEqual([200, ""]);
+  await writeFile(join(config.workspaceRoot, id, "run.prev.log"), "old line\n");
+  emit(id, { type: "log", level: "info", message: "fresh line" });
+  const res = await get(id);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(res.headers.get("content-disposition")).toBe(`attachment; filename="run-${id.slice(0, 8)}.log"`);
+  expect(await res.text()).toMatch(/^old line\n\S+ INFO \[job\] fresh line\n$/);
+  expect((await get(crypto.randomUUID())).status).toBe(404);
+  expect((await get(id, { host: "evil.test:3000" })).status).toBe(403);
 });
 
 test("SSE: persisted history first, then the current status, then live stamped events; closes on abort; replayed next time", async () => {

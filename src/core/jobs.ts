@@ -22,7 +22,8 @@ import { applySectionNames, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
 import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
-import { clearRunSecrets, createSchema, emit, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
+import { clearRunSecrets, createSchema, emit, logDetail, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
+import type { GenerateOptions } from "./gateway";
 
 export { pageIdsFor, projectConfigSchema, subscribe, type JobEvent, type ProjectConfig, type ProjectStatus, type StampedEvent } from "./jobs-base";
 
@@ -65,9 +66,11 @@ function insertTask(db: DatabaseSync, projectId: string, phase: string, key: str
   db.prepare("INSERT OR IGNORE INTO tasks(id,project_id,phase,key,status) VALUES(?,?,?,?,'pending')").run(randomUUID(), projectId, phase, key);
 }
 
+// status_reason follows the status: a new status without a reason clears the old one.
 function setStatus(db: DatabaseSync, projectId: string, status: ProjectStatus, reason?: string): void {
-  db.prepare("UPDATE projects SET status=?,updated_at=unixepoch() WHERE id=?").run(status, projectId);
-  emit(projectId, reason ? { type: "status", status, reason: redact(projectId, reason) } : { type: "status", status });
+  const why = reason ? redact(projectId, reason) : null;
+  db.prepare("UPDATE projects SET status=?,status_reason=?,updated_at=unixepoch() WHERE id=?").run(status, why, projectId);
+  emit(projectId, why ? { type: "status", status, reason: why } : { type: "status", status });
 }
 
 // discover is the sitemap step before the page selection: a draft (only discover done) is 0%, not 100%.
@@ -207,8 +210,12 @@ type Run = {
 // Projects with a live runProject in this process. Pause aborts the run's AI calls and closes its browser.
 type Live = { controller: AbortController; handle?: BrowserHandle };
 const running = new Map<string, Live>();
+const detailed = new WeakSet<Error>(); // errors whose stack runProject already wrote to run.log
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
 const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message: redact(run.projectId, message) });
+// A gateway retry (backoff after a 429/5xx/network error): run.log + console only.
+const retryLogger = (run: Run, phase: string): GenerateOptions["onRetry"] => (i) =>
+  logDetail(run.projectId, "warn", phase, `AI retry ${i.attempt}${i.status ? ` (HTTP ${i.status})` : ""}${i.error ? ` (${i.error})` : ""}, chờ ${i.delayMs}ms`);
 
 function stopAi(run: Run, stop: AiStop): void {
   run.aiStopped = stop;
@@ -438,7 +445,11 @@ async function runNames(run: Run): Promise<boolean> {
       finishTask(run.db, run.projectId, t, "ir.json", skip?.code, skip?.message);
       continue;
     }
-    const { names, error, errorMessage } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, { ...(await thumbnailFor(run, t.key)), signal: run.signal });
+    const { names, error, errorMessage } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, {
+      ...(await thumbnailFor(run, t.key)),
+      signal: run.signal,
+      onRetry: retryLogger(run, "name"),
+    });
     if (run.signal.aborted) return true; // paused mid-call: the aborted call's fallback is not an answer, no breaker count
     const stops = error !== undefined && STOP_AI.has(error);
     if (error && error !== Codes.BUDGET_EXCEEDED && !stops && ++run.aiFailures >= AI_CIRCUIT_LIMIT) {
@@ -519,6 +530,8 @@ async function runFixes(run: Run): Promise<boolean> {
     emit: await emitOpts(run),
     threshold: run.cfg.threshold,
     signal: run.signal,
+    log: (level, message) => log(run, level, message),
+    onRetry: retryLogger(run, "fix"),
   };
   // The graph from the persisted IR: after a crash mid-fix it may hold an accepted-but-unsaved patch.
   writeGraph(run.db, run.projectId, ctx.ir, ctx.emit.assetMap);
@@ -587,16 +600,20 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
       if (!(await phase(run))) return;
     }
     if (signal.aborted) return setPaused(db, projectId);
-    tx(db, () => db.prepare("UPDATE projects SET status='completed',progress=100,updated_at=unixepoch() WHERE id=?").run(projectId));
+    // Completed with AI stopped or the budget spent in this run: the reason says why some output is degraded.
+    const reason = run.aiStopped?.code ?? (run.budgetHit ? Codes.BUDGET_EXCEEDED : null);
+    tx(db, () => db.prepare("UPDATE projects SET status='completed',status_reason=?,progress=100,updated_at=unixepoch() WHERE id=?").run(reason, projectId));
     emit(projectId, { type: "progress", progress: 100, tokensUsed: tokensUsedOf(db, projectId) });
-    // Completed with AI stopped, the budget spent or a fallback marker: the reason says why some output is degraded.
-    const marker = db.prepare("SELECT error_code FROM tasks WHERE project_id=? AND status='done' AND error_code IS NOT NULL ORDER BY rowid LIMIT 1").get(projectId) as { error_code: string } | undefined;
-    const reason = run.aiStopped?.code ?? (run.budgetHit ? Codes.BUDGET_EXCEEDED : marker?.error_code);
     emit(projectId, reason ? { type: "status", status: "completed", reason } : { type: "status", status: "completed" });
   } catch (e) {
     if (signal.aborted) return setPaused(db, projectId); // the closed browser / aborted AI call is the pause, not a failure
     // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.
-    if (e instanceof Error) e.message = messageFor(projectId, e);
+    if (e instanceof Error) {
+      e.message = messageFor(projectId, e);
+      if (e.stack) e.stack = redact(projectId, e.stack);
+      detailed.add(e);
+    }
+    logDetail(projectId, "error", "job", e instanceof Error ? (e.stack ?? e.message) : rawMessageOf(e));
     // The task that threw (ir/emit/qa/fix) is still `running`: make it failed so a resume retries it.
     db.prepare("UPDATE tasks SET status='failed',error_code=?,error_msg=?,updated_at=unixepoch() WHERE project_id=? AND status='running'")
       .run(codeOf(e), messageFor(projectId, e), projectId);
@@ -637,7 +654,7 @@ export function recoverOnStartup(db: DatabaseSync): void {
   const running = db.prepare("SELECT id FROM projects WHERE status='running'").all() as { id: string }[];
   tx(db, () => {
     db.prepare("UPDATE tasks SET status='pending',updated_at=unixepoch() WHERE status='running'").run();
-    db.prepare("UPDATE projects SET status='interrupted',updated_at=unixepoch() WHERE status='running'").run();
+    db.prepare("UPDATE projects SET status='interrupted',status_reason=NULL,updated_at=unixepoch() WHERE status='running'").run();
   });
   for (const { id } of running) emit(id, { type: "status", status: "interrupted" });
 }
@@ -684,7 +701,11 @@ function drain(): void {
   active = job.projectId;
   activeRun = job
     .run()
-    .catch((e: unknown) => emit(job.projectId, { type: "log", level: "error", message: rawMessageOf(e) })) // already scrubbed by runProject
+    .catch((e: unknown) => {
+      emit(job.projectId, { type: "log", level: "error", message: rawMessageOf(e) }); // already scrubbed by runProject
+      // thrown before runProject's try (no secrets set yet): its stack is not in run.log yet
+      if (!(e instanceof Error && detailed.has(e))) logDetail(job.projectId, "error", "job", e instanceof Error ? (e.stack ?? e.message) : rawMessageOf(e));
+    })
     .finally(() => {
       queued.delete(job.projectId);
       active = null;

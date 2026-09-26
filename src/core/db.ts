@@ -20,6 +20,8 @@ export function openDb(path: string): DatabaseSync {
   // idempotent column add (SQLite has no ADD COLUMN IF NOT EXISTS): remembered login credentials, encrypted
   const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "auth_enc")) db.exec("ALTER TABLE projects ADD COLUMN auth_enc TEXT");
+  // why the project is failed / needs_auth / completed-degraded (a code or a short message); cleared on the next status
+  if (!cols.some((c) => c.name === "status_reason")) db.exec("ALTER TABLE projects ADD COLUMN status_reason TEXT");
   // save order of providers (insert or update bumps it): the newest one with a role serves that role
   const providerCols = db.prepare("PRAGMA table_info(providers)").all() as { name: string }[];
   if (!providerCols.some((c) => c.name === "saved_seq")) db.exec("ALTER TABLE providers ADD COLUMN saved_seq INTEGER DEFAULT 0");

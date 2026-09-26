@@ -34,6 +34,7 @@ type Row = {
   url: string;
   mode: string;
   status: string;
+  statusReason: string | null;
   progress: number;
   tokensUsed: number;
   createdAt: number;
@@ -64,7 +65,7 @@ export function GET(req: Request) {
     const total = group ? counts[group] : counts.incomplete + counts.completed;
     const rows = db
       .prepare(
-        `SELECT id,url,mode,status,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,config_json,auth_enc,
+        `SELECT id,url,mode,status,status_reason AS statusReason,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,config_json,auth_enc,
            (SELECT phase FROM tasks t WHERE t.project_id=p.id AND t.status<>'done' ORDER BY rowid LIMIT 1) AS phase,
            (SELECT key FROM tasks t WHERE t.project_id=p.id AND t.phase='capture' AND t.status='done' ORDER BY rowid LIMIT 1) AS thumbPage,
            (SELECT status FROM tasks t WHERE t.project_id=p.id AND t.phase='login' ORDER BY rowid LIMIT 1) AS loginStatus,

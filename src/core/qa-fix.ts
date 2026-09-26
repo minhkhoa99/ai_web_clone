@@ -11,7 +11,7 @@ import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
 import type { CaptureNode, PageCapture } from "./capture";
 import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
-import { generate, type ChatMessage } from "./gateway";
+import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
@@ -31,6 +31,8 @@ export type FixCtx = {
   threshold?: number; // default 0.95
   contextBudgetChars?: number; // default 24_000
   signal?: AbortSignal; // the run's: pause aborts the AI call in flight
+  log?: (level: "info" | "warn", message: string) => void; // fix-round progress (hardening spec §4): the job's log events
+  onRetry?: GenerateOptions["onRetry"]; // gateway backoffs: the job's run.log
 };
 export type FixTarget = { sectionId: string; pageId: string };
 export type FixResult = FixTarget & {
@@ -99,6 +101,7 @@ const replySchema = z.object({
 
 const hasCode = (e: unknown, ...codes: Code[]): e is AppError => e instanceof AppError && codes.includes(e.code);
 const errorText = (e: unknown) => `error: ${e instanceof Error ? e.message : String(e)}`;
+const pct = (score: number) => `${(score * 100).toFixed(1)}%`;
 const selectorFor = (id: string) => `[data-ir-id=${JSON.stringify(id)}]`;
 
 // Depth/size cap on a raw replaceSubtree node, checked before zod recurses into it.
@@ -221,7 +224,7 @@ async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: str
   const inspector = asTools({ clone: page });
   let attach = images;
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
-    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}), signal: ctx.signal });
+    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}), signal: ctx.signal, onRetry: ctx.onRetry });
     if (!res.toolCalls?.length) return res.text;
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
@@ -283,6 +286,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
   let rounds = 0;
   let patched = false;
   let failed = false;
+  const log = (level: "info" | "warn", message: string) => ctx.log?.(level, `fix ${pageId}:${sectionId}${message}`);
   try {
     best = await scoreIr(ctx, ctx.ir, t, bestDir);
     const result = (status: FixResult["status"]): FixResult => ({
@@ -293,6 +297,8 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
       if (stop.budget) return result("budget");
       if (stop.ai) return result("ai_stopped");
       rounds++;
+      const round = ` vòng ${rounds}`;
+      log("info", `${round}: bắt đầu (điểm ${pct(best.min)})`);
       let ops: PatchOp[];
       let candidateIr: IR | undefined;
       try {
@@ -308,16 +314,25 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
           stop.ai ??= { code: e.code, message: e.message };
           return result("ai_stopped");
         }
-        if (hasCode(e, Codes.AI_BAD_RESPONSE)) continue; // the round is spent
+        if (hasCode(e, Codes.AI_BAD_RESPONSE)) {
+          log("warn", `${round}: AI trả sai định dạng`);
+          continue; // the round is spent
+        }
         throw e;
       }
-      if (!candidateIr) continue; // ops the IR rejects: round spent
+      if (!candidateIr) {
+        log("warn", `${round}: ops bị IR từ chối`);
+        continue; // round spent
+      }
 
       candidateDir = tmpDir(rounds);
       const candidate = await scoreIr(ctx, candidateIr, t, candidateDir);
       // Re-apply onto the latest shared IR: a parallel section may have been accepted meanwhile.
       const merged = candidate.min > best.min ? tryApply(ctx.ir, ops) : undefined;
       if (!merged) {
+        // better, but the latest shared IR (a sibling's accepted patch) rejects the ops: an IR rejection too
+        if (candidate.min > best.min) log("warn", `${round}: ops bị IR từ chối`);
+        else log("info", `${round}: ứng viên ${pct(candidate.min)} < ${pct(best.min)}, revert`);
         diskIsBest = false;
         await rm(candidateDir, RM_OPTS);
         continue;
@@ -326,8 +341,11 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
       writeGraph(ctx.db, ctx.projectId, ctx.ir, ctx.emit.assetMap); // next round's contextForFix sees the accepted patch
       await rm(bestDir, RM_OPTS);
       [bestDir, best, diskIsBest, patched] = [candidateDir, candidate, true, true];
+      log("info", `${round}: nhận ứng viên (điểm ${pct(candidate.min)})`);
     }
-    return result(best.min >= threshold ? "pass" : "red");
+    const pass = best.min >= threshold;
+    log(pass ? "info" : "warn", `: ${pass ? "pass" : "đỏ"} điểm ${pct(best.min)} sau ${rounds} vòng`);
+    return result(pass ? "pass" : "red");
   } catch (e) {
     failed = true;
     throw e;

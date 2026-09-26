@@ -96,6 +96,6 @@ export async function closeAuthWindow(projectId: string): Promise<void> {
 async function timeOut(db: DatabaseSync, projectId: string): Promise<void> {
   await closeAuthWindow(projectId);
   const reason = "manual login not completed within 10 minutes";
-  const { changes } = db.prepare("UPDATE projects SET status='failed',updated_at=unixepoch() WHERE id=? AND status='needs_auth'").run(projectId);
+  const { changes } = db.prepare("UPDATE projects SET status='failed',status_reason=?,updated_at=unixepoch() WHERE id=? AND status='needs_auth'").run(reason, projectId);
   if (changes) emit(projectId, { type: "status", status: "failed", reason });
 }

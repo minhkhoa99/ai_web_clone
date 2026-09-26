@@ -39,6 +39,12 @@ const restore = (s: Section): PatchOp => ({ op: "setStyle", id: s.root.id, style
 const reply = (ops: PatchOp[]) => ({ text: JSON.stringify({ ops }), tokens: 10 });
 const newCtx = (): FixCtx => ({ db, projectId: "p1", handle, workspaceDir, ir: broken, captures: [cap], emit: { assetMap: cap.assets, pageUrls: { home: url } }, threshold: 0.95 });
 const bgOf = (x: IR, id: string) => x.classes[x.sections.find((s) => s.id === id)!.root.cls[0]!]?.base["background-color"];
+const logsTo = (ctx: FixCtx): string[] => {
+  const lines: string[] = [];
+  ctx.log = (level, message) => lines.push(`${level} ${message}`);
+  return lines;
+};
+const pct = /\d+\.\d%/.source;
 const userText = (call: number) => generateMock.mock.calls[call]![1].messages.map((m) => m.content).join("\n");
 
 beforeAll(async () => {
@@ -93,8 +99,16 @@ test("a patch restoring the background passes the gate in one round; inspector e
 test("a harmful patch is reverted every round: score never drops, section ends red", async () => {
   generateMock.mockResolvedValue(reply([{ op: "setStyle", id: hero.root.id, style: { display: "none" } }]));
   const ctx = newCtx();
+  const logs = logsTo(ctx);
   const res = await fixSection(ctx, hero.id, "home");
   expect(res).toMatchObject({ rounds: 3, patched: false, status: "red" });
+  const at = `fix home:${hero.id}`;
+  expect(logs).toHaveLength(7);
+  for (let n = 1; n <= 3; n++) {
+    expect(logs[2 * n - 2]).toMatch(new RegExp(`^info ${at} vòng ${n}: bắt đầu [(]điểm ${pct}[)]$`));
+    expect(logs[2 * n - 1]).toMatch(new RegExp(`^info ${at} vòng ${n}: ứng viên ${pct} < ${pct}, revert$`));
+  }
+  expect(logs[6]).toMatch(new RegExp(`^warn ${at}: đỏ điểm ${pct} sau 3 vòng$`));
   expect(ctx.ir).toBe(broken);
   expect(generateMock).toHaveBeenCalledTimes(3);
   for (let i = 0; i < 3; i++) expect(userText(i)).toContain("A11Y_SNAPSHOT");
@@ -120,9 +134,18 @@ test("non-JSON and out-of-section ops each burn a round; the next good patch sti
     .mockResolvedValueOnce({ text: "sure, here is a fix", tokens: 1 })
     .mockResolvedValueOnce(reply([restore(hero), { op: "setText", id: footer.root.id, text: "x" }]))
     .mockResolvedValueOnce(reply([restore(hero)]));
-  const ctx = newCtx();
+  const ctx = { ...newCtx(), onRetry: () => {} };
+  const logs = logsTo(ctx);
   const res = await fixSection(ctx, hero.id, "home");
   expect(res).toMatchObject({ rounds: 3, patched: true, status: "pass" });
+  const at = `fix home:${hero.id}`;
+  expect(logs.filter((l) => !l.includes("bắt đầu"))).toEqual([
+    `warn ${at} vòng 1: AI trả sai định dạng`,
+    `warn ${at} vòng 2: AI trả sai định dạng`,
+    expect.stringMatching(new RegExp(`^info ${at} vòng 3: nhận ứng viên [(]điểm ${pct}[)]$`)),
+    expect.stringMatching(new RegExp(`^info ${at}: pass điểm ${pct} sau 3 vòng$`)),
+  ]);
+  expect(generateMock.mock.calls[0]![1].onRetry).toBe(ctx.onRetry); // gateway retries reach the job's run.log
   expect(ctx.ir.sections.find((s) => s.id === footer.id)).toEqual(footer);
 });
 

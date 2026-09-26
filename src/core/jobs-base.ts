@@ -4,6 +4,7 @@ import { z } from "zod";
 import { config } from "./config";
 import { pathSlug } from "./url";
 import { MAX_FIELD_CHARS, record, retain } from "./event-log";
+import { appendRunLog, type LogLevel } from "./run-log";
 
 // --- config, page ids -----------------------------------------------------------
 
@@ -90,6 +91,61 @@ export function redact(projectId: string, text: string): string {
   return out;
 }
 
+// --- run.log + server console (hardening spec §4) -------------------------------------------
+
+// The phase the project's last phase/task event named: the `[phase]` of its status/log lines. Dropped once a run ends.
+const phaseOf = new Map<string, string>();
+
+function print(projectId: string, level: LogLevel, phase: string, message: string): void {
+  if (level === "info") return;
+  (level === "error" ? console.error : console.warn)(`[job ${projectId.slice(0, 8)}] [${phase}] ${message}`);
+}
+
+// Server-only detail (a stack trace, a gateway retry): run.log + console for warn/error, never an SSE event.
+export function logDetail(projectId: string, level: LogLevel, phase: string, message: string): void {
+  const text = redact(projectId, message);
+  appendRunLog(projectId, level, phase, text);
+  print(projectId, level, phase, text);
+}
+
+// One human line per (already redacted) event; the console gets log warn/error, task failed and status failed.
+function toRunLog(projectId: string, e: StampedEvent): void {
+  if (e.type === "phase" || e.type === "task") phaseOf.set(projectId, e.phase);
+  const phase = phaseOf.get(projectId) ?? "job";
+  let level: LogLevel = "info";
+  let message: string;
+  let loud = false;
+  switch (e.type) {
+    case "status":
+      if (e.status !== "running") phaseOf.delete(projectId);
+      level = e.status === "failed" ? "error" : e.status === "needs_auth" ? "warn" : "info";
+      message = `status ${e.status}${e.reason ? ` (${e.reason})` : ""}`;
+      loud = e.status === "failed";
+      break;
+    case "phase":
+      message = `phase ${e.phase}`;
+      break;
+    case "task":
+      level = e.status === "failed" ? "error" : e.status === "needs_auth" || e.errorCode ? "warn" : "info";
+      message = `task ${e.key} ${e.status}${e.errorCode ? ` ${e.errorCode}` : ""}${e.error ? `: ${e.error}` : ""}`;
+      loud = e.status === "failed";
+      break;
+    case "log":
+      level = e.level;
+      message = e.message;
+      loud = true;
+      break;
+    case "needs_auth":
+      level = "warn";
+      message = `needs_auth ${e.code} ${e.url}`;
+      break;
+    default:
+      return;
+  }
+  appendRunLog(projectId, level, phase, message);
+  if (loud) print(projectId, level, phase, message);
+}
+
 const REDACTED_FIELDS = ["message", "reason", "error", "url"] as const;
 
 // Fixed order, synchronous: stamp + redact + cut, record (all but progress: noisy, derivable), then notify.
@@ -100,7 +156,10 @@ export function emit(projectId: string, e: JobEvent): void {
     const v = bag[k];
     if (typeof v === "string") bag[k] = redact(projectId, v).slice(0, MAX_FIELD_CHARS);
   }
-  if (stamped.type !== "progress") record(projectId, stamped);
+  if (stamped.type !== "progress") {
+    record(projectId, stamped);
+    toRunLog(projectId, stamped);
+  }
   for (const cb of listeners.get(projectId) ?? []) {
     try {
       cb(stamped);
