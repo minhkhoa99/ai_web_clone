@@ -1,16 +1,18 @@
 // Editor smoke: a completed site1 clone (real pipeline, AI steps stubbed) opened in the real GrapesJS
 // editor of a `next build` + `next start` app; one text edited like a user would, saved, re-emitted.
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { serveDir } from "@/core/serve";
+import { fmtPct } from "@/app/_ui/format";
 import { offline } from "./offline-deps";
 import { startNextApp } from "./next-app";
 import { parityShot } from "./parity-shots";
+import { expectIconButtonsLabelled, expectNoDrift, expectUi, trackForeignRequests } from "./ui-checks";
 
 let app: { base: string; stop(): void } | undefined;
 let browser: Browser;
@@ -18,6 +20,14 @@ let site: { url: string; close(): Promise<void> } | undefined;
 let db: DatabaseSync | undefined;
 let tmp = "";
 let projectId = "";
+let workspaceRoot = "";
+
+// a full-page shot at the current viewport (parityShot always resets to 1440x900); a no-op without PARITY_DIR
+async function shotAt(page: Page, name: string): Promise<void> {
+  if (!process.env.PARITY_DIR) return;
+  await mkdir(process.env.PARITY_DIR, { recursive: true });
+  await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
+}
 
 // The pipeline runs in this process against the app's tmp workspace + db. core/config reads WORKSPACE_ROOT at
 // import, so the core modules are imported only after it is set.
@@ -39,6 +49,7 @@ beforeAll(async () => {
   // seedCompleted must fully finish (status='completed', events flushed) before the real Next server starts:
   // its instrumentation.ts runs recoverOnStartup, which marks any row still 'running' at that instant
   // 'interrupted' — a race that intermittently corrupted the completed run's status (fix round 1 #11).
+  workspaceRoot = env.WORKSPACE_ROOT;
   [projectId, browser] = await Promise.all([seedCompleted(env), chromium.launch()]);
   app = await startNextApp(env);
 }, 600_000);
@@ -64,13 +75,90 @@ test("progress (completed): the finished run's log is replayed from disk by the 
   await page.close();
 });
 
+type PreviewData = { pages: { pageId: string }[]; scores: { pageId: string; sectionId: string; bp: number; score: number; heatPath: string | null }[]; stale: boolean };
+
+test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap overlay, fix card → editor, next diff, checklist", async () => {
+  const base = app!.base;
+  // force one failing section (all 3 breakpoints) so the "cần sửa" card is deterministic
+  const qaPath = join(workspaceRoot, projectId, "qa.json");
+  const qa = JSON.parse(await readFile(qaPath, "utf8")) as { scores: PreviewData["scores"] };
+  const pageId = qa.scores[0]!.pageId; // from the data (site1's page is "index"), never hard-coded
+  const forced = qa.scores[0]!.sectionId;
+  for (const s of qa.scores) if (s.sectionId === forced) s.score = 0.5;
+  await writeFile(qaPath, JSON.stringify(qa));
+
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${projectId}/preview`);
+  await page.locator('[data-ui="ui_qa_preview_match_score"]').waitFor(); // the view loads its data client-side
+  await expectUi(page, ["ui_qa_preview_page_header", "ui_qa_preview_page_select", "ui_qa_preview_breakpoint_switch", "ui_qa_preview_compare_modes", "ui_qa_preview_heatmap_toggle", "ui_qa_preview_match_score", "ui_qa_preview_export_button", "ui_qa_preview_side_by_side_panes", "ui_qa_preview_sync_scroll", "ui_qa_preview_rail_tabs", "ui_qa_preview_summary", "ui_qa_preview_section_scores", "ui_qa_preview_fix_request", "ui_qa_preview_next_diff"]);
+  const data = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as PreviewData;
+  const at1440 = data.scores.filter((s) => s.pageId === pageId && s.bp === 1440);
+  const mean = at1440.reduce((a, s) => a + s.score, 0) / at1440.length;
+  expect(await page.locator('[data-ui="ui_qa_preview_match_score"]').innerText()).toBe(`${fmtPct(mean)} khớp`);
+  expect(await page.locator('[data-ui="ui_qa_preview_match_score"]').getAttribute("class")).toContain("tone-danger"); // one section below the gate
+  expect(await page.locator('[data-ui="ui_qa_preview_summary"]').innerText()).toMatch(/\d+ đạt • [1-9]\d* cần sửa · ngưỡng 95,0%/);
+  expect(await page.getByRole("tablist", { name: "Bảng bên" }).getByRole("tab", { name: `Section (${at1440.length})` }).count()).toBe(1);
+
+  // panes share the compare area: no dead space at 1440; >= 500px each at 1920 (the sidebar + rail leave less at 1440)
+  const area = (await page.locator('[data-ui="ui_qa_preview_sync_scroll"]').boundingBox())!;
+  const panes = page.locator('[data-ui="ui_qa_preview_side_by_side_panes"] .pane-sticky');
+  await expect.poll(async () => (await panes.first().boundingBox())!.width * 2 + 12).toBeGreaterThan(area.width - 24 - 4);
+  expect(await panes.first().locator(".pane-head").innerText()).toMatch(/^Gốc · 1440 × \d+px$/);
+  expect(await panes.nth(1).locator(".pane-head").innerText()).toMatch(/^Clone · 1440 × \d+px$/);
+  await parityShot(page, "preview-side");
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await expect.poll(async () => (await panes.first().boundingBox())!.width).toBeGreaterThanOrEqual(500);
+  await shotAt(page, "preview-1920");
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  const modes = page.getByRole("group", { name: "Chế độ so sánh" });
+  await modes.getByRole("button", { name: "Chồng mờ" }).click();
+  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').innerText()).toContain("Độ trong 50%");
+  expect(await page.locator(".clone-frame").evaluate((el) => (el as HTMLElement).style.opacity)).toBe("0.5");
+  await parityShot(page, "preview-onion");
+  await modes.getByRole("button", { name: "Trượt so sánh" }).click();
+  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').innerText()).toContain("Vị trí 50%");
+  expect(await page.locator("body").innerText()).not.toContain("Chồng lớp");
+  await modes.getByRole("button", { name: "Cạnh nhau" }).click();
+  expect(await page.locator('[data-ui="ui_qa_preview_overlay_slider"]').count()).toBe(0);
+
+  const heat = page.getByRole("button", { name: "Heatmap" });
+  await heat.click();
+  expect(await heat.getAttribute("aria-pressed")).toBe("true");
+  await expect.poll(() => page.locator(".heat-overlay").count()).toBeGreaterThan(0);
+  expect(await page.locator(".heat-overlay").count()).toBeLessThanOrEqual(at1440.filter((s) => s.heatPath).length);
+
+  const card = page.locator('[data-ui="ui_qa_preview_fix_request"]').first();
+  expect(await card.getByRole("link", { name: "Sửa trong editor" }).getAttribute("href")).toBe(`/p/${projectId}/editor?page=${pageId}`);
+  await page.getByRole("button", { name: "Section chưa đạt tiếp theo" }).click();
+  expect(await page.locator('[data-ui="ui_qa_preview_section_scores"] li[data-marked]').count()).toBe(1);
+  expect(await page.getByRole("link", { name: "Xuất mã" }).getAttribute("href")).toBe(`/p/${projectId}/code`);
+
+  // tablet + phone: toolbar, compare area and rail never force a horizontal page scroll
+  for (const w of [768, 375]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await shotAt(page, `preview-${w}`);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.getByRole("tablist", { name: "Bảng bên" }).getByRole("tab", { name: /Checklist độ phủ/ }).click();
+  expect(await page.locator('[data-ui="ui_qa_preview_coverage_checklist"]').innerText()).toMatch(/CHECKLIST ĐỘ PHỦ[\s\S]*\d+\/\d+ đã chụp/);
+  await parityShot(page, "preview-checklist");
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  expect(foreign).toEqual([]);
+  await page.close();
+});
+
 test("editor: edit one heading in the canvas, save -> exactly one patch op, out/index.html has the new text", async () => {
   const base = app!.base;
   // Taller viewport: the fixed shell header/sidebar leave less room below the fold at the Playwright default
   // (1280x720), which raced a canvas resize against the dblclick and missed the rich-text edit.
   const page = await browser.newPage({ viewport: { width: 1280, height: 1080 } });
   await page.goto(`${base}/p/${projectId}/preview`);
-  await page.getByRole("link", { name: "Editor" }).click();
+  await page.getByRole("navigation", { name: "Dự án" }).getByRole("link", { name: "Editor" }).click();
   await page.waitForURL(/\/editor$/);
 
   const canvas = page.frameLocator("iframe.gjs-frame");
@@ -110,4 +198,23 @@ test("editor API: only completed projects are editable; an invalid patch is refu
   } finally {
     db!.prepare("UPDATE projects SET status='completed' WHERE id=?").run(projectId);
   }
+});
+
+test("preview: after an editor save, 'Chạy lại QA' re-scores through the queue (one POST even on double click); the banner goes away", { timeout: 240_000 }, async () => {
+  const base = app!.base;
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const posts: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/qa/rescore")) posts.push(r.method());
+  });
+  await page.goto(`${base}/p/${projectId}/preview`);
+  const banner = page.locator('[data-ui="ui_qa_preview_rerun_qa"]');
+  await expect.poll(() => banner.innerText()).toContain("Điểm QA chưa cập nhật sau chỉnh sửa.");
+  await parityShot(page, "preview-stale");
+  await banner.getByRole("button", { name: "Chạy lại QA" }).dblclick();
+  await expect.poll(() => banner.count(), { timeout: 180_000 }).toBe(0);
+  expect(posts).toEqual(["POST"]);
+  const after = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as PreviewData;
+  expect(after.stale).toBe(false);
+  await page.close();
 });
