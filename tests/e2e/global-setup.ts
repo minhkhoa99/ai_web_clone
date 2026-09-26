@@ -1,4 +1,5 @@
-// Once per e2e run: a scratch dir that coordinates the single shared `next build` (tests/e2e/next-app.ts).
+// Once per e2e run: a scratch dir that coordinates the single shared `next build` (tests/e2e/next-app.ts) and holds
+// the per-file sqlite dbs (tests/e2e/per-file-db.ts).
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
