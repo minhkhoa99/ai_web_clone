@@ -282,14 +282,6 @@ th { text-align: left; font: var(--t-label-sm); color: var(--c-text-2); text-tra
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
 .split { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--s-lg); }
 .tag { font: var(--t-label-sm); padding: 0 6px; border-radius: var(--r-sm); border: 1px solid var(--c-warn); color: var(--c-warn); }
-/* legacy: code */
-.pane-label { font: var(--t-label-sm); color: var(--c-text-2); margin-bottom: 4px; }
-.code-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--s-lg); }
-.files { max-height: 75vh; overflow: auto; }
-.files a { display: block; padding: 3px 0; text-decoration: none; color: var(--c-text-2); font: var(--t-label-md); }
-.files a[aria-current="page"] { color: var(--c-text); }
-.viewer { max-height: 75vh; overflow: auto; border: 1px solid var(--c-border); border-radius: var(--r-md); }
-.viewer pre { margin: 0; padding: 12px; font-size: 12.5px; }
 /* legacy: editor */
 .editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
 
@@ -676,4 +668,38 @@ select.full { width: 100%; min-height: 38px; }
   /* "Trượt so sánh" -> "Trượt": the rest is clipped, not removed, so the button keeps its full accessible name */
   .mode-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   [data-ui="ui_qa_preview_compare_modes"] .seg-item { padding-inline: 6px; }
+}
+
+/* === Screen: code viewer === */
+.export-actions { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
+.popover { position: relative; }
+.popover > summary { list-style: none; }
+.popover > summary::-webkit-details-marker { display: none; }
+.popover-body { position: absolute; right: 0; top: 36px; z-index: 30; width: 360px; display: grid; gap: var(--s-sm); padding: var(--s-md); background: var(--c-surface-high); border: 1px solid var(--c-border); border-radius: var(--r-md); }
+.code-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--s-lg); height: calc(100vh - 56px - 160px); min-height: 420px; }
+.file-tree { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.tree-root, .tree-root ul { list-style: none; margin: 0; padding: 0; }
+.tree-root { flex: 1; overflow: auto; padding: var(--s-xs) 0; }
+.tree-dir, .tree-file { width: 100%; display: flex; align-items: center; gap: 6px; padding-top: 4px; padding-bottom: 4px; padding-right: 8px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--c-text-2); font: var(--t-label-md); text-align: left; text-decoration: none; cursor: pointer; }
+.tree-dir:hover, .tree-file:hover { background: var(--c-surface-high); color: var(--c-text); }
+.tree-file[aria-current="page"] { background: color-mix(in srgb, var(--c-accent) 20%, transparent); border-left-color: var(--c-accent-strong); color: var(--c-text); }
+.chev-i { transition: transform 0.15s; }
+.chev-i.open { transform: rotate(90deg); }
+.code-main { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.code-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; row-gap: 6px; align-items: center; gap: var(--s-md); padding: var(--s-sm) var(--s-md); border-bottom: 1px solid var(--c-border); background: var(--c-surface-low); }
+.code-head > .url-chip { flex: 1 1 120px; min-width: 0; }
+.code-head-actions { margin-left: auto; display: flex; align-items: center; gap: var(--s-xs); }
+.code-pane { flex: 1; min-height: 0; overflow: auto; background: var(--c-surface-lowest); }
+.code-pane .shiki { margin: 0; padding: 12px 0; background-color: var(--c-surface-lowest) !important; font: var(--t-label-md); white-space: pre; counter-reset: line; }
+.code-pane.wrap .shiki { white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-pane .line { counter-increment: line; }
+.code-pane .line::before { content: counter(line); display: inline-block; width: 3.5em; margin-right: 1em; padding-right: 0.5em; text-align: right; color: var(--c-text-3); user-select: none; }
+.code-image { max-width: 100%; display: block; margin: var(--s-md); }
+.pad { padding: var(--s-md); }
+.code-foot { padding: var(--s-sm) var(--s-md); border-top: 1px solid var(--c-border); color: var(--c-text-3); }
+/* phone: a fixed 280px tree column would squeeze the code pane to a sliver — stack instead */
+@media (max-width: 639px) {
+  .code-grid { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .file-tree { max-height: 280px; }
+  .code-main { min-height: 360px; }
 }

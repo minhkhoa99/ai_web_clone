@@ -1,14 +1,18 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, errorText } from "@/app/_ui/api";
+import { Button } from "@/app/_ui/Button";
 import { downloadZip } from "@/app/_ui/download";
+import { Field } from "@/app/_ui/Field";
+import { Icon } from "@/app/_ui/Icon";
 
+// Header actions: strip ids, "Xuất ra thư mục" popover (absolute path, required by the API), "Xuất ZIP".
 export function ExportPanel({ projectId, disabled }: { projectId: string; disabled: boolean }) {
   const [dest, setDest] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [stripIds, setStripIds] = useState(false);
-  const path = `/api/projects/${projectId}/export`;
+  const pop = useRef<HTMLDetailsElement>(null);
 
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
@@ -30,30 +34,45 @@ export function ExportPanel({ projectId, disabled }: { projectId: string; disabl
 
   const folder = () =>
     run(async () => {
-      const r = await api<{ dest: string }>(path, { body: { mode: "folder", dest, stripIds } });
+      const r = await api<{ dest: string }>(`/api/projects/${projectId}/export`, { body: { mode: "folder", dest, stripIds } });
+      if (pop.current) pop.current.open = false;
       return `Đã xuất ra ${r.dest}`;
     });
 
   return (
-    <div className="card stack">
-      <label className="row">
+    <div className="export-actions">
+      <label className="check" data-ui="ui_code_viewer_strip_ids">
         <input type="checkbox" checked={stripIds} onChange={(e) => setStripIds(e.target.checked)} />
         Bỏ data-ir-id
       </label>
-      <div className="row">
-        <button className="btn primary" disabled={disabled || busy} onClick={() => void zip()}>
-          Xuất ZIP
-        </button>
-        <label className="field" style={{ flex: 1 }}>
-          Thư mục đích (đường dẫn tuyệt đối)
-          <input className="mono" value={dest} onChange={(e) => setDest(e.target.value)} placeholder={"D:\\exports\\site"} />
-        </label>
-        <button className="btn" disabled={disabled || busy || !dest} onClick={() => void folder()}>
+      <details
+        ref={pop}
+        className="popover"
+        data-ui="ui_code_viewer_export_folder"
+        onKeyDown={(e) => {
+          if (e.key !== "Escape" || !pop.current) return;
+          pop.current.open = false;
+          pop.current.querySelector("summary")?.focus();
+        }}
+      >
+        <summary className="btn btn-secondary" aria-disabled={disabled || undefined} onClick={(e) => disabled && e.preventDefault()}>
+          <Icon name="drive_folder_upload" />
           Xuất ra thư mục
-        </button>
-      </div>
+        </summary>
+        <div className="popover-body">
+          <Field label="Thư mục đích (đường dẫn tuyệt đối)">
+            <input className="mono" value={dest} onChange={(e) => setDest(e.target.value)} placeholder={"D:\\exports\\site"} />
+          </Field>
+          <Button variant="primary" disabled={disabled || busy || !dest} onClick={() => void folder()}>
+            Xuất
+          </Button>
+        </div>
+      </details>
+      <Button data-ui="ui_code_viewer_export_zip" variant="primary" icon="folder_zip" disabled={disabled || busy} onClick={() => void zip()}>
+        Xuất ZIP
+      </Button>
       {msg && (
-        <p className={msg.ok ? "notice" : "alert"} role={msg.ok ? "status" : "alert"}>
+        <p className={`note tint tone-${msg.ok ? "success" : "danger"}`} role={msg.ok ? "status" : "alert"}>
           {msg.text}
         </p>
       )}

@@ -184,6 +184,66 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   await page.close();
 });
 
+test("code viewer: tree + filter, file header (size, lines), copy = file content, wrap on for .html, line numbers, footer totals", async () => {
+  const base = app!.base;
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  const foreign = trackForeignRequests(page);
+  await page.goto(`${base}/p/${projectId}/code`);
+  await expectUi(page, ["ui_code_viewer_page_header", "ui_code_viewer_file_search", "ui_code_viewer_file_tree", "ui_code_viewer_file_header", "ui_code_viewer_copy_button", "ui_code_viewer_strip_ids", "ui_code_viewer_export_zip", "ui_code_viewer_export_folder", "ui_code_viewer_code_pane", "ui_code_viewer_wrap_toggle", "ui_code_viewer_build_status"]);
+  const html = await (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
+  const n = html === "" ? 0 : html.split("\n").length - (html.endsWith("\n") ? 1 : 0);
+  expect(await page.locator('[data-ui="ui_code_viewer_file_header"]').innerText()).toMatch(new RegExp(`out/index\\.html[\\s\\S]*\\d+(,\\d)? (B|KB)[\\s\\S]*${n} dòng`));
+  const tree = page.locator('[data-ui="ui_code_viewer_file_tree"]');
+  expect(await tree.getByRole("link", { name: "index.html" }).getAttribute("aria-current")).toBe("page");
+  expect(await tree.getByRole("button", { name: /out/ }).getAttribute("aria-expanded")).toBe("true");
+
+  const wrap = page.getByRole("button", { name: "Xuống dòng" });
+  const pane = page.locator('[data-ui="ui_code_viewer_code_pane"]');
+  expect(await wrap.getAttribute("aria-pressed")).toBe("true");
+  expect(await pane.getAttribute("class")).toContain("wrap");
+  await wrap.click();
+  expect(await wrap.getAttribute("aria-pressed")).toBe("false");
+  expect(await pane.getAttribute("class")).not.toContain("wrap");
+  expect(await pane.locator(".line").first().evaluate((el) => getComputedStyle(el, "::before").content)).toBe("counter(line)");
+  // wrap off + the emitted HTML's one-long-line body: only the pane scrolls horizontally, never the page
+  expect(await pane.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await wrap.click(); // back on, for the copy/clipboard check below
+
+  await page.getByRole("button", { name: "Sao chép" }).click();
+  await expect.poll(() => page.getByRole("button", { name: "Đã sao chép" }).count()).toBe(1);
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe(html);
+  expect(await page.locator('[data-ui="ui_code_viewer_build_status"]').innerText()).toMatch(/^\d+ file · [\d,]+ (B|KB|MB)$/);
+  await parityShot(page, "code");
+
+  // filter by file name (not content): only the css file stays, its folder auto-opens
+  await page.getByRole("searchbox", { name: "Lọc file" }).fill("STYLES");
+  expect(await tree.getByRole("link").allInnerTexts()).toEqual(["styles.css"]);
+  await page.getByRole("searchbox", { name: "Lọc file" }).fill("(");
+  expect(await tree.getByRole("link").count()).toBe(0);
+
+  // export-to-folder popover: Esc closes it
+  const folder = page.locator('[data-ui="ui_code_viewer_export_folder"]');
+  await folder.locator("summary").click();
+  expect(await folder.getByLabel("Thư mục đích (đường dẫn tuyệt đối)").isVisible()).toBe(true);
+  await page.keyboard.press("Escape");
+  expect(await folder.getAttribute("open")).toBeNull();
+
+  // tablet + phone: tree + code pane never force a horizontal page scroll
+  for (const w of [768, 375]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await shotAt(page, `code-${w}`);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await expectNoDrift(page);
+  await expectIconButtonsLabelled(page);
+  expect(foreign).toEqual([]);
+  await context.close();
+});
+
 test("editor: edit one heading in the canvas, save -> exactly one patch op, out/index.html has the new text", async () => {
   const base = app!.base;
   // Taller viewport: the fixed shell header/sidebar leave less room below the fold at the Playwright default
