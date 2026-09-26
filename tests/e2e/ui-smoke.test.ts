@@ -489,6 +489,43 @@ test("progress (needs_auth): mandatory banner copy, 9-phase stepper in order, pa
   await page.close();
 });
 
+test("progress (needs_auth + credentials prompt) at 1280x650: the page scrolls instead of clipping, the submit button and log pane stay reachable/floored", async () => {
+  const db = openDb(env.DB_PATH);
+  let id = "";
+  try {
+    id = seedProject(db, {
+      url: "http://auth2.test/",
+      status: "needs_auth",
+      mode: "crawl",
+      config: { auth: { mode: "auto" } }, // auto auth, no login task yet: needsCredentials() is true server-side
+      tasks: [{ phase: "capture", key: "home", status: "needs_auth", errorCode: "AUTH_REQUIRED" }, { phase: "capture", key: "about", status: "pending" }],
+    });
+    await writeWs(env.WORKSPACE_ROOT, id, "pages.json", JSON.stringify([{ pageId: "home", url: "http://auth2.test/" }, { pageId: "about", url: "http://auth2.test/about" }]));
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1280, height: 650 } });
+  await page.goto(`${base}/p/${id}`);
+  await page.locator('[data-ui="ui_progress_auth_banner"]').getByRole("button", { name: "Tiếp tục" }).click();
+  const submit = page.getByRole("form", { name: "Đăng nhập lại" }).getByRole("button", { name: "Tiếp tục với tài khoản này" });
+  await submit.waitFor();
+  // fix round 2 #1: 650px isn't enough for banner + credentials form + grid at once — the page must scroll
+  // (not lock to 100vh and clip), and the submit button must still be reachable by scrolling to it.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true);
+  await submit.scrollIntoViewIfNeeded();
+  const box = (await submit.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(651);
+  // the panes still get a floor instead of collapsing to near-nothing once the natural-flow layout kicks in.
+  const logBox = (await page.locator('[data-ui="ui_progress_log_stream"]').boundingBox())!;
+  expect(logBox.height).toBeGreaterThanOrEqual(300);
+  if (process.env.PARITY_DIR) {
+    await mkdir(process.env.PARITY_DIR, { recursive: true });
+    await page.screenshot({ path: join(process.env.PARITY_DIR, "progress-needs-auth-1280x650.png"), fullPage: true });
+  }
+  await page.close();
+});
+
 test("progress (running): run clock from the server stamps, tokens, page list, log replayed on reload without duplicates, level filter, toggles", async () => {
   const db = openDb(env.DB_PATH);
   const T = Date.now() - 65_000;
@@ -588,6 +625,10 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
       await page.screenshot({ path: join(process.env.PARITY_DIR, `${name}.png`), fullPage: true });
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+    // fix round 2 #3: the level filter no longer overflows the pane itself (it shrinks + scrolls internally)
+    const seg = page.locator('[data-ui="ui_progress_log_level_filter"]');
+    const paneW = (await page.locator('[data-ui="ui_progress_log_stream"]').boundingBox())!.width;
+    expect((await seg.boundingBox())!.width, `level filter width at ${w}`).toBeLessThanOrEqual(paneW);
   }
   await page.close();
 });

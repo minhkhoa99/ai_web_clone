@@ -230,10 +230,12 @@ export function ProgressView({ projectId, url, initial }: { projectId: string; u
           </ul>
           <div className="pane-foot t-label-sm" data-ui="ui_progress_page_counts">
             <div className="counts-row">
+              {/* the bullet lives inside the phrase that follows it, so a line can only break before "• phrase"
+                  as one unit, never leaving a dangling "•" at the end of a line (fix round 2 #4) */}
               <span className="counts-list">
-                <span className="nowrap">{count("done")} xong</span> • <span className="nowrap">{count("running")} đang chạy</span> •{" "}
-                <span className="nowrap">{count("needs_auth")} cần đăng nhập</span> • <span className="nowrap">{count("failed", "skipped")} lỗi</span> •{" "}
-                <span className="nowrap">{count("pending")} chờ</span>
+                <span className="nowrap">{count("done")} xong</span> <span className="nowrap">• {count("running")} đang chạy</span>{" "}
+                <span className="nowrap">• {count("needs_auth")} cần đăng nhập</span> <span className="nowrap">• {count("failed", "skipped")} lỗi</span>{" "}
+                <span className="nowrap">• {count("pending")} chờ</span>
               </span>
               <span className="counts-total nowrap">{states.length} trang</span>
             </div>

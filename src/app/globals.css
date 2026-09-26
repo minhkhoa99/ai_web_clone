@@ -535,25 +535,24 @@ select.full { width: 100%; min-height: 38px; }
 .step-error { color: var(--c-danger); }
 .step-error .step-icon { border-color: color-mix(in srgb, var(--c-danger) 30%, transparent); background: color-mix(in srgb, var(--c-danger) 18%, transparent); }
 .inline-chip { padding: 1px 6px; border-radius: var(--r-sm); background: var(--c-surface-lowest); border: 1px solid var(--c-border); }
-/* The progress screen fills the viewport below the shell chrome (72px top + 16px bottom padding from
-   .shell-main) so only the two panes scroll internally — the page itself never scrolls, banner or not
-   (fix round 1 #7). Below tablet the two panes stack instead, so the page scrolls normally there. */
+/* On a tall-enough desktop viewport the progress screen fills the space below the shell chrome (72px top +
+   16px bottom padding from .shell-main) so only the two panes scroll internally — the page itself never
+   scrolls, banner or not (fix round 1 #7). That lock is gated on viewport height too (fix round 2 #1): on a
+   shorter one (1366x768, or a laptop with devtools open) locking to 100vh-88px could squeeze the grid to
+   near nothing once a banner + credentials form stack above it, clipping the credentials form / session tools
+   instead of just shrinking. Below that height (or below 640px wide) the screen keeps its natural, page-
+   scrollable flow and the grid only gets a floor, never a forced ceiling. */
 .progress-page { display: flex; flex-direction: column; gap: var(--s-md); }
-@media (min-width: 640px) {
-  .progress-page { height: calc(100vh - 88px); overflow: hidden; }
-  .progress-page > * { flex: none; }
-  .progress-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--s-md); overflow: hidden; }
-  .progress-screen > * { flex: none; }
-  .progress-grid { flex: 1; min-height: 0; }
-}
 /* Two panes edge to edge, split by one shared border (not two bordered cards with a gap, fix round 1 #6).
    min-width: 0 on both the grid and its own item in .stack's / .progress-screen's implicit column: without it a
    very long unbreakable page path (nowrap) bubbles its min-content size up through the grid/flex chain and
-   forces the whole page wider than the viewport (review focus #1). */
+   forces the whole page wider than the viewport (review focus #1). min-height is a floor for the "natural
+   flow" case below (fix round 2 #1); the locked-viewport media query overrides it back to 0 so flex:1 can
+   size the grid exactly, not "at least 320px on top of that". */
 /* below 640px .progress-screen stays a (.stack) grid: its implicit single column defaults to "auto" sizing,
    which grows to fit content instead of the container's definite width — force it to a proper 1fr track. */
 .progress-screen { min-width: 0; grid-template-columns: minmax(0, 1fr); }
-.progress-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); min-width: 0; border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; background: var(--c-surface-low); }
+.progress-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); min-width: 0; min-height: 320px; border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; background: var(--c-surface-low); }
 .pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pane + .pane { border-left: 1px solid var(--c-border); }
 .pane-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; padding: var(--s-sm) var(--s-md); border-bottom: 1px solid var(--c-border); }
@@ -561,6 +560,10 @@ select.full { width: 100%; min-height: 38px; }
 .pane .log-view { flex: 1; min-height: 0; }
 .log-toggles { display: flex; align-items: center; gap: var(--s-md); }
 .log-clear-btn { margin-left: auto; }
+/* narrow panes: the level filter (4 nowrap buttons) can outgrow the pane before the toolbar itself would wrap
+   onto a new line for it — scroll it horizontally in place instead of letting .pane's overflow:hidden clip
+   "Error (0)" off the edge (fix round 2 #3). */
+[data-ui="ui_progress_log_level_filter"] { min-width: 0; max-width: 100%; overflow-x: auto; }
 .page-states { list-style: none; margin: 0; padding: var(--s-xs) 0; flex: 1; overflow-y: auto; }
 .page-state { display: flex; align-items: center; gap: var(--s-sm); padding: 6px var(--s-md); }
 .page-state + .page-state { border-top: 1px solid color-mix(in srgb, var(--c-border) 40%, transparent); }
@@ -576,9 +579,19 @@ select.full { width: 100%; min-height: 38px; }
 .counts-row { display: flex; align-items: baseline; gap: var(--s-sm); }
 .counts-list .nowrap { white-space: nowrap; }
 .counts-total { flex: none; margin-left: auto; }
+/* Only on a wide AND tall-enough viewport (fix round 2 #1: 1366x768-class laptops don't qualify) does the
+   screen lock to the viewport height instead of flowing naturally; declared after the base rules above so its
+   min-height: 0 wins over .progress-grid's 320px floor and lets flex:1 size it exactly. */
+@media (min-width: 640px) and (min-height: 800px) {
+  .progress-page { height: calc(100vh - 88px); overflow: hidden; }
+  .progress-page > * { flex: none; }
+  .progress-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--s-md); overflow: hidden; }
+  .progress-screen > * { flex: none; }
+  .progress-grid { flex: 1; min-height: 0; }
+}
 /* below tablet: the fixed 360px page-list column no longer fits beside the log column, so the two panes stack,
    and the screen goes back to filling its natural (page-scrollable) height instead of the viewport. */
 @media (max-width: 639px) {
-  .progress-grid { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .progress-grid { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
   .progress-grid .pane { height: 320px; }
 }

@@ -39,9 +39,16 @@ export function phaseStates(tasks: TaskLike[], status: string): Record<Phase, St
 }
 
 export function PhaseStepper({ states }: { states: Record<Phase, StepState> }) {
-  // the track's active fill spans from the first step up to the last *done* one (mockup: 1/8 done -> 12.5%)
-  const doneCount = PHASES.filter((p) => states[p] === "done").length;
-  const fillPct = (doneCount / (PHASES.length - 1)) * 100;
+  // The track's active fill spans from the first step up to the last step *contiguously* done from the start
+  // (mockup: 1/8 done -> 12.5%). The index of that step, not a raw done count, is what the fill should track:
+  // "done" is itself one of the 9 phases, so a fully completed run has 9 done phases but only 8 gaps between
+  // them (index 8 of 8 = 100%) — counting instead of indexing would overshoot to 112.5% (fix round 2 #2).
+  let lastContiguousDone = -1;
+  for (let i = 0; i < PHASES.length; i++) {
+    if (states[PHASES[i]!] !== "done") break;
+    lastContiguousDone = i;
+  }
+  const fillPct = Math.min(100, Math.max(0, (lastContiguousDone / (PHASES.length - 1)) * 100));
   return (
     <div className="stepper-wrap">
       <div className="stepper-track" aria-hidden="true">
