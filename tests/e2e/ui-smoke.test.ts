@@ -11,7 +11,7 @@ import { openDb } from "@/core/db";
 import type { ProjectConfig } from "@/core/jobs-base";
 import { serveDir } from "@/core/serve";
 import { startNextApp } from "./next-app";
-import { expectIconButtonsLabelled, expectNoDrift, expectUi, trackForeignRequests } from "./ui-checks";
+import { expectIconButtonsLabelled, expectNoDrift, expectUi, hittable, trackForeignRequests } from "./ui-checks";
 import { pngOf, seedProject, writeWs } from "./ui-seed";
 import { parityShot } from "./parity-shots";
 
@@ -690,6 +690,19 @@ test("history: tab counts, row states (failed code, needs_auth, running phase x/
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
   await parityShot(page, "history-mixed");
+  // below ~1100px the rows stack: every cell stays visible and usable, nothing clipped by the table card
+  for (const w of [1024, 768, 375]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+    const inRows = (sel: string) => `[data-ui="ui_history_job_rows"] [role="row"]:not(.grid-head) ${sel}`;
+    expect(await hittable(page, inRows(".url-chip-text"), 80), `URL text at ${w}`).toEqual([]);
+    expect(await hittable(page, inRows('[data-ui="ui_history_row_url"] .icon-btn')), `URL link at ${w}`).toEqual([]);
+    expect(await hittable(page, inRows('[data-ui="ui_history_status_pill"]')), `status pill at ${w}`).toEqual([]);
+    expect(await hittable(page, inRows('[data-ui="ui_history_progress_bar"] .progress'), 80), `progress at ${w}`).toEqual([]);
+    expect(await hittable(page, inRows('[data-ui="ui_history_row_actions"] .icon-btn')), `actions at ${w}`).toEqual([]);
+    expect(await hittable(page, inRows('[data-ui="ui_history_row_subtitle"]'), 120), `subtitle at ${w}`).toEqual([]);
+    await parityShot(page, `history-mixed-${w}`, w);
+  }
 
   await tabs.getByRole("tab", { selected: true }).press("ArrowRight"); // keyboard: → selects "Đã hoàn thành"
   await expect.poll(() => rows.count()).toBe(1);

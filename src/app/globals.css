@@ -316,6 +316,21 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 }
 .page-num { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--r-sm); background: var(--c-surface-high); color: var(--c-text); font: var(--t-label-md); cursor: pointer; }
 .page-num[aria-current="page"] { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
+/* below ~1100px the columns' fixed minimums (150 + 200 + 196 + gaps) no longer fit and the card's overflow:hidden
+   clipped them: each row stacks instead (like the sitemap tree below 899px) — source full width, then
+   status · progress · actions on one line that wraps. */
+@media (max-width: 1099px) {
+  [data-ui="ui_history_job_rows"] .grid-head { display: none; }
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-sm) var(--s-md); padding: var(--s-md) var(--s-lg); }
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) > [role="cell"] { padding: 0; }
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) > [role="cell"]:nth-child(1) { flex: 1 1 100%; }
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) > [role="cell"]:nth-child(2) { min-width: 120px; } /* progress bars line up */
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) > [role="cell"]:nth-child(3) { flex: 1 1 200px; }
+  [data-ui="ui_history_job_rows"] .grid-row:not(.grid-head) > [role="cell"]:nth-child(4) { margin-left: auto; }
+}
+@media (max-width: 639px) {
+  [data-ui="ui_history_job_rows"] .row-thumb { width: 64px; height: 40px; }
+}
 
 /* === Screen: new clone ===
    Sizes derived from docs/superpowers/design/stitch/new-clone.html (Tailwind classes / tokens), never

@@ -40,3 +40,20 @@ export function trackForeignRequests(page: Page): string[] {
 export async function expectUi(page: Page, ids: string[]): Promise<void> {
   for (const id of ids) expect(await page.locator(`[data-ui="${id}"]`).count(), id).toBeGreaterThan(0);
 }
+
+// The element has a real size, lies inside the viewport horizontally and is the topmost thing at its centre
+// (not clipped by an overflow:hidden ancestor, not covered by a neighbour) once scrolled into view. Returns the misses.
+export function hittable(page: Page, selector: string, minWidth = 1): Promise<string[]> {
+  return page.evaluate(
+    ([sel, min]) =>
+      [...document.querySelectorAll<HTMLElement>(sel)].flatMap((el) => {
+        // window-only vertical scroll: scrollIntoView would also scroll overflow:hidden ancestors and hide a clip
+        window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - window.innerHeight / 2);
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        const ok = r.width >= min && r.height > 0 && r.left >= 0 && r.right <= window.innerWidth && !!hit && el.contains(hit);
+        return ok ? [] : [`${el.outerHTML.slice(0, 120)} @ ${Math.round(r.left)}..${Math.round(r.right)}`];
+      }),
+    [selector, minWidth] as const,
+  );
+}
