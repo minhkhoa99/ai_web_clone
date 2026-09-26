@@ -125,6 +125,12 @@ test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, fi
     expect(await page.getByRole("menu").count()).toBe(0);
     expect(await kebab.evaluate((el) => el === document.activeElement)).toBe(true);
     await kebab.click();
+    await kebab.click(); // clicking the trigger of an open menu closes it (the menu's blur must not close-then-reopen)
+    expect(await page.getByRole("menu").count()).toBe(0);
+    await kebab.click();
+    await page.keyboard.press("Shift+Tab"); // keyboard out of the menu (back onto the trigger) still closes it
+    expect(await page.getByRole("menu").count()).toBe(0);
+    await kebab.click();
     await page.getByRole("menuitem", { name: "Sửa" }).click();
     expect(await page.locator('[data-ui="ui_settings_ai_config_panel"] h2').innerText()).toBe("Sửa: Local OpenAI");
     expect(await form.getByLabel("API key", { exact: true }).inputValue()).toBe("");

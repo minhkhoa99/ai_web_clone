@@ -326,7 +326,18 @@ function RowMenu({ onEdit, onDelete }: { onEdit(): void; onDelete(): void }) {
   };
   return (
     <span className="menu-anchor" data-ui="ui_settings_ai_row_menu">
-      <IconButton ref={button} icon="more_vert" label="Thao tác" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} />
+      <IconButton
+        ref={button}
+        icon="more_vert"
+        label="Thao tác"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        // open: focus stays in the menu on mousedown — the menu's blur would close it and this click reopen it
+        onMouseDown={(e) => {
+          if (open) e.preventDefault();
+        }}
+        onClick={() => (open ? close() : setOpen(true))}
+      />
       {open && (
         <div ref={box} role="menu" className="menu" onKeyDown={onKey} onBlur={onBlur}>
           <button type="button" role="menuitem" onClick={pick(onEdit)}>
