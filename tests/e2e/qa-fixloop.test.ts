@@ -170,9 +170,18 @@ test("fixAll fixes two sections in parallel and merges both patches into ctx.ir"
   for (const s of [hero, header]) expect(bgOf(ctx.ir, s.id)).not.toBe(RED["background-color"]);
 });
 
-test("AI_AUTH is rethrown", async () => {
+test("AI_AUTH stops the section with the best score kept (never rethrown)", async () => {
   generateMock.mockRejectedValue(new AppError("AI_AUTH", "bad key"));
-  await expect(fixSection(newCtx(), hero.id, "home")).rejects.toMatchObject({ code: "AI_AUTH" });
+  const res = await fixSection(newCtx(), hero.id, "home");
+  expect(res).toMatchObject({ status: "ai_stopped", patched: false, rounds: 1, errorCode: "AI_AUTH", errorMessage: "bad key" });
+  expect(res.finalScore).toBeLessThan(0.95);
+});
+
+test("AI_QUOTA: fixAll resolves, every section ai_stopped, no AI call after the first failure", async () => {
+  generateMock.mockRejectedValue(new AppError("AI_QUOTA", "provider \"p\" model \"m\" returned status 402: no credit"));
+  const all = await fixAll(newCtx(), [hero, header, features].map((s) => ({ sectionId: s.id, pageId: "home" })));
+  expect(all.map((r) => [r.status, r.errorCode])).toEqual(Array(3).fill(["ai_stopped", "AI_QUOTA"]));
+  expect(generateMock.mock.calls.length).toBeLessThanOrEqual(2); // 2 in parallel may both be in flight
 });
 
 test("malformed tool calls (inherited tool name, unparseable args) waste the round; the project isn't failed", async () => {

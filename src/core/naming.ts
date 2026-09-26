@@ -103,7 +103,7 @@ export async function nameSections(
   ir: IR,
   pageId: string,
   opts: { thumbnail?: string } = {},
-): Promise<{ names: SectionNames; error?: string }> {
+): Promise<{ names: SectionNames; error?: string; errorMessage?: string }> {
   const page = ir.pages.find((p) => p.id === pageId);
   const sectionIds = page?.sectionIds ?? [];
   const outline = buildOutline(ir, pageId);
@@ -132,17 +132,18 @@ export async function nameSections(
     });
     text = result.text;
   } catch (e) {
-    return { names: fallbackNames(ir, pageId, sectionIds), error: e instanceof AppError ? e.code : "AI_BAD_RESPONSE" };
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    return { names: fallbackNames(ir, pageId, sectionIds), error: e instanceof AppError ? e.code : "AI_BAD_RESPONSE", errorMessage };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE" };
+    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE", errorMessage: "naming reply is not JSON" };
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE" };
+    return { names: fallbackNames(ir, pageId, sectionIds), error: "AI_BAD_RESPONSE", errorMessage: "naming reply is not a JSON object" };
   }
 
   const raw = parsed as Record<string, unknown>;

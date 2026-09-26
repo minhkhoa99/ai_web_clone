@@ -37,8 +37,17 @@ export type FixResult = FixTarget & {
   scores: Record<Bp, number>;
   rounds: number;
   patched: boolean;
-  status: "pass" | "red" | "budget";
+  status: "pass" | "red" | "budget" | "ai_stopped";
+  errorCode?: Code; // ai_stopped only
+  errorMessage?: string;
 };
+
+// Persistent AI errors (hardening spec §1): no later call can succeed in this run, so AI stops like on
+// BUDGET_EXCEEDED and the project still completes. The one definition core and app share.
+export const STOP_AI: ReadonlySet<string> = new Set<Code>([Codes.AI_AUTH, Codes.AI_QUOTA, Codes.AI_BAD_CONFIG]);
+export type AiStop = { code: Code; message: string };
+// Shared by fixAll's sections: once one hits the budget or a STOP_AI error, no section starts another round.
+export type FixStop = { budget: boolean; ai?: AiStop };
 
 const MAX_ROUNDS = 3;
 const MAX_GENERATE_CALLS = 6; // per round; asTools already throws on the 6th tool call
@@ -261,8 +270,7 @@ function tryApply(ir: IR, ops: PatchOp[]): IR | undefined {
   }
 }
 
-// `stop` is shared by fixAll: once a section hits the token budget, no section starts another round.
-export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string, stop = { budget: false }): Promise<FixResult> {
+export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string, stop: FixStop = { budget: false }): Promise<FixResult> {
   const t = { sectionId, pageId };
   const threshold = ctx.threshold ?? DEFAULT_THRESHOLD;
   const tmpDir = (round: number) => join(ctx.workspaceDir, "qa-tmp", `${pageId}-${sectionId}-r${round}`);
@@ -275,9 +283,13 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
   let failed = false;
   try {
     best = await scoreIr(ctx, ctx.ir, t, bestDir);
-    const result = (status: FixResult["status"]): FixResult => ({ ...t, finalScore: best!.min, scores: best!.scores, rounds, patched, status });
+    const result = (status: FixResult["status"]): FixResult => ({
+      ...t, finalScore: best!.min, scores: best!.scores, rounds, patched, status,
+      ...(status === "ai_stopped" && stop.ai ? { errorCode: stop.ai.code, errorMessage: stop.ai.message } : {}),
+    });
     while (best.min < threshold && rounds < MAX_ROUNDS) {
       if (stop.budget) return result("budget");
+      if (stop.ai) return result("ai_stopped");
       rounds++;
       let ops: PatchOp[];
       let candidateIr: IR | undefined;
@@ -288,6 +300,10 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         if (hasCode(e, Codes.BUDGET_EXCEEDED)) {
           stop.budget = true;
           return result("budget");
+        }
+        if (e instanceof AppError && STOP_AI.has(e.code)) {
+          stop.ai ??= { code: e.code, message: e.message };
+          return result("ai_stopped");
         }
         if (hasCode(e, Codes.AI_BAD_RESPONSE)) continue; // the round is spent
         throw e;
@@ -325,6 +341,6 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
 
 // <=2 sections in parallel (spec §9). The caller re-emits out/ and rewrites the graph afterwards.
 export async function fixAll(ctx: FixCtx, failing: FixTarget[]): Promise<FixResult[]> {
-  const stop = { budget: false };
+  const stop: FixStop = { budget: false };
   return mapLimit(failing, FIX_CONCURRENCY, (t) => fixSection(ctx, t.sectionId, t.pageId, stop));
 }

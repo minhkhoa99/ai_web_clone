@@ -224,3 +224,132 @@ test("the run's user/password never reach error_msg, events or the thrown error 
   expect(stored).toContain("[redacted]");
   expect(events.some((e) => e.type === "task" && e.error?.includes("[redacted]"))).toBe(true);
 });
+
+// --- persistent AI errors (hardening spec §1) ---------------------------------------------
+
+const fakeOpen = async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} });
+const statusOf = (db: ReturnType<typeof openDb>, id: string) => (db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status;
+const tasksIn = (db: ReturnType<typeof openDb>, id: string, phase: string) =>
+  db.prepare("SELECT key,status,error_code,error_msg FROM tasks WHERE project_id=? AND phase=? ORDER BY rowid").all(id, phase) as { key: string; status: string; error_code: string | null; error_msg: string | null }[];
+const logsOf = (events: JobEvent[], prefix: string) => events.flatMap((e) => (e.type === "log" && e.level === "warn" && e.message.startsWith(prefix) ? [e.message] : []));
+
+// One captured page (home) with a real IR, every phase but fix done, and a fix task per given section index.
+async function fixReady(fixSections: number[]) {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  const ir = buildIR([capture]);
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(ir));
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase='capture'").run("pages/home/capture.json", id);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
+  const targets = fixSections.map((i) => ({ pageId: "home", sectionId: ir.sections[i]!.id }));
+  for (const t of targets) db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(`fx-${t.sectionId}`, id, `home:${t.sectionId}`);
+  return { db, id, targets };
+}
+
+const QUOTA_MSG = 'provider "apmix" model "m1" returned status 402: insufficient credit';
+
+test("AI_QUOTA in the fix phase: fix tasks done with the code + message, one warn log, project completed with the reason", async () => {
+  const { db, id, targets } = await fixReady([0, 1]);
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = {
+    openBrowser: fakeOpen,
+    scoreSections: async () => [],
+    fixAll: async () =>
+      targets.map((t) => ({ ...t, finalScore: 0.5, scores: { 375: 0.5, 768: 0.5, 1440: 0.5 }, rounds: 1, patched: false, status: "ai_stopped" as const, errorCode: "AI_QUOTA" as const, errorMessage: QUOTA_MSG })),
+  };
+  await runProject(db, id, { deps });
+  off();
+  expect(statusOf(db, id)).toBe("completed");
+  const fixes = tasksIn(db, id, "fix");
+  expect(fixes).toHaveLength(2);
+  for (const t of fixes) expect(t).toMatchObject({ status: "done", error_code: "AI_QUOTA", error_msg: QUOTA_MSG });
+  expect(logsOf(events, "AI dừng:")).toEqual([`AI dừng: AI_QUOTA — ${QUOTA_MSG}`]);
+  expect(events.at(-1)).toMatchObject({ type: "status", status: "completed", reason: "AI_QUOTA" });
+});
+
+test("a transient AI error thrown by fixAll no longer fails the project: fix tasks done with that code + message", async () => {
+  const { db, id } = await fixReady([0]);
+  const deps = {
+    openBrowser: fakeOpen,
+    fixAll: async (): Promise<never> => {
+      throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
+    },
+  };
+  await runProject(db, id, { deps });
+  expect(statusOf(db, id)).toBe("completed");
+  expect(tasksIn(db, id, "fix")).toEqual([expect.objectContaining({ status: "done", error_code: "AI_RATE_LIMIT", error_msg: "rate limited after 3 retries" })]);
+});
+
+// n named pages over an empty IR (no sections): capture/ir/emit/qa done, one pending fix task.
+async function namesReady(n: number) {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "crawl", config: {} });
+  const urls = Array.from({ length: n }, (_, i) => `http://x.test/p${i}`);
+  await enqueue(db, id, urls);
+  const pageIds = pageIdsFor(urls);
+  const ws = join(config.workspaceRoot, id);
+  await mkdir(ws, { recursive: true });
+  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: pageIds.map((p) => ({ id: p, sectionIds: [] })), sections: [] }));
+  const set = db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase=?");
+  for (const phase of ["capture", "ir", "emit", "qa"]) set.run(id, phase);
+  db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','p0:s1','pending')").run(id);
+  return { db, id, pageIds };
+}
+
+test("naming AI_AUTH on page 1 of 3: no further naming or fix AI call, every name/fix task carries the code + message, project completed", async () => {
+  const { db, id, pageIds } = await namesReady(3);
+  const authMsg = 'provider "apmix" model "m1" returned status 401: bad key';
+  const calls: string[] = [];
+  let fixCalls = 0;
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = {
+    openBrowser: fakeOpen,
+    nameSections: async (_db: unknown, _p: string, _ir: unknown, pageId: string) => {
+      calls.push(pageId);
+      return { names: {}, error: "AI_AUTH", errorMessage: authMsg };
+    },
+    fixAll: async () => {
+      fixCalls++;
+      return [];
+    },
+  };
+  await runProject(db, id, { deps });
+  off();
+  expect(calls).toEqual([pageIds[0]]);
+  expect(fixCalls).toBe(0);
+  expect(statusOf(db, id)).toBe("completed");
+  const all = [...tasksIn(db, id, "name"), ...tasksIn(db, id, "fix")];
+  expect(all).toHaveLength(4);
+  for (const t of all) expect(t).toMatchObject({ status: "done", error_code: "AI_AUTH", error_msg: authMsg });
+  expect(logsOf(events, "AI dừng:")).toEqual([`AI dừng: AI_AUTH — ${authMsg}`]);
+  expect(events.at(-1)).toMatchObject({ type: "status", status: "completed", reason: "AI_AUTH" });
+});
+
+test("5 AI_BAD_RESPONSE in a row while naming still opens the circuit: project failed + AI_CIRCUIT_OPEN", async () => {
+  const { db, id } = await namesReady(5);
+  const events: JobEvent[] = [];
+  const off = subscribe(id, (e) => events.push(e));
+  const deps = { openBrowser: fakeOpen, nameSections: async () => ({ names: {}, error: "AI_BAD_RESPONSE", errorMessage: "naming reply is not JSON" }) };
+  await runProject(db, id, { deps });
+  off();
+  expect(statusOf(db, id)).toBe("failed");
+  expect(events.at(-1)).toMatchObject({ type: "status", status: "failed", reason: "AI_CIRCUIT_OPEN" });
+  // the four before the breaker tripped keep their fallback names and store the message
+  const names = tasksIn(db, id, "name");
+  expect(names.slice(0, 4).map((t) => [t.status, t.error_code, t.error_msg])).toEqual(Array(4).fill(["done", "AI_BAD_RESPONSE", "naming reply is not JSON"]));
+  expect(names[4]).toMatchObject({ status: "failed", error_code: "AI_CIRCUIT_OPEN" });
+});

@@ -99,6 +99,7 @@ test("garbage response falls back to section-1..N with existing roles and AI_BAD
     s2: { name: "section-2", role: "footer" },
   });
   expect(result.error).toBe("AI_BAD_RESPONSE");
+  expect(result.errorMessage).toBe("naming reply is not JSON");
 });
 
 test("generate throws AI_RATE_LIMIT -> fallback names + error code, never throws", async () => {
@@ -110,6 +111,7 @@ test("generate throws AI_RATE_LIMIT -> fallback names + error code, never throws
 
   expect(result.names).toEqual({ s1: { name: "section-1", role: "hero" } });
   expect(result.error).toBe("AI_RATE_LIMIT");
+  expect(result.errorMessage).toBe("rate limited");
 });
 
 test("partial response: missing/invalid sections fall back individually, others keep AI names", async () => {

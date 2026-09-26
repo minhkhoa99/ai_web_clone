@@ -20,7 +20,7 @@ import { buildIR, type IR } from "./ir";
 import { mapLimit } from "./limit";
 import { applySectionNames, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
-import { fixAll, type FixCtx, type FixResult } from "./qa-fix";
+import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
 import { clearRunSecrets, createSchema, emit, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
 
@@ -35,6 +35,7 @@ const MAX_PROJECT_ASSET_BYTES = 500 * 1024 * 1024;
 const FS_CONCURRENCY = 8;
 const RETRY_IN_RUN = new Set<string>([Codes.NAV_TIMEOUT, Codes.BROWSER_CRASH]);
 const NO_RETRY = new Set<string>([...SKIP, Codes.LOGIN_FAILED]);
+const BUDGET_MSG = "token budget spent: no more AI calls in this run";
 
 type TaskRow = { id: string; phase: string; key: string; status: TaskStatus; attempts: number; error_code: string | null; output_path: string | null };
 type ProjectRow = { url: string; mode: "single" | "crawl"; config_json: string };
@@ -88,11 +89,12 @@ function startTask(db: DatabaseSync, projectId: string, t: TaskRow): void {
   emit(projectId, { type: "task", phase: t.phase, key: t.key, status: "running" });
 }
 
-// The checkpoint: only called once `outputPath` exists (renamed into place). `marker` records a
-// non-fatal code on a done task (BUDGET_EXCEEDED, an AI error answered by fallback names).
-function finishTask(db: DatabaseSync, projectId: string, t: TaskRow, outputPath: string, marker?: string, alsoInTx?: () => void): void {
+// The checkpoint: only called once `outputPath` exists (renamed into place). `marker` + `message` record a
+// non-fatal code on a done task (BUDGET_EXCEEDED, AI stopped, an AI error answered by fallback names).
+function finishTask(db: DatabaseSync, projectId: string, t: TaskRow, outputPath: string, marker?: string, message?: string, alsoInTx?: () => void): void {
   const p = tx(db, () => {
-    db.prepare("UPDATE tasks SET status='done',output_path=?,error_code=?,updated_at=unixepoch() WHERE id=?").run(outputPath, marker ?? null, t.id);
+    db.prepare("UPDATE tasks SET status='done',output_path=?,error_code=?,error_msg=?,updated_at=unixepoch() WHERE id=?")
+      .run(outputPath, marker ?? null, message === undefined ? null : redact(projectId, message), t.id);
     alsoInTx?.();
     return updateProgress(db, projectId);
   });
@@ -180,6 +182,7 @@ export type JobDeps = {
   capturePage?: typeof capturePage;
   nameSections?: typeof nameSections;
   fixAll?: typeof fixAll;
+  scoreSections?: typeof scoreSections;
 };
 export type RunOpts = { credentials?: { user: string; pass: string }; deps?: JobDeps };
 
@@ -197,12 +200,21 @@ type Run = {
   ir?: IR;
   aiFailures: number;
   budgetHit: boolean;
+  aiStopped?: AiStop; // a STOP_AI error: no AI call for the rest of the run, the project still completes
 };
 
 const paused = new Set<string>();
 const running = new Set<string>(); // projects with a live runProject in this process
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
 const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message: redact(run.projectId, message) });
+
+function stopAi(run: Run, stop: AiStop): void {
+  run.aiStopped = stop;
+  log(run, "warn", `AI dừng: ${stop.code} — ${stop.message}`);
+}
+// Why AI is off for the rest of the run (the marker + message each skipped task gets), if it is.
+const aiSkip = (run: Run): { code: string; message: string } | undefined =>
+  run.aiStopped ?? (run.budgetHit ? { code: Codes.BUDGET_EXCEEDED, message: BUDGET_MSG } : undefined);
 
 // What loading captures and re-emitting needs: a run, or the editor's view of a finished project.
 type EmitSource = Pick<Run, "db" | "projectId" | "ws" | "pages" | "captures">;
@@ -275,7 +287,7 @@ export async function saveEdited(
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).
 async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
-  const scores = await scoreSections(run.handle, { workspaceDir: run.ws, outDir: join(run.ws, "out"), ir, captures: await loadCaptures(run) });
+  const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir: join(run.ws, "out"), ir, captures: await loadCaptures(run) });
   await writeJsonAtomic(join(run.ws, "qa.json"), { scores } satisfies QaFile);
   return scores;
 }
@@ -392,7 +404,8 @@ async function thumbnailFor(run: Run, pageId: string): Promise<{ thumbnail?: str
 }
 
 // Per page, sequential (one AI call at a time keeps the circuit breaker exact). An AI error keeps the
-// fallback names nameSections returns; 5 in a row opens the circuit and fails the project.
+// fallback names nameSections returns; 5 in a row opens the circuit and fails the project. A STOP_AI
+// error or the budget ends the AI calls: the remaining pages keep their fallback names.
 async function runNames(run: Run): Promise<boolean> {
   const tasks = runnableOf(run, "name");
   if (tasks.length > 0) emit(run.projectId, { type: "phase", phase: "name" });
@@ -400,23 +413,26 @@ async function runNames(run: Run): Promise<boolean> {
     if (paused.has(run.projectId)) return true;
     startTask(run.db, run.projectId, t);
     const ir = await loadIr(run);
-    if (run.budgetHit || !ir.pages.some((p) => p.id === t.key)) {
-      // budget spent, or the page's capture was skipped: nothing to name, no AI call, no breaker count
-      finishTask(run.db, run.projectId, t, "ir.json", run.budgetHit ? Codes.BUDGET_EXCEEDED : undefined);
+    const skip = aiSkip(run);
+    if (skip || !ir.pages.some((p) => p.id === t.key)) {
+      // AI off, or the page's capture was skipped: nothing to name, no AI call, no breaker count
+      finishTask(run.db, run.projectId, t, "ir.json", skip?.code, skip?.message);
       continue;
     }
-    const { names, error } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, await thumbnailFor(run, t.key));
-    if (error && error !== Codes.BUDGET_EXCEEDED && ++run.aiFailures >= AI_CIRCUIT_LIMIT) {
+    const { names, error, errorMessage } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, await thumbnailFor(run, t.key));
+    const stops = error !== undefined && STOP_AI.has(error);
+    if (error && error !== Codes.BUDGET_EXCEEDED && !stops && ++run.aiFailures >= AI_CIRCUIT_LIMIT) {
       failTask(run.db, run.projectId, t, new AppError(Codes.AI_CIRCUIT_OPEN, `${AI_CIRCUIT_LIMIT} AI failures in a row (last: ${error})`));
       setStatus(run.db, run.projectId, "failed", Codes.AI_CIRCUIT_OPEN);
       return false;
     }
     if (!error) run.aiFailures = 0;
     if (error === Codes.BUDGET_EXCEEDED) run.budgetHit = true;
-    if (error) log(run, "warn", `naming ${t.key}: ${error}, fallback names kept`);
+    if (stops) stopAi(run, { code: error as AiStop["code"], message: errorMessage ?? error });
+    else if (error) log(run, "warn", `naming ${t.key}: ${error}, fallback names kept`);
     run.ir = applySectionNames(ir, names);
     await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
-    finishTask(run.db, run.projectId, t, "ir.json", error);
+    finishTask(run.db, run.projectId, t, "ir.json", error, errorMessage);
   }
   return true;
 }
@@ -444,7 +460,7 @@ async function runQa(run: Run): Promise<boolean> {
     minBy.set(k, Math.min(minBy.get(k) ?? 1, s.score));
   }
   const failing = [...minBy].filter(([, min]) => min < run.cfg.threshold).map(([k]) => k);
-  finishTask(run.db, run.projectId, t, "qa.json", undefined, () => {
+  finishTask(run.db, run.projectId, t, "qa.json", undefined, undefined, () => {
     if (t.key === "rescore") return; // the key is in the db: also right after an interrupt + resume
     for (const k of failing) insertTask(run.db, run.projectId, "fix", k);
   });
@@ -456,8 +472,9 @@ async function runFixes(run: Run): Promise<boolean> {
   if (tasks.length === 0 || paused.has(run.projectId)) return true;
   emit(run.projectId, { type: "phase", phase: "fix" });
   for (const t of tasks) startTask(run.db, run.projectId, t);
-  if (run.budgetHit) {
-    for (const t of tasks) finishTask(run.db, run.projectId, t, "qa.json", Codes.BUDGET_EXCEEDED);
+  const skip = aiSkip(run);
+  if (skip) {
+    for (const t of tasks) finishTask(run.db, run.projectId, t, "qa.json", skip.code, skip.message);
     return true;
   }
   const targets = tasks.map((t) => {
@@ -480,18 +497,33 @@ async function runFixes(run: Run): Promise<boolean> {
   try {
     results = await run.deps.fixAll(ctx, targets);
   } catch (e) {
-    for (const t of tasks) failTask(run.db, run.projectId, t, e);
-    if (!codeOf(e)?.startsWith("AI_")) throw e;
-    const reason = ++run.aiFailures >= AI_CIRCUIT_LIMIT ? Codes.AI_CIRCUIT_OPEN : codeOf(e)!;
-    setStatus(run.db, run.projectId, "failed", reason);
-    return false;
+    const code = codeOf(e);
+    const ai = code?.startsWith("AI_") ? code : undefined;
+    if (!ai || (!STOP_AI.has(ai) && (ai === Codes.AI_CIRCUIT_OPEN || ++run.aiFailures >= AI_CIRCUIT_LIMIT))) {
+      for (const t of tasks) failTask(run.db, run.projectId, t, e);
+      if (!ai) throw e;
+      setStatus(run.db, run.projectId, "failed", Codes.AI_CIRCUIT_OPEN);
+      return false;
+    }
+    // An AI error below the breaker: the sections stay red with the qa scores, the project completes.
+    const message = messageFor(run.projectId, e);
+    if (STOP_AI.has(ai)) stopAi(run, { code: ai as AiStop["code"], message });
+    for (const t of tasks) finishTask(run.db, run.projectId, t, "qa.json", ai, message);
+    return true;
   }
   run.aiFailures = 0;
   run.ir = ctx.ir;
   await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
   await emitOut(run, run.ir);
   await scoreAll(run, run.ir);
-  tasks.forEach((t, i) => finishTask(run.db, run.projectId, t, "qa.json", results[i]?.status === "budget" ? Codes.BUDGET_EXCEEDED : undefined));
+  const stopped = results.find((r) => r.status === "ai_stopped" && r.errorCode);
+  if (stopped) stopAi(run, { code: stopped.errorCode!, message: stopped.errorMessage ?? stopped.errorCode! });
+  tasks.forEach((t, i) => {
+    const r = results[i];
+    if (r?.status === "budget") finishTask(run.db, run.projectId, t, "qa.json", Codes.BUDGET_EXCEEDED, BUDGET_MSG);
+    else if (r?.status === "ai_stopped") finishTask(run.db, run.projectId, t, "qa.json", r.errorCode, r.errorMessage);
+    else finishTask(run.db, run.projectId, t, "qa.json");
+  });
   return true;
 }
 
@@ -502,7 +534,7 @@ const PHASES = [runCaptures, runIr, runNames, runEmit, runQa, runFixes];
 export async function runProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): Promise<void> {
   const { url, cfg } = loadProject(db, projectId);
   const ws = workspaceOf(projectId);
-  const deps = { openBrowser, capturePage, nameSections, fixAll, ...opts.deps };
+  const deps = { openBrowser, capturePage, nameSections, fixAll, scoreSections, ...opts.deps };
   const { user, pass } = opts.credentials ?? {};
   setRunSecrets(projectId, [user ?? "", pass ?? ""]);
   setStatus(db, projectId, "running");
@@ -519,7 +551,10 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     if (paused.has(projectId)) return setStatus(db, projectId, "paused");
     tx(db, () => db.prepare("UPDATE projects SET status='completed',progress=100,updated_at=unixepoch() WHERE id=?").run(projectId));
     emit(projectId, { type: "progress", progress: 100, tokensUsed: tokensUsedOf(db, projectId) });
-    emit(projectId, { type: "status", status: "completed" });
+    // Completed with AI stopped, the budget spent or a fallback marker: the reason says why some output is degraded.
+    const marker = db.prepare("SELECT error_code FROM tasks WHERE project_id=? AND status='done' AND error_code IS NOT NULL ORDER BY rowid LIMIT 1").get(projectId) as { error_code: string } | undefined;
+    const reason = run.aiStopped?.code ?? (run.budgetHit ? Codes.BUDGET_EXCEEDED : marker?.error_code);
+    emit(projectId, reason ? { type: "status", status: "completed", reason } : { type: "status", status: "completed" });
   } catch (e) {
     // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.
     if (e instanceof Error) e.message = messageFor(projectId, e);
