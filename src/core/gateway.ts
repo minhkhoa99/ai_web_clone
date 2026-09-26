@@ -60,6 +60,19 @@ const ANTHROPIC_VERSION = "2023-06-01";
 type Sleep = (ms: number) => Promise<void>;
 
 const defaultSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_RETRY_AFTER_MS = 30_000; // a provider's retry-after of an hour would hang the run (pause still works: see backoff)
+
+// A retry's wait, raced with the run's signal: pause ("dừng ngay", hardening spec §2) must not sit out the backoff.
+function backoff(sleep: Sleep, ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error("aborted"));
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason ?? new Error("aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([sleep(ms), aborted]).finally(() => signal.removeEventListener("abort", onAbort));
+}
 
 // ---- pure request/response mapping (no I/O) ----
 
@@ -351,7 +364,7 @@ export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: S
       }
       const delayMs = BASE_DELAY_MS * 2 ** attempt;
       opts.onRetry?.({ attempt, error: (e as Error).message, delayMs });
-      await sleep(delayMs);
+      await backoff(sleep, delayMs, opts.signal);
       continue;
     }
 
@@ -366,9 +379,9 @@ export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: S
         );
       }
       const retryAfterSec = res.status === 429 ? Number(res.headers.get("retry-after")) : NaN;
-      const delay = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : BASE_DELAY_MS * 2 ** attempt;
+      const delay = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? Math.min(retryAfterSec * 1000, MAX_RETRY_AFTER_MS) : BASE_DELAY_MS * 2 ** attempt;
       opts.onRetry?.({ attempt, status: res.status, delayMs: delay });
-      await sleep(delay);
+      await backoff(sleep, delay, opts.signal);
       continue;
     }
 

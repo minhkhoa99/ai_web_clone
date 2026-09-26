@@ -289,3 +289,27 @@ test("generate refuses before any request when the project's budget is already s
   await expect(generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], projectId: "p1" }, async () => {})).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+test("generate caps a 429 retry-after at 30s (MAX_RETRY_AFTER_MS): the sleep and onRetry get 30000, not 3600000", async () => {
+  const { db } = setupProvider();
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(async () => (++calls === 1 ? new Response("slow down", { status: 429, headers: { "retry-after": "3600" } }) : new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200 }))));
+  const onRetry = vi.fn();
+  const sleeps: number[] = [];
+  await generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], onRetry }, async (ms) => void sleeps.push(ms));
+  expect(sleeps).toEqual([30_000]);
+  expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ status: 429, delayMs: 30_000 }));
+});
+
+test("generate: an abort during the retry backoff rejects at once with the abort reason (the sleep is raced with the signal)", async () => {
+  const { db } = setupProvider();
+  const fetchMock = vi.fn(async () => new Response("boom", { status: 503 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const controller = new AbortController();
+  const never = () => new Promise<void>(() => {}); // a backoff that would never end on its own
+  const run = generate(db, { role: "code", messages: [{ role: "user", content: "hi" }], signal: controller.signal, onRetry: () => setTimeout(() => controller.abort(new Error("paused")), 0) }, never);
+  const t0 = Date.now();
+  await expect(run).rejects.toThrow("paused");
+  expect(Date.now() - t0).toBeLessThan(100);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
