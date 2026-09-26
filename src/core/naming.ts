@@ -12,6 +12,12 @@ const MAX_NAME_CHARS = 60;
 const MAX_ROLE_CHARS = 30;
 const THUMB_MAX_WIDTH = 400;
 const THUMB_MAX_HEIGHT = 1200;
+// Real-run evidence (hardening spec §6): a 5.1MB fix request (3 full-size crops) and a 70,745-token naming
+// call. Every image sent to AI is capped the same way, fix loop and naming thumbnail alike.
+export const MAX_IMAGE_WIDTH = 1024;
+export const MAX_IMAGES_B64 = 1.5 * 1024 * 1024;
+const MAX_HALVINGS = 4;
+const MAX_NAMING_CHARS = 24_000;
 
 export type OutlineTag = { tag: string; children: OutlineTag[] };
 export type SectionOutline = { id: string; tag: OutlineTag; text: string };
@@ -40,12 +46,29 @@ export function buildOutline(ir: IR, pageId: string): SectionOutline[] {
   });
 }
 
-// PURE. Nearest-neighbour downscale of the 1440 page shot for the naming call: <= 400px wide, and a very tall
-// page keeps only its top (<= 1200px tall), so the image stays small whatever the page length.
-export function thumbnailOf(src: PNG, maxWidth = THUMB_MAX_WIDTH, maxHeight = THUMB_MAX_HEIGHT): PNG {
+// PURE. Section descriptions ("text") capped at maxChars total across the whole page (a page with many
+// sections can otherwise still blow the naming prompt past the per-section 200-char cap). The section
+// where the running budget runs out gets a trailing "…"; later sections lose their text entirely.
+export function capOutlineText(outline: SectionOutline[], maxChars = MAX_NAMING_CHARS): SectionOutline[] {
+  let budget = maxChars;
+  return outline.map((o) => {
+    if (budget <= 0) return o.text ? { ...o, text: "" } : o;
+    if (o.text.length <= budget) {
+      budget -= o.text.length;
+      return o;
+    }
+    const text = `${o.text.slice(0, Math.max(0, budget - 1))}…`;
+    budget = 0;
+    return { ...o, text };
+  });
+}
+
+// PURE. Nearest-neighbour downscale to <= maxWidth (aspect kept, no height cap). Shared by thumbnailOf and
+// fitImages so there is exactly one resampler.
+function scaleToWidth(src: PNG, maxWidth: number): PNG {
   const scale = Math.min(1, maxWidth / src.width);
   const width = Math.max(1, Math.round(src.width * scale));
-  const height = Math.max(1, Math.min(maxHeight, Math.round(src.height * scale)));
+  const height = Math.max(1, Math.round(src.height * scale));
   const out = new PNG({ width, height });
   for (let y = 0; y < height; y++) {
     const sy = Math.min(src.height - 1, Math.floor(y / scale));
@@ -55,6 +78,36 @@ export function thumbnailOf(src: PNG, maxWidth = THUMB_MAX_WIDTH, maxHeight = TH
     }
   }
   return out;
+}
+
+// PURE. Nearest-neighbour downscale of the 1440 page shot for the naming call: <= 400px wide, and a very tall
+// page keeps only its top (<= 1200px tall), so the image stays small whatever the page length.
+export function thumbnailOf(src: PNG, maxWidth = THUMB_MAX_WIDTH, maxHeight = THUMB_MAX_HEIGHT): PNG {
+  const scaled = scaleToWidth(src, maxWidth);
+  if (scaled.height <= maxHeight) return scaled;
+  const out = new PNG({ width: scaled.width, height: maxHeight });
+  scaled.data.copy(out.data, 0, 0, maxHeight * scaled.width * 4);
+  return out;
+}
+
+// PURE. Encoded PNGs -> base64 strings, in the order given, each downscaled to <= maxWidth. If the summed
+// base64 still exceeds maxTotalB64, images are dropped from the END of the array (spec order: pass
+// [orig, clone, heat] so heat drops first, then clone) until one is left; if that lone survivor is still
+// over, its width is halved up to MAX_HALVINGS times. Bounded, never throws: worst case it sends what's left.
+export function fitImages(pngBuffers: Buffer[], opts: { maxWidth: number; maxTotalB64: number }): string[] {
+  let width = opts.maxWidth;
+  let kept = pngBuffers.length;
+  for (let halving = 0; halving <= MAX_HALVINGS; halving++) {
+    const encoded = pngBuffers.slice(0, kept).map((buf) => PNG.sync.write(scaleToWidth(PNG.sync.read(buf), width)).toString("base64"));
+    const total = () => encoded.reduce((sum, b) => sum + b.length, 0);
+    while (encoded.length > 1 && total() > opts.maxTotalB64) {
+      encoded.pop();
+      kept--;
+    }
+    if (total() <= opts.maxTotalB64 || halving === MAX_HALVINGS) return encoded;
+    width = Math.max(1, Math.round(width / 2));
+  }
+  return []; // unreachable (loop always returns on its last iteration)
 }
 
 // PURE, immutable. Only touches Section.name/role.
@@ -106,7 +159,7 @@ export async function nameSections(
 ): Promise<{ names: SectionNames; error?: string; errorMessage?: string }> {
   const page = ir.pages.find((p) => p.id === pageId);
   const sectionIds = page?.sectionIds ?? [];
-  const outline = buildOutline(ir, pageId);
+  const outline = capOutlineText(buildOutline(ir, pageId));
 
   let text: string;
   try {

@@ -18,7 +18,7 @@ import { workspaceOf, writeJsonAtomic } from "./fsx";
 import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import { mapLimit } from "./limit";
-import { applySectionNames, nameSections, thumbnailOf } from "./naming";
+import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
 import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
@@ -426,7 +426,9 @@ async function runIr(run: Run): Promise<boolean> {
 // The page's 1440 shot, downscaled, for the naming call; none when the shot is missing.
 async function thumbnailFor(run: Run, pageId: string): Promise<{ thumbnail?: string }> {
   const shot = await readFile(join(run.ws, "pages", pageId, "shots", "1440.png")).catch(() => null);
-  return shot ? { thumbnail: PNG.sync.write(thumbnailOf(PNG.sync.read(shot))).toString("base64") } : {};
+  if (!shot) return {};
+  const thumb = PNG.sync.write(thumbnailOf(PNG.sync.read(shot)));
+  return { thumbnail: fitImages([thumb], { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 })[0] };
 }
 
 // Per page, sequential (one AI call at a time keeps the circuit breaker exact). An AI error keeps the

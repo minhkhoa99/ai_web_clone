@@ -2,7 +2,7 @@ import { expect, test, vi, beforeEach } from "vitest";
 import type { IR, IRNode, Page, Section } from "@/core/ir";
 import { AppError } from "@/core/errors";
 import { PNG } from "pngjs";
-import { applySectionNames, buildOutline, nameSections, thumbnailOf } from "@/core/naming";
+import { applySectionNames, buildOutline, capOutlineText, fitImages, nameSections, thumbnailOf, type SectionOutline } from "@/core/naming";
 
 vi.mock("@/core/gateway", () => ({ generate: vi.fn() }));
 import { generate } from "@/core/gateway";
@@ -202,4 +202,64 @@ test("the run's abort signal goes with the naming call (pause cancels it)", asyn
   const signal = new AbortController().signal;
   await nameSections({} as never, "proj1", ir, "p1", { signal });
   expect(generateMock.mock.calls[0]![1].signal).toBe(signal);
+});
+
+test("nameSections: outline text sent to AI is capped at 24 000 chars total even with many long sections", async () => {
+  const sections: Section[] = [];
+  const ids: string[] = [];
+  for (let i = 0; i < 200; i++) {
+    const id = `s${i}`;
+    sections.push(section(id, "body", node("section", [txt("x".repeat(199))]))); // 199, not 200: keeps 24 000 / N off a clean boundary
+    ids.push(id);
+  }
+  const ir = makeIr(sections, ids);
+  generateMock.mockResolvedValue({ text: "{}", tokens: 1 });
+
+  await nameSections({} as never, "proj1", ir, "p1");
+
+  const sent = JSON.parse(generateMock.mock.calls[0]![1].messages[1]!.content as string) as SectionOutline[];
+  expect(sent.reduce((sum, o) => sum + o.text.length, 0)).toBeLessThanOrEqual(24_000);
+  expect(sent.some((o) => o.text.endsWith("…"))).toBe(true); // the section where the budget ran out
+});
+
+test("capOutlineText: total capped, the section where budget runs out gets a trailing …, later ones lose text", () => {
+  const outline: SectionOutline[] = [
+    { id: "s1", tag: { tag: "div", children: [] }, text: "a".repeat(10) },
+    { id: "s2", tag: { tag: "div", children: [] }, text: "b".repeat(10) },
+    { id: "s3", tag: { tag: "div", children: [] }, text: "c".repeat(10) },
+  ];
+
+  const capped = capOutlineText(outline, 15);
+
+  expect(capped.map((o) => o.text)).toEqual(["a".repeat(10), `${"b".repeat(4)}…`, ""]);
+});
+
+// PNG filled with varying bytes so it doesn't compress away to nothing (defeats testing a size cap).
+function noisyPng(width: number, height: number): Buffer {
+  const png = new PNG({ width, height });
+  for (let i = 0; i < png.data.length; i++) png.data[i] = (i * 37 + 11) % 256;
+  return PNG.sync.write(png);
+}
+
+test("fitImages: downscales each image to <= maxWidth (aspect kept)", () => {
+  const buf = noisyPng(2880, 50);
+
+  const [b64] = fitImages([buf], { maxWidth: 1024, maxTotalB64: Number.MAX_SAFE_INTEGER });
+
+  const out = PNG.sync.read(Buffer.from(b64!, "base64"));
+  expect(out.width).toBe(1024);
+  expect(out.height).toBe(Math.round((50 * 1024) / 2880)); // aspect kept: same width scale applied to height
+});
+
+test("fitImages: over the base64 cap drops from the end (heat, then clone), keeping order and never throwing", () => {
+  const buf = noisyPng(300, 300);
+  const [solo] = fitImages([buf], { maxWidth: 2000, maxTotalB64: Number.MAX_SAFE_INTEGER });
+  const capForTwo = solo!.length * 2 + 10; // room for 2 of these, not 3
+
+  const trio = fitImages([buf, buf, buf], { maxWidth: 2000, maxTotalB64: capForTwo });
+  expect(trio).toEqual([solo, solo]); // orig + clone kept, heat (last) dropped
+
+  // even a single image over cap: halving loop is bounded, still returns something
+  const tiny = fitImages([noisyPng(2000, 2000)], { maxWidth: 1024, maxTotalB64: 1 });
+  expect(tiny).toHaveLength(1);
 });

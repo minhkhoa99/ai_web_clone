@@ -16,6 +16,7 @@ import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
 import { mapLimit } from "./limit";
+import { fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH } from "./naming";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
 import { attrsSchema, tagSchema } from "./safe-names";
 import { serveDir } from "./serve";
@@ -248,7 +249,11 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
       await prepareClonePage(page, `${server.url}/${file}`, bp);
       const evidence = await inspect(ctx, page, t, best, rootId);
       const context = contextForFix(ctx.db, ctx.projectId, t.sectionId, ctx.contextBudgetChars ?? DEFAULT_CONTEXT_CHARS, evidence.focus.map((f) => f.id));
-      const images = [origPath, clonePath, heatPath].flatMap((p) => (p && best.files.has(p) ? [best.files.get(p)!.toString("base64")] : []));
+      // Real-run evidence (hardening spec §6): three full-size crops made one fix request 5.1MB. Downscale to
+      // <=1024px wide; if the total base64 is still over the cap, drop heat, then clone (fitImages drops from
+      // the end, so [orig, clone, heat] order matters here).
+      const buffers = [origPath, clonePath, heatPath].flatMap((p) => (p && best.files.has(p) ? [best.files.get(p)!] : []));
+      const images = fitImages(buffers, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
       const prompt = [
         `SECTION ${t.sectionId} page ${t.pageId}`,
         `SCORES ${JSON.stringify(best.scores)} threshold ${ctx.threshold ?? DEFAULT_THRESHOLD}; evidence at bp ${bp}, bbox delta ${bboxDelta}px`,

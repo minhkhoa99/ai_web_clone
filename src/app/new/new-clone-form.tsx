@@ -272,6 +272,11 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
             }}
           />
         </Field>
+        {threshold > 98 && (
+          <Banner tone="warn" icon="warning" data-ui="ui_new_threshold_warning">
+            Ngưỡng rất cao: section gần đúng cũng phải qua vòng sửa AI (tốn token). Khuyên dùng 95%.
+          </Banner>
+        )}
       </Section>
 
       <Section icon="generating_tokens" title="Ngân sách token" ui="ui_new_clone_token_budget">

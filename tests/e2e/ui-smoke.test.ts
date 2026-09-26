@@ -167,12 +167,18 @@ test("new: centered card ≤1000px, copy-URL icon, mode toggle, crawl limits onl
   const slider = page.getByRole("slider", { name: "Ngưỡng QA" });
   const exact = page.getByRole("spinbutton", { name: "Chính xác (%)" });
   expect(await exact.inputValue()).toBe("95");
+  expect(await page.locator('[data-ui="ui_new_threshold_warning"]').count()).toBe(0);
   await slider.focus();
   for (let i = 0; i < 10; i++) await slider.press("ArrowLeft");
   expect(await exact.inputValue()).toBe("85");
   await exact.fill("99");
   expect(await slider.inputValue()).toBe("99");
   expect(await page.locator('[data-ui="ui_new_clone_qa_threshold"]').innerText()).toMatch(/99%[\s\S]*70% \(thoáng\)[\s\S]*85% \(cân bằng\)[\s\S]*95% \(chặt\)[\s\S]*100% \(khớp pixel\)/);
+  expect(await page.locator('[data-ui="ui_new_threshold_warning"]').innerText()).toBe(
+    "Ngưỡng rất cao: section gần đúng cũng phải qua vòng sửa AI (tốn token). Khuyên dùng 95%.",
+  );
+  await exact.fill("98");
+  expect(await page.locator('[data-ui="ui_new_threshold_warning"]').count()).toBe(0); // 98 itself is not "> 98"
 
   const outputs = page.getByRole("radiogroup", { name: "Định dạng output" });
   expect(await outputs.getByRole("radio", { checked: true }).innerText()).toMatch(/HTML[\s\S]*Đang dùng/);
