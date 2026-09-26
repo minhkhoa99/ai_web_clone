@@ -283,6 +283,17 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .role-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 220px; gap: var(--s-md); align-items: center; padding: var(--s-sm) var(--s-md); background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
 .role-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--c-text-2); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--r-sm); }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--s-sm); padding-top: var(--s-md); border-top: 1px solid var(--c-border); }
+/* body and form are single-column grids: an auto track grows to its min-content (grid blowout) and the fields
+   ran over the card's right padding at narrow widths */
+[data-ui="ui_settings_ai_config_panel"] .panel-body, [data-ui="ui_settings_ai_config_panel"] form { grid-template-columns: minmax(0, 1fr); }
+/* phone: the 2-up field row and the role row's fixed 220px model column stack instead of widening the page; the
+   base-URL default hint drops under the input instead of overlapping the label */
+@media (max-width: 639px) {
+  .field-row-2 { grid-template-columns: minmax(0, 1fr); }
+  .role-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .role-row > :nth-child(3) { grid-column: 1 / -1; }
+  [data-ui="ui_settings_ai_config_panel"] .field-hint-end { position: static; overflow-wrap: anywhere; }
+}
 
 /* === Menu (kebab) === */
 .menu-anchor { position: relative; display: inline-flex; }

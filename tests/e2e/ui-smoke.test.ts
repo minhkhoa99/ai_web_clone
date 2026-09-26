@@ -84,6 +84,15 @@ test("settings/ai: 2-column layout, Test before Save (ms + HTTP), eye toggle, fi
     await expect.poll(() => form.locator('[data-ui="ui_settings_ai_fetch_models"]').innerText()).toContain("2 model");
     await form.getByLabel("Model cho vai trò vision").selectOption("m1");
     await parityShot(page, "settings-ai-form");
+    for (const w of [375, 768]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w} (form open)`).toBe(true);
+      const formRight = await form.evaluate((f) => Math.max(...[f, ...f.querySelectorAll("*")].map((el) => el.getBoundingClientRect().right)));
+      const panel = await page.locator('[data-ui="ui_settings_ai_config_panel"]').boundingBox();
+      expect(panel && formRight <= panel.x + panel.width - 16, `form content keeps the panel's right padding at ${w}`).toBe(true);
+    }
+    await parityShot(page, "settings-ai-form-375", 375);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await form.getByRole("button", { name: "Lưu provider" }).click();
 
     const rows = page.locator('[data-ui="ui_settings_ai_endpoint_row"]');
