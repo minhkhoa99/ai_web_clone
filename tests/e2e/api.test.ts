@@ -142,6 +142,8 @@ test("GET /api/projects: counts (q, not group), pageCount, phaseDone/phaseTotal,
   expect(row(draft)).toMatchObject({ pageCount: null, phaseDone: null, phaseTotal: null, lastError: null });
   const count = (re: RegExp) => sqls.filter((s) => re.test(s)).length;
   expect([count(/GROUP BY project_id, phase/), count(/ROW_NUMBER\(\)/), count(/SUM\(status<>'completed'\)/)]).toEqual([1, 1, 1]);
+  // spec §4.7: 4 fixed queries — counts, rows, agg, lastError; `total` is derived from `counts` + `group`
+  expect(sqls).toHaveLength(4);
   // no per-row query: each row's needsCredentials/lastError/pageCount comes from the fixed set of queries above,
   // never a query keyed by that row's own id
   expect(sqls.filter((s) => /WHERE id=\?/.test(s) || /WHERE project_id=\?( |$)/.test(s))).toEqual([]);

@@ -50,7 +50,7 @@ type Row = {
 // `thumbPage` = first captured pageId, `needsCredentials` = resume must ask for a login first, `queued` = waiting in
 // the job queue; per row `pageCount` (capture tasks; null = draft without a selection), `phaseDone/phaseTotal` of the
 // current phase, `lastError` (failed | needs_auth only, message <= 500 chars, redacted when written); `counts` per
-// group under the same `q`. Fixed number of queries per request (no per-task query, no per-row query).
+// group under the same `q` (`total` = the group's count). 4 fixed queries per request (no per-task query, no per-row query).
 export function GET(req: Request) {
   return handle(req, () => {
     const { group, q, page } = listSchema.parse(Object.fromEntries(new URL(req.url).searchParams));
@@ -58,10 +58,10 @@ export function GET(req: Request) {
     const where = [group === "completed" ? "status='completed'" : group === "incomplete" ? "status<>'completed'" : "1", qWhere].join(" AND ");
     const args = q ? [q] : [];
     const db = getDb();
-    const { total } = db.prepare(`SELECT COUNT(*) total FROM projects WHERE ${where}`).get(...args) as { total: number };
     const counts = db
       .prepare(`SELECT COALESCE(SUM(status<>'completed'),0) incomplete, COALESCE(SUM(status='completed'),0) completed FROM projects WHERE ${qWhere}`)
       .get(...args) as { incomplete: number; completed: number };
+    const total = group ? counts[group] : counts.incomplete + counts.completed;
     const rows = db
       .prepare(
         `SELECT id,url,mode,status,progress,tokens_used AS tokensUsed,created_at AS createdAt,updated_at AS updatedAt,config_json,auth_enc,
