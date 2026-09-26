@@ -5,7 +5,7 @@
 import type { Page } from "playwright";
 import { z } from "zod";
 import { AppError, Codes } from "./errors";
-import { blockNavigationAway } from "./browser";
+import { blockNavigationAway, withEvalTimeout } from "./browser";
 import type { ToolDef } from "./gateway";
 
 const MAX_A11Y_CHARS = 4000;
@@ -68,7 +68,8 @@ function readComputedStyleInPage(el: Element, props: string[]): Record<string, s
 export async function readStyle(page: Page, selector: string, props: string[]): Promise<Record<string, string>> {
   const capped = props.slice(0, MAX_STYLE_PROPS);
   try {
-    return await page.locator(selector).first().evaluate(readComputedStyleInPage, capped, { timeout: OP_TIMEOUT_MS });
+    // the timeout only bounds finding the element; the evaluate itself is bounded by withEvalTimeout
+    return await withEvalTimeout(page, "readStyle", page.locator(selector).first().evaluate(readComputedStyleInPage, capped, { timeout: OP_TIMEOUT_MS }));
   } catch (err) {
     throw opFailed("readStyle", { selector }, err);
   }

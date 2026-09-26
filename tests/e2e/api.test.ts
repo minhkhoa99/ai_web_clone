@@ -10,7 +10,8 @@ import type { CaptureNode, PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
 import { emitHtml } from "@/core/emit-html";
 import { buildIR } from "@/core/ir";
-import { createProject, startProject, type JobDeps } from "@/core/jobs";
+import { createProject, enqueue, isQueuedOrActive, startProject, type JobDeps } from "@/core/jobs";
+import type { BrowserHandle } from "@/core/browser";
 import { emit } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import * as providers from "@/app/api/providers/route";
@@ -578,4 +579,27 @@ test("a project is busy while its crawl runs: DELETE -> 409 PROJECT_BUSY", async
     server.closeAllConnections();
     await new Promise((r) => server.close(r));
   }
+});
+
+test("DELETE of a running project stops it (browser closed, run ended) and removes the rows: 200", { timeout: 30_000 }, async () => {
+  const db = getDb();
+  const id = await newProject();
+  await enqueue(db, id, [(db.prepare("SELECT url FROM projects WHERE id=?").get(id) as { url: string }).url]);
+  let closeBrowser!: () => void;
+  const closed = new Promise<never>((_, reject) => (closeBrowser = () => reject(new Error("browser closed"))));
+  closed.catch(() => {});
+  let started!: () => void;
+  const capturing = new Promise<void>((r) => (started = r));
+  const deps: JobDeps = {
+    openBrowser: async () => ({ context: {} as BrowserHandle["context"], close: async () => closeBrowser() }),
+    capturePage: () => (started(), closed), // a slow capture: only the closed browser ends it
+  };
+  startProject(db, id, { deps });
+  await capturing;
+  expect(isQueuedOrActive(id)).toBe(true);
+  const res = await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
+  expect(res.status).toBe(200);
+  expect(isQueuedOrActive(id)).toBe(false);
+  expect(db.prepare("SELECT id FROM projects WHERE id=?").get(id)).toBeUndefined();
+  expect(db.prepare("SELECT id FROM tasks WHERE project_id=?").all(id)).toEqual([]);
 });

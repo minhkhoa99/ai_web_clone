@@ -355,3 +355,9 @@ export function readCssomVarsInPage(names: string[]): Record<string, string> {
   }
   return out;
 }
+
+// Runs inside the page via page.evaluate: document.fonts.ready, capped at `ms` (a font request that never
+// answers must not hang capture or QA). false = the cap won.
+export function fontsReadyInPage(ms: number): Promise<boolean> {
+  return Promise.race([document.fonts.ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+}

@@ -4,12 +4,14 @@ import { join, posix } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import type { Page } from "playwright";
-import { withPage, type BrowserHandle } from "./browser";
-import { lazyLoadScroll, type CaptureNode, type PageCapture } from "./capture";
+import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
+import { FONTS_READY_MS, lazyLoadScroll, type CaptureNode, type PageCapture } from "./capture";
+import { fontsReadyInPage } from "./capture-eval";
 import { pageFileNames } from "./emit-html";
 import { writeFileAtomic } from "./fsx";
 import type { IR, IRNode } from "./ir";
 import { serveDir } from "./serve";
+import { sameOrigin } from "./url";
 
 export type Bbox = [number, number, number, number];
 export type Bp = 375 | 768 | 1440;
@@ -125,13 +127,15 @@ function dynamicBoxes(node: CaptureNode, out: Bbox[] = []): Bbox[] {
 
 const writePng = (path: string, png: PNG) => writeFileAtomic(path, PNG.sync.write(png));
 
-// Loads the clone at bp the way it is scored: lazy content scrolled in, animations frozen, fonts ready.
+// Loads the clone at bp the way it is scored: lazy content scrolled in, animations frozen, fonts ready (10 s cap).
+// Only the clone's own loopback server is reachable: QA never waits on (or depends on) the live site.
 export async function prepareClonePage(page: Page, url: string, bp: Bp): Promise<void> {
+  await page.route("**/*", (r) => (sameOrigin(r.request().url(), url) ? r.fallback() : r.abort()));
   await page.setViewportSize({ width: bp, height: VIEWPORT_HEIGHT });
   await page.goto(url, { waitUntil: "load" });
   await lazyLoadScroll(page); // same pass as capture, so lazy content is loaded like in the original shot
   await page.addStyleTag({ content: FREEZE_CSS });
-  await page.evaluate(() => document.fonts.ready.then(() => true));
+  await evalWithTimeout(page, "Fonts ready", fontsReadyInPage, FONTS_READY_MS);
 }
 
 // Full-page screenshot of the clone at bp with animations frozen, plus each root's document bbox.
@@ -139,7 +143,7 @@ async function shootClone(handle: BrowserHandle, url: string, bp: Bp, rootIds: s
   return withPage(handle, async (page) => {
     await prepareClonePage(page, url, bp);
     const shot = PNG.sync.read(await page.screenshot({ fullPage: true, animations: "disabled", caret: "hide" }));
-    const boxes = await page.evaluate((ids) =>
+    const boxes = await evalWithTimeout(page, "Section boxes", (ids) =>
       ids.map((id): [number, number, number, number] | null => {
         const el = document.querySelector(`[data-ir-id="${CSS.escape(id)}"]`);
         if (!el) return null;

@@ -195,3 +195,11 @@ test("thumbnailOf: nearest-neighbour downscale to <= 400px wide, height capped; 
   const small = thumbnailOf(new PNG({ width: 300, height: 100 }));
   expect([small.width, small.height]).toEqual([300, 100]);
 });
+
+test("the run's abort signal goes with the naming call (pause cancels it)", async () => {
+  const ir = makeIr([section("s1", "header", node("header"))]);
+  generateMock.mockResolvedValue({ text: "{}", tokens: 1 });
+  const signal = new AbortController().signal;
+  await nameSections({} as never, "proj1", ir, "p1", { signal });
+  expect(generateMock.mock.calls[0]![1].signal).toBe(signal);
+});

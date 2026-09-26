@@ -391,3 +391,71 @@ test("4 naming AI failures then a transient AI error in fixAll (the 5th in a row
   expect(events.at(-1)).toMatchObject({ type: "status", status: "failed", reason: "AI_CIRCUIT_OPEN" });
   expect(tasksIn(db, id, "fix")).toEqual([expect.objectContaining({ status: "failed", error_code: "AI_RATE_LIMIT" })]);
 });
+
+// --- immediate pause (hardening spec §2) --------------------------------------------------
+
+// A fake browser whose close is counted, and an AI call that only ends when the run's signal aborts.
+const closable = () => {
+  const h = { closed: 0, open: async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => void h.closed++ }) };
+  return h;
+};
+const untilAborted = <T>(signal: AbortSignal | undefined, value: T) =>
+  new Promise<T>((resolve, reject) => {
+    if (!signal) return reject(new Error("no signal"));
+    signal.addEventListener("abort", () => resolve(value), { once: true });
+  });
+const failedOf = (db: ReturnType<typeof openDb>, id: string) => db.prepare("SELECT phase,key FROM tasks WHERE project_id=? AND status='failed'").all(id);
+
+test("pause mid fix phase: the hung AI call is aborted, the browser closed, fix tasks back to pending, project paused; resume completes", async () => {
+  const { db, id, targets } = await fixReady([0, 1]);
+  const browser = closable();
+  let started!: () => void;
+  const inFix = new Promise<void>((r) => (started = r));
+  const run = runProject(db, id, {
+    deps: {
+      openBrowser: browser.open,
+      scoreSections: async () => [],
+      fixAll: (ctx: FixCtx) => {
+        started();
+        // like generate: an aborted call rejects with the signal's reason
+        return new Promise<never>((_, reject) => ctx.signal!.addEventListener("abort", () => reject(ctx.signal!.reason), { once: true }));
+      },
+    },
+  });
+  await inFix;
+  const t0 = Date.now();
+  pauseProject(id);
+  await run;
+  expect(Date.now() - t0).toBeLessThan(2_000);
+  expect(statusOf(db, id)).toBe("paused");
+  expect(tasksIn(db, id, "fix").map((t) => t.status)).toEqual(["pending", "pending"]);
+  expect(failedOf(db, id)).toEqual([]);
+  expect(browser.closed).toBeGreaterThanOrEqual(1);
+
+  const red = (t: (typeof targets)[number]) => ({ ...t, finalScore: 0.5, scores: { 375: 0.5, 768: 0.5, 1440: 0.5 }, rounds: 3, patched: false, status: "red" as const });
+  await runProject(db, id, { deps: { openBrowser: fakeOpen, scoreSections: async () => [], fixAll: async () => targets.map(red) } });
+  expect(statusOf(db, id)).toBe("completed");
+  expect(tasksIn(db, id, "fix").map((t) => t.status)).toEqual(["done", "done"]);
+});
+
+test("pause mid naming: the aborted call's fallback is not kept, name tasks back to pending, no AI failure counted", async () => {
+  const { db, id } = await namesReady(2);
+  let started!: () => void;
+  const inName = new Promise<void>((r) => (started = r));
+  const run = runProject(db, id, {
+    deps: {
+      openBrowser: fakeOpen,
+      nameSections: (_db: unknown, _p: string, _ir: unknown, _page: string, opts?: { signal?: AbortSignal }) => {
+        started();
+        // like the real nameSections: an aborted generate comes back as fallback names + an error code
+        return untilAborted(opts?.signal, { names: {}, error: "AI_BAD_RESPONSE", errorMessage: "This operation was aborted" });
+      },
+    },
+  });
+  await inName;
+  pauseProject(id);
+  await run;
+  expect(statusOf(db, id)).toBe("paused");
+  expect(tasksIn(db, id, "name").map((t) => [t.status, t.error_code])).toEqual([["pending", null], ["pending", null]]);
+  expect(failedOf(db, id)).toEqual([]);
+});

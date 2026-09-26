@@ -102,7 +102,7 @@ export async function nameSections(
   projectId: string,
   ir: IR,
   pageId: string,
-  opts: { thumbnail?: string } = {},
+  opts: { thumbnail?: string; signal?: AbortSignal } = {},
 ): Promise<{ names: SectionNames; error?: string; errorMessage?: string }> {
   const page = ir.pages.find((p) => p.id === pageId);
   const sectionIds = page?.sectionIds ?? [];
@@ -129,6 +129,7 @@ export async function nameSections(
         },
       },
       ...(opts.thumbnail ? { images: [opts.thumbnail] } : {}),
+      signal: opts.signal,
     });
     text = result.text;
   } catch (e) {

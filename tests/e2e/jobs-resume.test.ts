@@ -110,7 +110,8 @@ const statusEvent = (projectId: string, status: string) =>
     });
   });
 
-test("pause from inside a capture: the run ends paused with the rest pending; startProject resumes to completed", { timeout: 240_000 }, async () => {
+// Pause stops now (hardening spec §2): the browser closes under the capture in flight, which goes back to pending.
+test("pause from inside a capture: the run ends paused with every capture pending, none failed; startProject resumes to completed", { timeout: 240_000 }, async () => {
   const id = createProject(db, { url: `${server.url}/index.html`, mode: "crawl", config: { delayMs: 0, concurrency: 1 } });
   projects.push(id);
   await enqueue(db, id, ["index", "about", "pricing"].map((p) => `${server.url}/${p}.html`));
@@ -124,14 +125,14 @@ test("pause from inside a capture: the run ends paused with the rest pending; st
     },
   });
   expect(statusOf(id).status).toBe("paused");
-  expect(["index", "about", "pricing"].map((k) => task(id, "capture", k)!.status)).toEqual(["done", "pending", "pending"]);
+  expect(["index", "about", "pricing"].map((k) => task(id, "capture", k)!.status)).toEqual(["pending", "pending", "pending"]);
   expect(task(id, "ir", "all")!.status).toBe("pending");
 
   const completed = statusEvent(id, "completed");
   startProject(db, id, { deps: offline });
   await completed;
   expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
-  expect(task(id, "capture", "index")!.attempts).toBe(1);
+  expect(task(id, "capture", "index")!.attempts).toBe(2); // the attempt the pause cut off, then the resumed one
 });
 
 test("auto login with a wrong password: LOGIN_FAILED is recorded on the login task, resume without credentials never retries", { timeout: 240_000 }, async () => {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileExists, writeFileAtomic } from "./fsx";
 import { AppError, Codes } from "./errors";
 import { mapLimit } from "./limit";
-import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage } from "./capture-eval";
+import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage, fontsReadyInPage } from "./capture-eval";
 import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
 import { scanInteractions, type Interaction } from "./interactions";
@@ -34,6 +34,7 @@ export type CaptureNode = {
 };
 
 const MAX_NODES = 20_000;
+export const FONTS_READY_MS = 10_000;
 
 // One page.evaluate walks the whole tree; styles are diffed against per-tag defaults.
 export async function snapshotDom(page: Page): Promise<CaptureNode> {
@@ -277,7 +278,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
           throw new AppError(Codes.NAV_TIMEOUT, `navigation to ${url} timed out`, { url, cause: err });
         });
 
-      await evalOrCrash(page, "Fonts ready", () => page.evaluate(() => document.fonts.ready.then(() => true)));
+      await evalOrCrash(page, "Fonts ready", () => page.evaluate(fontsReadyInPage, FONTS_READY_MS));
 
       const authState = await detectNeedsAuth(page, { status: response?.status(), requestedUrl: url });
       if (authState === "auth") throw new AppError(Codes.AUTH_REQUIRED, `page requires login: ${url}`, { url });

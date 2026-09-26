@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Page } from "playwright";
 import { PNG } from "pngjs";
 import { z } from "zod";
-import { withPage, type BrowserHandle } from "./browser";
+import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
 import type { CaptureNode, PageCapture } from "./capture";
 import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
@@ -30,6 +30,7 @@ export type FixCtx = {
   emit: Pick<RenderOpts, "assetMap" | "pageUrls">;
   threshold?: number; // default 0.95
   contextBudgetChars?: number; // default 24_000
+  signal?: AbortSignal; // the run's: pause aborts the AI call in flight
 };
 export type FixTarget = { sectionId: string; pageId: string };
 export type FixResult = FixTarget & {
@@ -205,7 +206,7 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
   const { bp, heatPath } = best.worst;
   const capture = ctx.captures.find((c) => c.pageId === t.pageId);
   const root = capture && sectionNodes(capture, ctx.ir, t.pageId, bp).get(t.sectionId);
-  const [a11y, boxes] = await Promise.all([snapshotA11y(page, selectorFor(rootId)).catch(errorText), page.evaluate(cloneBoxesInPage, rootId)]);
+  const [a11y, boxes] = await Promise.all([snapshotA11y(page, selectorFor(rootId)).catch(errorText), evalWithTimeout(page, "Section node boxes", cloneBoxesInPage, rootId)]);
   const heat = heatPath ? best.files.get(heatPath) : undefined;
   const focus = heat ? topDiffNodes(PNG.sync.read(heat), boxes, FOCUS_NODES) : [];
   const captured = focus.map((f) => capturedNode(root, rootId, f.id)?.style ?? {});
@@ -220,7 +221,7 @@ async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: str
   const inspector = asTools({ clone: page });
   let attach = images;
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
-    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}) });
+    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}), signal: ctx.signal });
     if (!res.toolCalls?.length) return res.text;
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
@@ -298,6 +299,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         ops = await proposeOps(ctx, t, best, bestDir);
         candidateIr = tryApply(ctx.ir, ops);
       } catch (e) {
+        if (ctx.signal?.aborted) throw e; // paused: never a budget / AI stop / spent round
         if (hasCode(e, Codes.BUDGET_EXCEEDED)) {
           stop.budget = true;
           return result("budget");

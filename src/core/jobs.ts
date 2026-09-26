@@ -201,10 +201,12 @@ type Run = {
   aiFailures: number;
   budgetHit: boolean;
   aiStopped?: AiStop; // a STOP_AI error: no AI call for the rest of the run, the project still completes
+  signal: AbortSignal; // aborted = paused: whatever fails after that is the pause, not an error
 };
 
-const paused = new Set<string>();
-const running = new Set<string>(); // projects with a live runProject in this process
+// Projects with a live runProject in this process. Pause aborts the run's AI calls and closes its browser.
+type Live = { controller: AbortController; handle?: BrowserHandle };
+const running = new Map<string, Live>();
 const runnableOf = (run: Run, phase: string) => tasksOf(run.db, run.projectId, phase).filter(runnable);
 const log = (run: Run, level: "info" | "warn" | "error", message: string) => emit(run.projectId, { type: "log", level, message: redact(run.projectId, message) });
 
@@ -322,6 +324,7 @@ async function autoLoginIfNeeded(run: Run): Promise<boolean> {
     finishTask(run.db, run.projectId, t, "profile"); // the session lives in the persistent profile
     return true;
   } catch (e) {
+    if (run.signal.aborted) throw e;
     const code = codeOf(e);
     failTask(run.db, run.projectId, t, e, code === Codes.CAPTCHA_REQUIRED ? "needs_auth" : "failed");
     if (code === Codes.CAPTCHA_REQUIRED) {
@@ -345,7 +348,7 @@ async function runCaptures(run: Run): Promise<boolean> {
   const urlOf = new Map(run.pages.map((p) => [p.pageId, p.url]));
   let usedBytes = await dirBytes(join(run.ws, "assets"));
   const captureOne = async (t: TaskRow) => {
-    while (!paused.has(run.projectId)) {
+    while (!run.signal.aborted) {
       startTask(run.db, run.projectId, t);
       try {
         const meta = await run.deps.capturePage(run.handle, {
@@ -359,6 +362,7 @@ async function runCaptures(run: Run): Promise<boolean> {
         finishTask(run.db, run.projectId, t, meta.capturePath);
         return;
       } catch (e) {
+        if (run.signal.aborted) throw e; // paused mid-capture: the task goes back to pending, not failed
         const code = codeOf(e) ?? "";
         const auth = code === Codes.AUTH_REQUIRED || code === Codes.CAPTCHA_REQUIRED;
         failTask(run.db, run.projectId, t, e, auth ? "needs_auth" : "failed");
@@ -372,7 +376,7 @@ async function runCaptures(run: Run): Promise<boolean> {
     await mapLimit(tasks, run.cfg.concurrency, captureOne);
   } catch (e) {
     const code = codeOf(e);
-    if (code !== Codes.AUTH_REQUIRED && code !== Codes.CAPTCHA_REQUIRED) throw e;
+    if (run.signal.aborted || (code !== Codes.AUTH_REQUIRED && code !== Codes.CAPTCHA_REQUIRED)) throw e;
     setStatus(run.db, run.projectId, "needs_auth", code);
     emit(run.projectId, { type: "needs_auth", url: (e as AppError).context?.url as string, code });
     return false;
@@ -410,7 +414,7 @@ async function runNames(run: Run): Promise<boolean> {
   const tasks = runnableOf(run, "name");
   if (tasks.length > 0) emit(run.projectId, { type: "phase", phase: "name" });
   for (const t of tasks) {
-    if (paused.has(run.projectId)) return true;
+    if (run.signal.aborted) return true;
     startTask(run.db, run.projectId, t);
     const ir = await loadIr(run);
     const skip = aiSkip(run);
@@ -419,7 +423,8 @@ async function runNames(run: Run): Promise<boolean> {
       finishTask(run.db, run.projectId, t, "ir.json", skip?.code, skip?.message);
       continue;
     }
-    const { names, error, errorMessage } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, await thumbnailFor(run, t.key));
+    const { names, error, errorMessage } = await run.deps.nameSections(run.db, run.projectId, ir, t.key, { ...(await thumbnailFor(run, t.key)), signal: run.signal });
+    if (run.signal.aborted) return true; // paused mid-call: the aborted call's fallback is not an answer, no breaker count
     const stops = error !== undefined && STOP_AI.has(error);
     if (error && error !== Codes.BUDGET_EXCEEDED && !stops && ++run.aiFailures >= AI_CIRCUIT_LIMIT) {
       failTask(run.db, run.projectId, t, new AppError(Codes.AI_CIRCUIT_OPEN, `${AI_CIRCUIT_LIMIT} AI failures in a row (last: ${error})`));
@@ -477,7 +482,7 @@ async function persistFixes(run: Run, ctx: FixCtx): Promise<void> {
 
 async function runFixes(run: Run): Promise<boolean> {
   const tasks = runnableOf(run, "fix");
-  if (tasks.length === 0 || paused.has(run.projectId)) return true;
+  if (tasks.length === 0 || run.signal.aborted) return true;
   emit(run.projectId, { type: "phase", phase: "fix" });
   for (const t of tasks) startTask(run.db, run.projectId, t);
   const skip = aiSkip(run);
@@ -498,6 +503,7 @@ async function runFixes(run: Run): Promise<boolean> {
     captures: await loadCaptures(run),
     emit: await emitOpts(run),
     threshold: run.cfg.threshold,
+    signal: run.signal,
   };
   // The graph from the persisted IR: after a crash mid-fix it may hold an accepted-but-unsaved patch.
   writeGraph(run.db, run.projectId, ctx.ir, ctx.emit.assetMap);
@@ -505,6 +511,7 @@ async function runFixes(run: Run): Promise<boolean> {
   try {
     results = await run.deps.fixAll(ctx, targets);
   } catch (e) {
+    if (run.signal.aborted) throw e; // paused: not an AI failure
     const code = codeOf(e);
     const ai = code?.startsWith("AI_") ? code : undefined;
     if (!ai || (!STOP_AI.has(ai) && (ai === Codes.AI_CIRCUIT_OPEN || ++run.aiFailures >= AI_CIRCUIT_LIMIT))) {
@@ -536,6 +543,12 @@ async function runFixes(run: Run): Promise<boolean> {
 
 const PHASES = [runCaptures, runIr, runNames, runEmit, runQa, runFixes];
 
+// Pause = stop now: the tasks it cut off never reached their checkpoint, so they go back to pending.
+function setPaused(db: DatabaseSync, projectId: string): void {
+  db.prepare("UPDATE tasks SET status='pending',updated_at=unixepoch() WHERE project_id=? AND status='running'").run(projectId);
+  setStatus(db, projectId, "paused");
+}
+
 // Runs every pending task (+ failed ones with attempts < 3 and a retryable code), skipping done ones.
 // Stops early on pause, needs_auth, LOGIN_FAILED or an open AI circuit (status set accordingly).
 export async function runProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): Promise<void> {
@@ -545,17 +558,19 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   const { user, pass } = opts.credentials ?? {};
   setRunSecrets(projectId, [user ?? "", pass ?? ""]);
   setStatus(db, projectId, "running");
-  running.add(projectId);
+  const live: Live = { controller: new AbortController() };
+  const { signal } = live.controller;
+  running.set(projectId, live);
   let handle: BrowserHandle | undefined;
   try {
     const pages = JSON.parse(await readFile(join(ws, "pages.json"), "utf8").catch(() => "[]")) as PageRef[];
-    handle = await deps.openBrowser({ profileDir: join(ws, "profile"), maxPages: cfg.concurrency });
-    const run: Run = { db, projectId, url, cfg, ws, handle, deps, credentials: opts.credentials, pages, aiFailures: 0, budgetHit: false };
+    handle = live.handle = await deps.openBrowser({ profileDir: join(ws, "profile"), maxPages: cfg.concurrency });
+    const run: Run = { db, projectId, url, cfg, ws, handle, deps, credentials: opts.credentials, pages, aiFailures: 0, budgetHit: false, signal };
     for (const phase of PHASES) {
-      if (paused.has(projectId)) return setStatus(db, projectId, "paused");
+      if (signal.aborted) return setPaused(db, projectId);
       if (!(await phase(run))) return;
     }
-    if (paused.has(projectId)) return setStatus(db, projectId, "paused");
+    if (signal.aborted) return setPaused(db, projectId);
     tx(db, () => db.prepare("UPDATE projects SET status='completed',progress=100,updated_at=unixepoch() WHERE id=?").run(projectId));
     emit(projectId, { type: "progress", progress: 100, tokensUsed: tokensUsedOf(db, projectId) });
     // Completed with AI stopped, the budget spent or a fallback marker: the reason says why some output is degraded.
@@ -563,6 +578,7 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
     const reason = run.aiStopped?.code ?? (run.budgetHit ? Codes.BUDGET_EXCEEDED : marker?.error_code);
     emit(projectId, reason ? { type: "status", status: "completed", reason } : { type: "status", status: "completed" });
   } catch (e) {
+    if (signal.aborted) return setPaused(db, projectId); // the closed browser / aborted AI call is the pause, not a failure
     // Scrubbed in place: the caller (queue log, tests) sees the same error without the credentials.
     if (e instanceof Error) e.message = messageFor(projectId, e);
     // The task that threw (ir/emit/qa/fix) is still `running`: make it failed so a resume retries it.
@@ -573,16 +589,18 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   } finally {
     clearRunSecrets(projectId);
     running.delete(projectId);
-    paused.delete(projectId);
-    await handle?.close();
+    await handle?.close().catch(() => {}); // a pause may have closed it already
   }
 }
 
-// Running: no new task starts, running ones finish, then the run sets `paused`. Waiting in the queue:
-// leaves the queue and becomes `paused` now. Otherwise a no-op (never a stale flag for a later run).
+// Running: stops now (hardening spec §2): the AI call in flight is aborted and the browser closed; the run
+// then puts its running tasks back to pending and sets `paused`. Waiting in the queue: leaves the queue and
+// becomes `paused` now. Otherwise a no-op (never a stale flag for a later run).
 export function pauseProject(projectId: string): void {
-  if (running.has(projectId)) {
-    paused.add(projectId);
+  const live = running.get(projectId);
+  if (live) {
+    live.controller.abort();
+    void live.handle?.close().catch(() => {});
     return;
   }
   const i = waiting.findIndex((j) => j.projectId === projectId);
@@ -613,6 +631,7 @@ export function recoverOnStartup(db: DatabaseSync): void {
 const waiting: { projectId: string; db: DatabaseSync; run: () => Promise<void> }[] = [];
 const queued = new Set<string>(); // running + waiting
 let active: string | null = null;
+let activeRun: Promise<void> = Promise.resolve(); // settles once `active` has left the queue
 
 // 1 job runs, <=5 wait (FIFO); beyond that QUEUE_FULL (API -> 429). A project already queued is a no-op.
 export function startProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): void {
@@ -629,12 +648,25 @@ export const isWaiting = (projectId: string): boolean => waiting.some((j) => j.p
 // Whether startProject would accept a new project now (lets callers refuse before doing prep work).
 export const queueHasRoom = (): boolean => !active || waiting.length < MAX_WAITING;
 
+// DELETE of a busy project: pause it (see pauseProject) and wait up to `ms` for its run to leave the queue.
+// true = neither running nor waiting any more.
+export async function stopAndWait(projectId: string, ms: number): Promise<boolean> {
+  const wasActive = active === projectId;
+  pauseProject(projectId);
+  if (wasActive) {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([activeRun, new Promise<void>((r) => (timer = setTimeout(r, ms)))]);
+    clearTimeout(timer);
+  }
+  return !queued.has(projectId);
+}
+
 function drain(): void {
   if (active) return;
   const job = waiting.shift();
   if (!job) return;
   active = job.projectId;
-  job
+  activeRun = job
     .run()
     .catch((e: unknown) => emit(job.projectId, { type: "log", level: "error", message: rawMessageOf(e) })) // already scrubbed by runProject
     .finally(() => {
