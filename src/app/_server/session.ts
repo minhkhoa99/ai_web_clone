@@ -4,7 +4,7 @@
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
-import { isQueuedOrActive } from "@/core/jobs";
+import { isQueuedOrActive, pipelineUnfinished } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
 import { ApiError, type ProjectRow, workspaceOf } from "./http";
 
@@ -39,10 +39,17 @@ export function requireEditable(db: DatabaseSync, project: ProjectRow): void {
   if (isQueuedOrActive(project.id)) throw new ApiError(409, "BAD_STATE", "Project đang chạy — Tạm dừng trước khi sửa.");
 }
 
-// Non-throwing form for UI hints (e.g. the preview screen's "Chạy lại QA" button): would requireEditable pass?
-export function isEditable(db: DatabaseSync, project: ProjectRow): boolean {
+// "Chạy lại QA" only scores (hardening final review #1): an earlier phase with a task still to run means the job would
+// resume the whole pipeline, AI included — Tiếp tục first.
+export function requirePipelineDone(db: DatabaseSync, projectId: string): void {
+  if (pipelineUnfinished(db, projectId)) throw new ApiError(409, "BAD_STATE", "Project chưa chạy xong — bấm Tiếp tục ở trang Tiến độ trước khi chạy lại QA.");
+}
+
+// Non-throwing form for the preview screen's "Chạy lại QA" button: would the rescore route accept it?
+export function isRescorable(db: DatabaseSync, project: ProjectRow): boolean {
   try {
     requireEditable(db, project);
+    requirePipelineDone(db, project.id);
     return true;
   } catch {
     return false;

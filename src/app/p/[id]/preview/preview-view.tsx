@@ -17,7 +17,7 @@ type Data = {
   sections: { id: string; pageId: string; name: string; rootId: string }[];
   scores: SectionScore[];
   stale: boolean; // edited in the editor after scoring
-  rescoreAvailable: boolean; // server-computed: same rule as the rescore API (emit done, not running/queued)
+  rescoreAvailable: boolean; // server-computed: same rule as the rescore API (emit done, no earlier phase left, not running/queued)
   interactions: { id: string; pageId: string; kind: string; trigger: string; status: string }[];
   coverage: { page: string; captured: number; failed: number; skipped: number }[];
   fixes: Fix[];

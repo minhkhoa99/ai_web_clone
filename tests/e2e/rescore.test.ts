@@ -11,6 +11,7 @@ import { saveProvider } from "@/core/gateway";
 import { createProject, enqueue, isQueuedOrActive, runProject, saveEdited, startProject, subscribe, type JobDeps, type QaFile, type StampedEvent } from "@/core/jobs";
 import { serveDir } from "@/core/serve";
 import { getDb } from "@/app/_server/db";
+import * as preview from "@/app/api/projects/[id]/preview/route";
 import * as rescore from "@/app/api/projects/[id]/qa/rescore/route";
 import { offline } from "./offline-deps";
 
@@ -160,4 +161,38 @@ test("recovery (spec §3, ghi đè R69): accepted on a failed project once the c
   const b = await post(running);
   expect(b.status).toBe(409);
   expect(await codeOf(b)).toBe("BAD_STATE");
+});
+
+test("recovery (final review #1): paused in fix -> rescore closes the fix round, no AI request, completes; paused in capture -> 409, button hidden", async () => {
+  const db = getDb();
+  await expect.poll(() => !isQueuedOrActive(id), { timeout: 30_000 }).toBe(true);
+  const ir = JSON.parse(await readFile(join(config.workspaceRoot, id, "ir.json"), "utf8")) as { sections: { id: string; pageId: string }[] };
+  const s = ir.sections[0]!;
+  db.prepare("UPDATE projects SET status='paused' WHERE id=?").run(id);
+  db.prepare("INSERT OR REPLACE INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(randomUUID(), id, `${s.pageId}:${s.id}`);
+  db.prepare("UPDATE tasks SET status='pending' WHERE project_id=? AND phase='qa' AND key='all'").run(id);
+  const aiBefore = aiRequests;
+  const seen: StampedEvent[] = [];
+  const off = subscribe(id, (e) => seen.push(e));
+  const res = await post(id);
+  expect(res.status).toBe(202);
+  await expect.poll(() => statusOf(id), { timeout: 180_000 }).toBe("completed");
+  off();
+  expect(aiRequests).toBe(aiBefore);
+  const fix = db.prepare("SELECT status,error_msg FROM tasks WHERE project_id=? AND phase='fix' AND key=?").get(id, `${s.pageId}:${s.id}`);
+  expect(fix).toEqual({ status: "done", error_msg: "Đã chạy lại QA — bỏ vòng sửa AI còn dở." });
+  expect(seen.filter((e) => e.type === "task").every((e) => e.type === "task" && e.phase === "qa" && e.key === "rescore")).toBe(true);
+
+  const capture = createProject(db, { url: "http://127.0.0.1:9/", mode: "single", config: {} });
+  created.push(capture);
+  db.prepare("UPDATE projects SET status='paused' WHERE id=?").run(capture);
+  markEmitDone(capture);
+  db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'capture','home','pending')").run(randomUUID(), capture);
+  await mkdir(join(config.workspaceRoot, capture, "out"), { recursive: true });
+  const refused = await post(capture);
+  expect(refused.status).toBe(409);
+  expect(await refused.clone().json()).toMatchObject({ code: "BAD_STATE", message: "Project chưa chạy xong — bấm Tiếp tục ở trang Tiến độ trước khi chạy lại QA." });
+  expect((db.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND key='rescore'").get(capture) as { n: number }).n).toBe(0);
+  const view = (await (await preview.GET(new Request("http://127.0.0.1"), { params: Promise.resolve({ id: capture }) })).json()) as { rescoreAvailable: boolean };
+  expect(view.rescoreAvailable).toBe(false);
 });

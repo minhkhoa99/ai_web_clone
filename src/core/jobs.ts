@@ -1,7 +1,7 @@
 // Job orchestrator (spec §4): discover -> capture -> ir -> name -> emit -> qa -> fix -> done over durable
 // per-task checkpoints (output renamed into place, then `done` + output_path in one transaction), an
 // in-memory event bus for SSE, and a bounded FIFO queue (1 running, <=5 waiting).
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -170,12 +170,28 @@ export async function enqueue(db: DatabaseSync, projectId: string, pageUrls: str
   });
 }
 
+// "Chạy lại QA" only scores: a task of an earlier phase still to run (discover is never run by runProject) would make
+// the rescore job a full resume, AI included — the route refuses then (hardening final review #1).
+export const pipelineUnfinished = (db: DatabaseSync, projectId: string): boolean =>
+  (db.prepare("SELECT id,phase,key,status,attempts,error_code,output_path FROM tasks WHERE project_id=? AND phase NOT IN ('discover','qa','fix')").all(projectId) as TaskRow[]).some(runnable);
+
+const RESCORE_OVERRIDE_MSG = "Đã chạy lại QA — bỏ vòng sửa AI còn dở.";
+
 // "Chạy lại QA" (spec parity §4.3): one qa task keyed `rescore` (re-armed on every press), run through the queue like any
 // job. runQa scores and rewrites qa.json (no `stale`) but creates no fix task: a manual edit is never auto-patched.
+// A recovered project's outstanding fix tasks are closed (no AI round), and a still-runnable qa:all is done once
+// qa.json exists, so qa:rescore is the one that runs.
 export function requeueRescore(db: DatabaseSync, projectId: string): void {
-  db.prepare(
-    "INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'qa','rescore','pending') ON CONFLICT(project_id,phase,key) DO UPDATE SET status='pending',attempts=0,error_code=NULL,error_msg=NULL,updated_at=unixepoch()",
-  ).run(randomUUID(), projectId);
+  const scored = existsSync(join(workspaceOf(projectId), "qa.json"));
+  tx(db, () => {
+    closeOutstandingFixes(db, projectId, RESCORE_OVERRIDE_MSG);
+    const all = tasksOf(db, projectId, "qa").find((t) => t.key === "all");
+    if (scored && all && runnable(all))
+      db.prepare("UPDATE tasks SET status='done',output_path='qa.json',error_code=NULL,error_msg=NULL,updated_at=unixepoch() WHERE id=?").run(all.id);
+    db.prepare(
+      "INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'qa','rescore','pending') ON CONFLICT(project_id,phase,key) DO UPDATE SET status='pending',attempts=0,error_code=NULL,error_msg=NULL,updated_at=unixepoch()",
+    ).run(randomUUID(), projectId);
+  });
 }
 
 // --- run -----------------------------------------------------------------------------
@@ -275,12 +291,12 @@ export async function loadEditable(db: DatabaseSync, projectId: string): Promise
 // no error) makes runnable() skip them, so a later resume never re-fixes (and re-overwrites) that section.
 const FIX_OVERRIDE_MSG = "Đã sửa tay trong Editor — bỏ vòng sửa AI.";
 
-function closeOutstandingFixes(db: DatabaseSync, projectId: string): void {
+function closeOutstandingFixes(db: DatabaseSync, projectId: string, message = FIX_OVERRIDE_MSG): void {
   const { status } = db.prepare("SELECT status FROM projects WHERE id=?").get(projectId) as { status: string };
   if (status === "completed") return; // the editor already requires the fix phase to be idle (not queued/active)
   db.prepare(
     "UPDATE tasks SET status='done',output_path='qa.json',error_code=NULL,error_msg=?,updated_at=unixepoch() WHERE project_id=? AND phase='fix' AND status IN ('pending','failed')",
-  ).run(FIX_OVERRIDE_MSG, projectId);
+  ).run(message, projectId);
 }
 
 // ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR. The QA scores are not
@@ -481,11 +497,13 @@ async function runEmit(run: Run): Promise<boolean> {
 }
 
 // Scores every section; the fix tasks for sections below the threshold are created in the same transaction as qa's done.
+// qa:all and qa:rescore both runnable (paused in the first scoring, then "Chạy lại QA"): one scoring, rescore semantics.
 async function runQa(run: Run): Promise<boolean> {
-  const [t] = runnableOf(run, "qa");
-  if (!t) return true;
+  const tasks = runnableOf(run, "qa"); // <= 2: keys all, rescore
+  if (tasks.length === 0) return true;
+  const rescore = tasks.some((t) => t.key === "rescore"); // the key is in the db: also right after an interrupt + resume
   emit(run.projectId, { type: "phase", phase: "qa" });
-  startTask(run.db, run.projectId, t);
+  for (const t of tasks) startTask(run.db, run.projectId, t);
   const scores = await scoreAll(run, await loadIr(run));
   const minBy = new Map<string, number>();
   for (const s of scores) {
@@ -493,10 +511,10 @@ async function runQa(run: Run): Promise<boolean> {
     minBy.set(k, Math.min(minBy.get(k) ?? 1, s.score));
   }
   const failing = [...minBy].filter(([, min]) => min < run.cfg.threshold).map(([k]) => k);
-  finishTask(run.db, run.projectId, t, "qa.json", undefined, undefined, () => {
-    if (t.key === "rescore") return; // the key is in the db: also right after an interrupt + resume
-    for (const k of failing) insertTask(run.db, run.projectId, "fix", k);
-  });
+  for (const t of tasks)
+    finishTask(run.db, run.projectId, t, "qa.json", undefined, undefined, () => {
+      if (!rescore) for (const k of failing) insertTask(run.db, run.projectId, "fix", k);
+    });
   return true;
 }
 

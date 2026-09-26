@@ -7,7 +7,7 @@ import type { QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
-import { isEditable } from "@/app/_server/session";
+import { isRescorable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +52,6 @@ export function GET(req: Request, { params }: IdCtx) {
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
-    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isEditable(db, project), interactions, coverage: coverage(db, id), fixes });
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes });
   });
 }

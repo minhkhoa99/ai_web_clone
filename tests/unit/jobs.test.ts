@@ -8,7 +8,7 @@ import type { CaptureNode, PageCapture } from "@/core/capture";
 import { buildIR } from "@/core/ir";
 import { PNG } from "pngjs";
 import { config } from "@/core/config";
-import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
+import { createProject, enqueue, pageIdsFor, pauseProject, pipelineUnfinished, recoverOnStartup, requeueRescore, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
 import { projectConfigSchema } from "@/core/jobs-base";
 import type { FixCtx } from "@/core/qa-fix";
 
@@ -520,4 +520,48 @@ test("a completed run with no AI stop / budget has no status_reason, even with a
   off();
   expect([statusOf(db, id), reasonOf(db, id)]).toEqual(["completed", null]);
   expect(events.at(-1)).toEqual({ type: "status", status: "completed", at: expect.any(Number) });
+});
+
+// --- "Chạy lại QA" on a recovered project (hardening final review #1) --------------------------
+
+test("rescore on a project paused in fix: outstanding fix tasks closed, qa:all done, no fixAll call, project completed", async () => {
+  const { db, id } = await fixReady([0, 1]);
+  db.prepare("UPDATE projects SET status='paused' WHERE id=?").run(id);
+  db.prepare("UPDATE tasks SET status='pending' WHERE project_id=? AND phase='qa' AND key='all'").run(id);
+  await writeFile(join(config.workspaceRoot, id, "qa.json"), JSON.stringify({ scores: [] }));
+  expect(pipelineUnfinished(db, id)).toBe(false);
+  requeueRescore(db, id);
+  let fixCalls = 0;
+  const deps = { openBrowser: fakeOpen, scoreSections: async () => [], fixAll: async () => (fixCalls++, []) };
+  await runProject(db, id, { deps });
+  expect(fixCalls).toBe(0);
+  expect(statusOf(db, id)).toBe("completed");
+  for (const t of tasksIn(db, id, "fix")) expect(t).toMatchObject({ status: "done", error_code: null, error_msg: "Đã chạy lại QA — bỏ vòng sửa AI còn dở." });
+  expect(tasksIn(db, id, "qa").map((t) => [t.key, t.status])).toEqual([["all", "done"], ["rescore", "done"]]);
+});
+
+test("qa:all and qa:rescore both runnable (paused in the first scoring, no qa.json): one scoring, rescore semantics, no fix task", async () => {
+  const { db, id } = await fixReady([]);
+  db.prepare("UPDATE tasks SET status='pending' WHERE project_id=? AND phase='qa' AND key='all'").run(id);
+  requeueRescore(db, id);
+  let scored = 0;
+  const failing = [{ pageId: "home", sectionId: "s1", bp: 1440, score: 0.1 }];
+  const deps = { openBrowser: fakeOpen, scoreSections: async () => (scored++, failing as never), fixAll: async () => [] };
+  await runProject(db, id, { deps });
+  expect(scored).toBe(1);
+  expect(tasksIn(db, id, "qa").map((t) => [t.key, t.status])).toEqual([["all", "done"], ["rescore", "done"]]);
+  expect(tasksIn(db, id, "fix")).toEqual([]);
+  expect(statusOf(db, id)).toBe("completed");
+});
+
+test("pipelineUnfinished: a runnable task before qa (pending capture, retryable failed name) -> true; skipped / done -> false", async () => {
+  const { db, id } = await fixReady([0]);
+  expect(pipelineUnfinished(db, id)).toBe(false); // pending fix tasks don't count
+  db.prepare("UPDATE tasks SET status='failed',error_code='NODE_LIMIT',attempts=1 WHERE project_id=? AND phase='capture'").run(id);
+  expect(pipelineUnfinished(db, id)).toBe(false); // skipped for good
+  db.prepare("UPDATE tasks SET status='failed',error_code='AI_BAD_RESPONSE',attempts=1 WHERE project_id=? AND phase='name'").run(id);
+  expect(pipelineUnfinished(db, id)).toBe(true);
+  db.prepare("UPDATE tasks SET status='done' WHERE project_id=? AND phase='name'").run(id);
+  db.prepare("UPDATE tasks SET status='pending',error_code=NULL WHERE project_id=? AND phase='capture'").run(id);
+  expect(pipelineUnfinished(db, id)).toBe(true);
 });
