@@ -261,30 +261,6 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .log-error .log-level { color: var(--c-danger); }
 .log-empty { padding: 0 var(--s-md); color: var(--c-text-3); }
 
-/* === legacy (pre-parity classes on the new tokens; removed by the screen tasks / Task 14) === */
-/* legacy: shared */
-.muted { color: var(--c-text-2); }
-.card { background: var(--c-surface-low); border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: 16px; }
-.alert { padding: 10px 14px; border-radius: var(--r-md); border: 1px solid var(--c-danger); color: var(--c-danger); background: color-mix(in srgb, var(--c-danger) 10%, transparent); }
-.notice { padding: 10px 14px; border-radius: var(--r-md); border: 1px solid var(--c-success); color: var(--c-success); background: color-mix(in srgb, var(--c-success) 10%, transparent); }
-ul.plain { list-style: none; margin: 0; padding: 0; }
-.btn.primary { background: var(--c-primary); border-color: var(--c-primary); color: var(--c-on-primary); }
-.btn.danger { color: var(--c-danger); }
-.btn.warn { background: var(--c-warn); border-color: var(--c-warn); color: var(--c-on-warn); }
-.btn[aria-pressed="true"] { background: var(--c-surface); border-color: var(--c-primary); color: var(--c-primary); }
-label.field { display: grid; gap: 4px; font: var(--t-label-md); color: var(--c-text-2); }
-label.field input, label.field select { color: var(--c-text); }
-fieldset { border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 12px 16px; margin: 0; display: grid; gap: 10px; }
-legend { padding: 0 6px; color: var(--c-text-2); }
-.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font: var(--t-label-sm); color: var(--c-text-2); text-transform: uppercase; letter-spacing: 0.05em; }
-th, td { padding: 10px 12px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
-.split { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: var(--s-lg); }
-.tag { font: var(--t-label-sm); padding: 0 6px; border-radius: var(--r-sm); border: 1px solid var(--c-warn); color: var(--c-warn); }
-/* legacy: editor */
-.editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
-
 /* === Screen: settings/ai === */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--s-lg); align-items: start; margin-top: var(--s-lg); }
 @media (max-width: 1099px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -709,3 +685,16 @@ select.full { width: 100%; min-height: 38px; }
   .file-tree { max-height: 280px; }
   .code-main { min-height: 360px; }
 }
+
+/* === Screen: editor === */
+.editor-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
+.editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
+.editor-sections { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.editor-shell { overflow: hidden; }
+/* GrapesJS theme on the Stitch tokens (spec §3.8) */
+.editor-shell .gjs-one-bg { background-color: var(--c-surface-low); }
+.editor-shell .gjs-two-color { color: var(--c-text-2); }
+.editor-shell .gjs-three-bg { background-color: var(--c-surface-high); color: var(--c-text); }
+.editor-shell .gjs-four-color, .editor-shell .gjs-four-color-h:hover { color: var(--c-primary); }
+.editor-shell .gjs-pn-panel, .editor-shell .gjs-blocks-c, .editor-shell .gjs-sm-sector, .editor-shell .gjs-layer, .editor-shell .gjs-block { border-color: var(--c-border); }
+.editor-shell .gjs-editor, .editor-shell .gjs-pn-btn, .editor-shell .gjs-block, .editor-shell .gjs-sm-sector-title, .editor-shell .gjs-layer-name { font: var(--t-label-md); }

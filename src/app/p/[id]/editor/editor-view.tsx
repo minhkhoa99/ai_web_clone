@@ -1,0 +1,200 @@
+"use client";
+import "grapesjs/dist/css/grapes.min.css";
+import type { Editor } from "grapesjs";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import type { GrapesProject } from "@/core/grapes-adapter";
+import { api, errorText } from "@/app/_ui/api";
+import { Badge } from "@/app/_ui/Badge";
+import { Button } from "@/app/_ui/Button";
+import { Card } from "@/app/_ui/Card";
+import { Field } from "@/app/_ui/Field";
+import { IconButton } from "@/app/_ui/IconButton";
+import { SegmentedControl } from "@/app/_ui/SegmentedControl";
+
+const DEVICES = ["1440", "768", "375"] as const;
+type Device = (typeof DEVICES)[number];
+const DEFAULT_EFFECT_MS = 600;
+
+// GrapesJS over one page of the IR (spec §10). Save sends the editor's JSON to the adapter, which patches the IR and
+// re-emits out/; layout sections are shared, so editing one on any page edits it everywhere.
+export function EditorView({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
+  const [pageId, setPageId] = useState(initialPage); // "" = the API's default (first page)
+  const [version, setVersion] = useState(0); // bumped after a save / merge: reload the IR into a fresh editor
+  const [project, setProject] = useState<GrapesProject | null>(null);
+  const [device, setDevice] = useState<Device>(DEVICES[0]);
+  const [picked, setPicked] = useState<string[]>([]); // click order: the first becomes the layout
+  const [effect, setEffect] = useState("sp1-fade-in");
+  const [effectMs, setEffectMs] = useState(DEFAULT_EFFECT_MS);
+  const [msg, setMsg] = useState("");
+  const [saved, setSaved] = useState(false); // qa.json is stale from now on: offer the preview (Chạy lại QA)
+  const [busy, setBusy] = useState(false);
+  const holder = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  useEffect(() => {
+    let editor: Editor | undefined;
+    let cancelled = false;
+    (async () => {
+      const [data, { default: grapesjs }] = await Promise.all([
+        api<GrapesProject>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`),
+        import("grapesjs"),
+      ]);
+      if (cancelled || !holder.current) return;
+      const pathOf = new Map(data.pages.map((p) => [p.id, p.path]));
+      editor = grapesjs.init({
+        container: holder.current,
+        height: "72vh",
+        storageManager: false, // the IR on the server is the only store
+        protectedCss: data.styles,
+        selectorManager: { componentFirst: true }, // style edits target the component, not a shared class
+        // widthMedia "": a style edit applies at every breakpoint (the IR patch sets the base style)
+        deviceManager: { devices: DEVICES.map((w) => ({ id: w, name: `${w}px`, width: `${w}px`, widthMedia: "" })) },
+        blockManager: {
+          blocks: data.sections.map((s) => ({ id: s.id, label: s.name, category: pathOf.get(s.pageId) ?? s.pageId, content: s.component })),
+        },
+      });
+      // the canvas resolves urls like the emitted page (local assets in out/): <base> before the body renders
+      const baseHref = new URL(`/api/projects/${id}/files/out/${encodeURIComponent(data.pageFile)}`, window.location.href).href;
+      editor.on("canvas:frame:load:head", ({ window: frame }: { window: Window }) => {
+        const base = frame.document.createElement("base");
+        base.href = baseHref;
+        frame.document.head.prepend(base);
+      });
+      editor.setComponents(data.components);
+      editor.getWrapper()?.addClass(data.bodyClasses);
+      editor.UndoManager.clear(); // loading the page is not an undoable edit
+      editor.setDevice(DEVICES[0]);
+      editorRef.current = editor;
+      setDevice(DEVICES[0]);
+      setProject(data);
+    })().catch((e: unknown) => {
+      // a stale or mistyped ?page= falls back to the default page instead of failing the editor
+      if (pageId !== "" && pageId === initialPage && errorText(e).startsWith("NOT_FOUND")) return setPageId("");
+      setMsg(errorText(e));
+    });
+    return () => {
+      cancelled = true;
+      editor?.destroy();
+      editorRef.current = null;
+    };
+  }, [id, pageId, version, initialPage]);
+
+  const run = async (label: string, fn: () => Promise<string>) => {
+    setBusy(true);
+    setMsg(label);
+    try {
+      setMsg(await fn());
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setMsg(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = () =>
+    run("Đang lưu…", async () => {
+      const editor = editorRef.current;
+      if (!editor || !project) return "Editor chưa sẵn sàng.";
+      // a text still being edited is only synced into the model when rich-text editing ends
+      const view = editor.getEditing()?.getView() as { disableEditing?: () => Promise<void> } | undefined;
+      await view?.disableEditing?.();
+      const body = { pageId: project.pageId, project: { components: editor.getComponents(), styles: editor.Css.getAll() } };
+      const res = await api<{ ops: number }>(`/api/projects/${id}/editor/save`, { body });
+      setSaved(true);
+      return `Đã lưu: ${res.ops} thay đổi — điểm QA cần chạy lại`;
+    });
+
+  const mergeLayout = () =>
+    run("Đang gộp…", async () => {
+      await api(`/api/projects/${id}/editor/promote-layout`, { body: { sectionIds: picked } });
+      setPicked([]);
+      setSaved(true);
+      return "Đã gộp thành layout chung";
+    });
+
+  const applyEffect = () => {
+    const selected = editorRef.current?.getSelected();
+    if (!selected) return setMsg("Chọn một phần tử trên canvas trước.");
+    selected.addStyle({ animation: `${effect} ${effectMs}ms ease-out both` });
+    setMsg(`Đã áp ${effect} — nhớ Lưu`);
+  };
+
+  const togglePick = (sectionId: string) => setPicked((p) => (p.includes(sectionId) ? p.filter((x) => x !== sectionId) : [...p, sectionId]));
+  const pathOf = new Map(project?.pages.map((p) => [p.id, p.path]));
+
+  return (
+    <div className="stack">
+      <div className="editor-toolbar" data-ui="ui_editor_toolbar">
+        <label className="inline-field">
+          <span className="field-label">Trang</span>
+          <select value={project?.pageId ?? ""} onChange={(e) => setPageId(e.target.value)} disabled={busy}>
+            {project?.pages.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <SegmentedControl<Device>
+          label="Thiết bị"
+          value={device}
+          onChange={(w) => {
+            editorRef.current?.setDevice(w);
+            setDevice(w);
+          }}
+          options={DEVICES.map((w) => ({ value: w, label: w }))}
+        />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => editorRef.current?.UndoManager.undo()} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => editorRef.current?.UndoManager.redo()} />
+        <Button variant="primary" icon="save" onClick={() => void save()} disabled={busy || !project}>
+          Lưu
+        </Button>
+        <span role="status" className="t-label-md text-2">
+          {msg}
+        </span>
+        {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
+      </div>
+      <div className="editor-grid">
+        <div className="editor-shell panel" data-ui="ui_editor_canvas_chrome">
+          <div ref={holder} />
+        </div>
+        <aside className="stack">
+          <Card title="Hiệu ứng" data-ui="ui_editor_effects_panel">
+            <Field label="Keyframes">
+              <select value={effect} onChange={(e) => setEffect(e.target.value)}>
+                {project?.effects.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Thời lượng (ms)">
+              <input type="number" min={100} max={10_000} step={100} value={effectMs} onChange={(e) => setEffectMs(Number(e.target.value) || DEFAULT_EFFECT_MS)} />
+            </Field>
+            <Button onClick={applyEffect} disabled={!project}>
+              Áp cho phần tử đang chọn
+            </Button>
+          </Card>
+          <Card title="Section" data-ui="ui_editor_sections_panel">
+            <p className="t-body-sm text-2">Chọn section ở các trang khác nhau; section chọn đầu tiên thành layout chung.</p>
+            <ul className="editor-sections">
+              {project?.sections.map((s) => (
+                <li key={s.id}>
+                  <label className="check">
+                    <input type="checkbox" checked={picked.includes(s.id)} onChange={() => togglePick(s.id)} />
+                    <span className="mono">{s.name}</span> <span className="text-3">{pathOf.get(s.pageId)}</span>
+                    {s.layoutId && <Badge tone="primary">Layout chung</Badge>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <Button onClick={() => void mergeLayout()} disabled={busy || picked.length < 2}>
+              Gộp thành layout
+            </Button>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}

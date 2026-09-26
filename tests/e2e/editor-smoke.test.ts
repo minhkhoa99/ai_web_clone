@@ -278,7 +278,8 @@ test("editor: edit one heading in the canvas, save -> exactly one patch op, out/
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Edited headline");
   await page.getByRole("button", { name: "Lưu" }).click();
-  await expect.poll(() => page.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã lưu: 1 thay đổi");
+  await expect.poll(() => page.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã lưu: 1 thay đổi — điểm QA cần chạy lại");
+  expect(await page.getByRole("link", { name: "Mở Preview" }).getAttribute("href")).toBe(`/p/${projectId}/preview`);
 
   const html = await (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
   expect(html).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
@@ -289,6 +290,29 @@ test("editor: edit one heading in the canvas, save -> exactly one patch op, out/
   const preview = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { stale: boolean; scores: unknown[] };
   expect(preview.stale).toBe(true);
   expect(preview.scores.length).toBeGreaterThan(0);
+  await page.close();
+});
+
+test("editor: ?page= opens that page, an unknown one falls back to the default; toolbar + GrapesJS on the tokens", async () => {
+  const base = app!.base;
+  // site1's one page is id "index" (from pathIdsFor's slug of "index.html"), never hard-coded "home" (ruling P2)
+  const ir = JSON.parse(await readFile(join(workspaceRoot, projectId, "ir.json"), "utf8")) as { pages: { id: string }[] };
+  const pageId = ir.pages[0]!.id;
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${base}/p/${projectId}/editor?page=${pageId}`);
+  const select = page.locator('[data-ui="ui_editor_toolbar"] select');
+  await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
+  await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_canvas_chrome", "ui_editor_effects_panel", "ui_editor_sections_panel"]);
+  // no more default #444 GrapesJS panels: --c-surface-low
+  await expect.poll(() => page.locator(".editor-shell .gjs-one-bg").first().evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: 30_000 }).toBe("rgb(25, 28, 35)");
+  expect(await page.getByRole("group", { name: "Thiết bị" }).getByRole("button").allInnerTexts()).toEqual(["1440", "768", "375"]);
+  expect(await page.getByRole("button", { name: "Hoàn tác" }).getAttribute("title")).toBe("Hoàn tác");
+  expect(await page.getByRole("button", { name: "Làm lại" }).getAttribute("title")).toBe("Làm lại");
+  await expectNoDrift(page);
+  await parityShot(page, "editor");
+  await page.goto(`${base}/p/${projectId}/editor?page=nope`);
+  await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
+  expect(await page.getByRole("status").innerText()).toBe("");
   await page.close();
 });
 
