@@ -1,9 +1,9 @@
 {
   "D:\\ai_web_clone\\docs\\superpowers\\design\\stitch-screens.md": {
-    "mtime": 1790121554.6264603,
-    "seen": 1790122086.2623966,
-    "ast_hash": "cda872829194add002bc75198f0c5398",
-    "semantic_hash": "cda872829194add002bc75198f0c5398"
+    "mtime": 1790413123.2893581,
+    "seen": 1790413971.1303496,
+    "ast_hash": "ccf340ab65ea086d6188512145a6992b",
+    "semantic_hash": "ccf340ab65ea086d6188512145a6992b"
   },
   "D:\\ai_web_clone\\docs\\superpowers\\design\\stitch\\code-viewer.html": {
     "mtime": 1790121553.3763802,
@@ -78,10 +78,10 @@
     "semantic_hash": "f6a95f294aabb64b6ea16595c52d63aa"
   },
   "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-09-23-sp1-clone-engine-design.md": {
-    "mtime": 1790102465.5928783,
-    "seen": 1790122086.2623966,
-    "ast_hash": "70adb8dfa72fc3749679471f83c2a9dd",
-    "semantic_hash": "70adb8dfa72fc3749679471f83c2a9dd"
+    "mtime": 1790413131.5837686,
+    "seen": 1790413971.13135,
+    "ast_hash": "ee57ea81459fe1a22c46154d8a61bed4",
+    "semantic_hash": "ee57ea81459fe1a22c46154d8a61bed4"
   },
   "D:\\ai_web_clone\\docs\\superpowers\\design\\stitch\\code-viewer.png": {
     "mtime": 1790121577.9038837,
@@ -148,5 +148,17 @@
     "seen": 1790122086.2623966,
     "ast_hash": "79d9e9a8504a6da06d60d777866f14f0",
     "semantic_hash": "79d9e9a8504a6da06d60d777866f14f0"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-09-24-sp1-ui-stitch-parity.md": {
+    "mtime": 1790263023.92128,
+    "seen": 1790413971.13135,
+    "ast_hash": "98c2be30eeb822091cbf6ac99c1df817",
+    "semantic_hash": "98c2be30eeb822091cbf6ac99c1df817"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-09-24-sp1-ui-stitch-parity-design.md": {
+    "mtime": 1790256894.6998825,
+    "seen": 1790413971.13135,
+    "ast_hash": "2e8f3517d1dd03de76c6cc22d4b13c5d",
+    "semantic_hash": "2e8f3517d1dd03de76c6cc22d4b13c5d"
   }
 }
