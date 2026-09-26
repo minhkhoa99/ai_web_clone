@@ -63,6 +63,7 @@ export function PhaseStepper({ states }: { states: Record<Phase, StepState> }) {
                 <Icon name={s === "done" ? "check" : s === "error" ? "error" : ICON[p]} />
               </span>
               <span className="step-name t-label-sm">{p}</span>
+              <span className="visually-hidden">{` — ${LABEL[s]}`}</span>
               {s === "active" && <span className="dot ping step-dot" aria-hidden="true" />}
             </li>
           );
