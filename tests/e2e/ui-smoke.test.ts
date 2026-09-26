@@ -635,6 +635,10 @@ test("progress (running): run clock from the server stamps, tokens, page list, l
       expect(box.x, `option left edge at ${w}`).toBeGreaterThanOrEqual(paneBox.x);
       expect(box.x + box.width, `option right edge at ${w}`).toBeLessThanOrEqual(paneBox.x + paneBox.width + 0.5);
     }
+    // fix round 4: the hidden count stays in each option's accessible name (visually clipped, not display:none)
+    const filter = page.getByRole("group", { name: "Mức log" });
+    expect(await filter.getByRole("button", { name: /^Warn \(\d+\)$/ }).count(), `Warn a11y name at ${w}`).toBe(1);
+    expect(await filter.getByRole("button", { name: /^Error \(\d+\)$/ }).count(), `Error a11y name at ${w}`).toBe(1);
   }
   await page.close();
 });

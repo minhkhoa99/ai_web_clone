@@ -562,11 +562,12 @@ select.full { width: 100%; min-height: 38px; }
 .log-clear-btn { margin-left: auto; }
 /* narrow panes: the level filter (4 buttons) can outgrow the pane. min-width:0 + overflow-x:auto is a safety
    net (fix round 2 #3), but below ~900px the fix that actually keeps every option fully visible (fix round 3)
-   is shorter labels: the " (N)" count drops (still in the DOM, just not painted) and button padding shrinks,
-   so "Warn (0)"/"Error (0)" become "Warn"/"Error" and all 4 options fit with no scrolling needed. */
+   is shorter labels: the " (N)" count is visually hidden (clip, not display:none, so it stays in each button's
+   accessible name — fix round 4) and button padding shrinks, so "Warn (0)"/"Error (0)" paint as "Warn"/"Error"
+   and all 4 options fit with no scrolling needed. */
 [data-ui="ui_progress_log_level_filter"] { min-width: 0; max-width: 100%; overflow-x: auto; }
 @media (max-width: 899px) {
-  [data-ui="ui_progress_log_level_filter"] .seg-count { display: none; }
+  [data-ui="ui_progress_log_level_filter"] .seg-count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   [data-ui="ui_progress_log_level_filter"] .seg-item { padding-inline: 8px; }
 }
 .page-states { list-style: none; margin: 0; padding: var(--s-xs) 0; flex: 1; overflow-y: auto; }
