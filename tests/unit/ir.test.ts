@@ -205,6 +205,52 @@ test("sections: noise siblings don't block the single-wrapper unwrap (Next.js sh
   ]);
 });
 
+test("sections: the one main-holding wrapper among several live candidates is descended", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", { class: "page-wrapper" }, [
+          header(),
+          el("main", {}, [el("section", { id: "s1" }, [txt("a")]), el("section", { id: "s2" }, [txt("b")])]),
+          el("footer", {}, [txt("f")]),
+        ]),
+        el("div", { class: "promo-banner" }, [txt("promo")], { bbox: [0, 0, 1440, 80] }),
+      ]),
+    ),
+  ]);
+  expect(ir.sections.map((s) => [s.role, s.root.tag, s.root.attrs.id ?? s.root.attrs.class ?? ""])).toEqual([
+    ["header", "header", "top"],
+    ["block", "section", "s1"],
+    ["block", "section", "s2"],
+    ["footer", "footer", ""],
+    ["block", "div", "promo-banner"],
+  ]);
+});
+
+test("sections: a display:contents wrapper (0x0 bbox) is not noise, so its main is still reached", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", { id: "contents" }, [header(), el("main", {}, [el("section", { id: "s1" }, [txt("a")])]), el("footer", {}, [txt("f")])], {
+          bbox: [0, 0, 0, 0],
+          style: { display: "contents" },
+        }),
+        el("div", { id: "promo" }, [txt("promo")]),
+      ]),
+    ),
+  ]);
+  expect(ir.sections.map((s) => [s.role, s.root.tag, s.root.attrs.id ?? ""])).toEqual([
+    ["header", "header", ""],
+    ["block", "section", "s1"],
+    ["footer", "footer", ""],
+    ["block", "div", "promo"],
+  ]);
+});
+
 test("sections: when every candidate is noise, the unfiltered list is kept", () => {
   const ir = buildIR([capture("p1", "https://x.test/", doc([el("div", { id: "a" }, [txt("a")], { bbox: [0, 0, 0, 0] }), el("div", { id: "b" }, [txt("b")], { bbox: [0, 0, 0, 0] })]))]);
   expect(ir.sections.map((s) => s.root.attrs.id)).toEqual(["a", "b"]);

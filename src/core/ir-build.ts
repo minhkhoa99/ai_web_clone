@@ -4,7 +4,7 @@ import type { CaptureNode } from "./capture";
 import { hash6, structuralHash, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import type { IRNode } from "./ir";
 
-// zeroBox: 1440 bbox width or height is 0 (kept only to skip it as a section root).
+// zeroBox: 1440 bbox width or height is 0, not display:contents (kept only to skip it as a section root).
 export type Draft = StyledNode & { text?: string; hidden?: boolean; zeroBox?: boolean; children: Draft[] };
 export type Extras = Pick<IRNode, "states" | "behavior">;
 export type Walk = { pageId: string; canvasAssets: Map<number, string>; canvasSeen: number };
@@ -38,7 +38,8 @@ export function toDraft(node: CaptureNode, path: string, at768: CaptureNode | un
   if (at375?.tag === node.tag) style.media!["375"] = diffDecl(node.style, at375.style);
   const draft: Draft = { id, tag: node.tag, attrs: node.attrs, style, children: [] };
   if (node.hidden) draft.hidden = true;
-  if (node.bbox[2] === 0 || node.bbox[3] === 0) draft.zeroBox = true;
+  // display:contents boxes are always 0x0 but their children render.
+  if ((node.bbox[2] === 0 || node.bbox[3] === 0) && node.style.display !== "contents") draft.zeroBox = true;
 
   if (node.attrs["data-dynamic"] === "canvas") {
     const src = walk.canvasAssets.get(walk.canvasSeen++);
