@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,9 @@ afterAll(async () => {
 const post = (x: string, init: RequestInit = {}) => rescore.POST(new Request("http://127.0.0.1", { method: "POST", ...init }), { params: Promise.resolve({ id: x }) });
 const statusOf = (x: string) => (getDb().prepare("SELECT status FROM projects WHERE id=?").get(x) as { status: string }).status;
 const codeOf = async (res: Response) => ((await res.json()) as { code: string }).code;
+const msgOf = async (res: Response) => ((await res.json()) as { message: string }).message;
+// requireEditable's emit-done check (spec §3): a project the route sees as "clone emitted" needs an emit task 'done'.
+const markEmitDone = (x: string) => getDb().prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'emit','all','done')").run(randomUUID(), x);
 
 test("completed + stale: 202, running -> completed; qa.json rewritten without stale; no fix task, no token, only qa:rescore ran", async () => {
   const db = getDb();
@@ -87,6 +91,7 @@ test("refusals: not completed -> 409 BAD_STATE, no out/ -> 409 NO_OUTPUT, foreig
   const bare = createProject(db, { url: "http://127.0.0.1:9/", mode: "single", config: {} });
   created.push(draft, bare);
   db.prepare("UPDATE projects SET status='completed' WHERE id=?").run(bare);
+  markEmitDone(bare); // emitted (requireEditable passes) but out/ was never written: NO_OUTPUT, not BAD_STATE
   const a = await post(draft);
   expect([a.status, await codeOf(a)]).toEqual([409, "BAD_STATE"]);
   const b = await post(bare);
@@ -95,7 +100,7 @@ test("refusals: not completed -> 409 BAD_STATE, no out/ -> 409 NO_OUTPUT, foreig
   expect((await post(id, { body: "{}", headers: { "content-type": "text/plain", "content-length": "2" } })).status).toBe(403);
 });
 
-test("waiting in the queue -> a second press is 409 PROJECT_BUSY; a full queue -> 429 QUEUE_FULL before anything is requeued", async () => {
+test("waiting in the queue -> a second press is 409 BAD_STATE (requireEditable: already running/queued); a full queue -> 429 QUEUE_FULL before anything is requeued", async () => {
   const db = getDb();
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
@@ -109,6 +114,7 @@ test("waiting in the queue -> a second press is 409 PROJECT_BUSY; a full queue -
     const x = createProject(db, { url: "http://127.0.0.1:9/", mode: "single", config: {} });
     created.push(x);
     db.prepare("UPDATE projects SET status='completed' WHERE id=?").run(x);
+    markEmitDone(x);
     await mkdir(join(config.workspaceRoot, x, "out"), { recursive: true });
     return x;
   };
@@ -122,7 +128,7 @@ test("waiting in the queue -> a second press is 409 PROJECT_BUSY; a full queue -
   const first = await post(q1);
   expect([first.status, await first.json()]).toEqual([202, { ok: true, queued: true }]);
   const again = await post(q1);
-  expect([again.status, await codeOf(again)]).toEqual([409, "PROJECT_BUSY"]);
+  expect([again.status, await codeOf(again)]).toEqual([409, "BAD_STATE"]);
   for (const f of fillers.slice(1)) startProject(db, f, { deps: hang }); // waiting: q1 + 4 = 5
   const q2 = await completedWithOut();
   const full = await post(q2);
@@ -130,4 +136,28 @@ test("waiting in the queue -> a second press is 409 PROJECT_BUSY; a full queue -
   expect((db.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND key='rescore'").get(q2) as { n: number }).n).toBe(0);
   release();
   await expect.poll(() => [...fillers, q1].every((x) => ["failed", "completed"].includes(statusOf(x))), { timeout: 60_000 }).toBe(true);
+});
+
+test("recovery (spec §3, ghi đè R69): accepted on a failed project once the clone is emitted; refused with no emit yet, or while running", async () => {
+  const db = getDb();
+  // `id` finished a real run in beforeAll (emit task done, out/ written): failed is still recoverable
+  db.prepare("UPDATE projects SET status='failed' WHERE id=?").run(id);
+  const res = await post(id);
+  expect(res.status).toBe(202);
+  await expect.poll(() => statusOf(id) === "completed", { timeout: 180_000 }).toBe(true);
+
+  const noEmit = createProject(db, { url: "http://127.0.0.1:9/", mode: "single", config: {} });
+  created.push(noEmit);
+  db.prepare("UPDATE projects SET status='failed' WHERE id=?").run(noEmit);
+  const a = await post(noEmit);
+  expect(a.status).toBe(409);
+  expect(await msgOf(a)).toBe("Chưa có bản clone để sửa (pha emit chưa xong). Bấm Tiếp tục ở trang Tiến độ.");
+
+  const running = createProject(db, { url: "http://127.0.0.1:9/", mode: "single", config: {} });
+  created.push(running);
+  db.prepare("UPDATE projects SET status='running' WHERE id=?").run(running);
+  markEmitDone(running);
+  const b = await post(running);
+  expect(b.status).toBe(409);
+  expect(await codeOf(b)).toBe("BAD_STATE");
 });

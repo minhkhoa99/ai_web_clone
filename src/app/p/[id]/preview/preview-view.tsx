@@ -17,6 +17,7 @@ type Data = {
   sections: { id: string; pageId: string; name: string; rootId: string }[];
   scores: SectionScore[];
   stale: boolean; // edited in the editor after scoring
+  rescoreAvailable: boolean; // server-computed: same rule as the rescore API (emit done, not running/queued)
   interactions: { id: string; pageId: string; kind: string; trigger: string; status: string }[];
   coverage: { page: string; captured: number; failed: number; skipped: number }[];
   fixes: Fix[];
@@ -327,7 +328,7 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
         </div>
 
         <aside className="qa-rail">
-          {data.stale && status === "completed" && (
+          {(data.stale || status !== "completed") && data.rescoreAvailable && (
             <Banner
               data-ui="ui_qa_preview_rerun_qa"
               tone="info"

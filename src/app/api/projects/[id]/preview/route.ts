@@ -7,6 +7,7 @@ import type { QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
+import { isEditable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
-    requireProject(db, id);
+    const project = requireProject(db, id);
     const ws = workspaceOf(id);
     const [ir, qa] = await Promise.all([
       readJsonIfExists<Pick<IR, "pages" | "sections" | "interactions"> | null>(join(ws, "ir.json"), null),
@@ -45,6 +46,7 @@ export function GET(req: Request, { params }: IdCtx) {
       const i = t.key.indexOf(":");
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code };
     });
-    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, interactions, coverage: coverage(db, id), fixes });
+    // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isEditable(db, project), interactions, coverage: coverage(db, id), fixes });
   });
 }

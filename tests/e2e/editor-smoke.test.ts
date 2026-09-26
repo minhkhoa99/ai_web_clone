@@ -355,18 +355,33 @@ test("editor: ?page= opens that page, an unknown one falls back to the default; 
   await page.close();
 });
 
-test("editor API: only completed projects are editable; an invalid patch is refused", async () => {
+test("editor API: recovery (spec §3, ghi đè R69) — failed/interrupted/paused are editable once the clone is emitted; running is not; no emit -> Vietnamese 409; an invalid patch is refused", async () => {
   const base = app!.base;
   const post = (path: string, body: unknown) =>
     fetch(`${base}/api/projects/${projectId}/editor/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   expect((await post("save", { pageId: "nope", project: { components: [] } })).status).toBe(400);
   expect((await post("promote-layout", { sectionIds: ["x"] })).status).toBe(400);
   try {
-    for (const status of ["running", "paused", "interrupted"]) {
+    // running: not a recoverable status regardless of the clone
+    db!.prepare("UPDATE projects SET status='running' WHERE id=?").run(projectId);
+    const running = await fetch(`${base}/api/projects/${projectId}/editor`);
+    expect(running.status).toBe(409);
+    expect(((await running.json()) as { message: string }).message).toBe("Chưa thể sửa ở trạng thái running.");
+
+    // failed / interrupted / paused, clone already emitted (E3 fix): editable
+    for (const status of ["failed", "interrupted", "paused"]) {
       db!.prepare("UPDATE projects SET status=? WHERE id=?").run(status, projectId);
-      expect((await fetch(`${base}/api/projects/${projectId}/editor`)).status).toBe(409);
+      expect((await fetch(`${base}/api/projects/${projectId}/editor`)).status, status).toBe(200);
     }
+
+    // failed, but the emit task isn't done: 409, Vietnamese message (not the raw "BAD_STATE: cannot edit…")
+    db!.prepare("UPDATE projects SET status='failed' WHERE id=?").run(projectId);
+    db!.prepare("UPDATE tasks SET status='pending' WHERE project_id=? AND phase='emit'").run(projectId);
+    const noEmit = await fetch(`${base}/api/projects/${projectId}/editor`);
+    expect(noEmit.status).toBe(409);
+    expect(((await noEmit.json()) as { message: string }).message).toBe("Chưa có bản clone để sửa (pha emit chưa xong). Bấm Tiếp tục ở trang Tiến độ.");
   } finally {
+    db!.prepare("UPDATE tasks SET status='done' WHERE project_id=? AND phase='emit'").run(projectId);
     db!.prepare("UPDATE projects SET status='completed' WHERE id=?").run(projectId);
   }
 });

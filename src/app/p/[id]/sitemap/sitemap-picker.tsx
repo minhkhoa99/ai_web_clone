@@ -226,6 +226,11 @@ export function SitemapPicker({ projectId, pages, crawled, draft, rates, tokenBu
 
   return (
     <div className="stack sitemap-picker">
+      {!draft && (
+        <Banner data-ui="ui_sitemap_locked_note" tone="info" icon="lock">
+          Đã bắt đầu clone — danh sách trang đã chốt. Dùng Clone lại để quét lại.
+        </Banner>
+      )}
       {msg && (
         <Banner tone="danger" icon="error">
           {msg}

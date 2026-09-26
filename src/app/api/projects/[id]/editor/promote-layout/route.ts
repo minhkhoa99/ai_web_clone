@@ -2,8 +2,8 @@ import { z } from "zod";
 import { promoteLayout } from "@/core/ir";
 import { saveEdited } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
-import { EDITABLE_STATUSES, handle, requireProject, requireStatus, type IdCtx } from "@/app/_server/http";
-import { exclusive } from "@/app/_server/session";
+import { handle, requireProject, type IdCtx } from "@/app/_server/http";
+import { exclusive, requireEditable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export function POST(req: Request, { params }: IdCtx) {
     const { id } = await params;
     const { sectionIds } = bodySchema.parse(await req.json());
     const db = getDb();
-    requireStatus(requireProject(db, id), EDITABLE_STATUSES, "edit");
+    requireEditable(db, requireProject(db, id));
     await exclusive(id, () => saveEdited(db, id, (ir) => promoteLayout(ir, sectionIds)));
     return Response.json({ ok: true });
   });

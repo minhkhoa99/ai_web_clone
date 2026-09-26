@@ -95,9 +95,6 @@ export async function optionalJson(req: Request): Promise<unknown> {
   return text ? (JSON.parse(text) as unknown) : {};
 }
 
-// The editor works on a finished clone only: a resumed run would build on checkpoints the edit made stale.
-export const EDITABLE_STATUSES = ["completed"] as const;
-
 export function requireStatus(project: ProjectRow, allowed: readonly string[], action: string): void {
   if (!allowed.includes(project.status)) throw new ApiError(409, "BAD_STATE", `cannot ${action} a ${project.status} project`);
 }

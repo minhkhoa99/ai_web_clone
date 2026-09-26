@@ -6,7 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { isQueuedOrActive } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
-import { ApiError, workspaceOf } from "./http";
+import { ApiError, type ProjectRow, workspaceOf } from "./http";
 
 export { credentialsFor, credentialsSchema, forgetCredentials, holdCredentials, needsCredentials, needsCredentialsFrom, type CredentialsInput } from "./credentials";
 
@@ -20,6 +20,33 @@ const state = (g.__sp1Session ??= { windows: new Map(), inflight: new Set() });
 export function assertIdle(projectId: string, opts: { ignoreAuthWindow?: boolean } = {}): void {
   const busy = isQueuedOrActive(projectId) || state.inflight.has(projectId) || (!opts.ignoreAuthWindow && state.windows.has(projectId));
   if (busy) throw new ApiError(409, "PROJECT_BUSY", `project ${projectId} is busy (job, crawl or login window in progress)`);
+}
+
+// Recovery after failed/interrupted/paused (spec §3, ghi đè R69): the editor, Lưu, Gộp layout and "Chạy lại QA"
+// work once a clone was emitted, whatever happened after — as long as the project isn't running or queued right now.
+// (Kept in session.ts, not http.ts: http.ts is imported by server page components too, and pulling in
+// @/core/jobs there drags core/emit-html's module-load-time path resolution into that build graph.)
+const RECOVERABLE_STATUSES = ["completed", "failed", "interrupted", "paused"] as const;
+
+function emitDone(db: DatabaseSync, projectId: string): boolean {
+  const row = db.prepare("SELECT status FROM tasks WHERE project_id=? AND phase='emit' AND key='all'").get(projectId) as { status: string } | undefined;
+  return row?.status === "done";
+}
+
+export function requireEditable(db: DatabaseSync, project: ProjectRow): void {
+  if (!(RECOVERABLE_STATUSES as readonly string[]).includes(project.status)) throw new ApiError(409, "BAD_STATE", `Chưa thể sửa ở trạng thái ${project.status}.`);
+  if (!emitDone(db, project.id)) throw new ApiError(409, "BAD_STATE", "Chưa có bản clone để sửa (pha emit chưa xong). Bấm Tiếp tục ở trang Tiến độ.");
+  if (isQueuedOrActive(project.id)) throw new ApiError(409, "BAD_STATE", "Project đang chạy — Tạm dừng trước khi sửa.");
+}
+
+// Non-throwing form for UI hints (e.g. the preview screen's "Chạy lại QA" button): would requireEditable pass?
+export function isEditable(db: DatabaseSync, project: ProjectRow): boolean {
+  try {
+    requireEditable(db, project);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Runs fn with the project marked busy; the check and the mark happen in the same tick (no race).

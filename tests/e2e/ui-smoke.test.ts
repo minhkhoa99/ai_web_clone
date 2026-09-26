@@ -436,6 +436,25 @@ test("sitemap: tree + connectors, HTTP/auth/captured columns, filters, tri-state
   await page.close();
 });
 
+test("sitemap (recovery, spec §3): a non-draft project shows the locked-note explaining why the tree is read-only", async () => {
+  const db = openDb(env.DB_PATH);
+  const o = "http://sitemap-locked.test";
+  let id = "";
+  try {
+    id = seedProject(db, { url: `${o}/`, status: "failed", tasks: [{ phase: "discover", key: `${o}/`, status: "done" }] });
+    await writeWs(env.WORKSPACE_ROOT, id, "discover.json", JSON.stringify([{ url: `${o}/`, needsAuth: false, status: 200, loadMs: 10, redirected: false }]));
+  } finally {
+    db.close();
+  }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${base}/p/${id}/sitemap`);
+  const note = page.locator('[data-ui="ui_sitemap_locked_note"]');
+  await expect.poll(() => note.count()).toBe(1);
+  expect(await note.innerText()).toBe("Đã bắt đầu clone — danh sách trang đã chốt. Dùng Clone lại để quét lại.");
+  expect(await page.getByRole("checkbox", { name: "/ (trang chủ)" }).isDisabled()).toBe(true);
+  await page.close();
+});
+
 test("progress: after LOGIN_FAILED, Tiếp tục asks for the account and resumes with it", async () => {
   const db = openDb(env.DB_PATH); // the app's own db file (WAL): seed a project whose auto login failed
   const id = crypto.randomUUID();
