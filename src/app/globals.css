@@ -702,6 +702,10 @@ select.full { width: 100%; min-height: 38px; }
 .code-pane.wrap .shiki { white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-pane .line { counter-increment: line; }
 .code-pane .line::before { content: counter(line); display: inline-block; width: 3.5em; margin-right: 1em; padding-right: 0.5em; border-right: 1px solid var(--c-border); text-align: right; color: var(--c-text-3); user-select: none; }
+/* wrap: hanging indent — the gutter (3.5em + 1em margin) leaves the flow and the pre reserves its width, so a wrapped
+   line's continuation rows start under the code, not under the line numbers */
+.code-pane.wrap .shiki { position: relative; padding-left: 4.5em; }
+.code-pane.wrap .line::before { position: absolute; left: 0; }
 .code-image { max-width: 100%; display: block; margin: var(--s-md); }
 .pad { padding: var(--s-md); }
 .code-foot { padding: var(--s-sm) var(--s-md); border-top: 1px solid var(--c-border); color: var(--c-text-3); }

@@ -206,6 +206,14 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   expect(await pane.getAttribute("class")).toContain("wrap");
   // wrap on, initially: the pane itself never scrolls horizontally (the emitted HTML's one-long-line body wraps)
   expect(await pane.evaluate((el) => el.scrollWidth <= el.clientWidth), "wrapped initially").toBe(true);
+  // hanging indent: a wrapped line's continuation rows start after the gutter, never under the line numbers
+  const indents = await pane.evaluate((el) => {
+    const left = el.getBoundingClientRect().left;
+    const em = parseFloat(getComputedStyle(el.querySelector(".line")!).fontSize);
+    return [...el.querySelectorAll(".line")].flatMap((l) => [...l.getClientRects()].slice(1).map((r) => (r.left - left) / em));
+  });
+  expect(indents.length, "the one-long-line body wraps").toBeGreaterThan(0);
+  expect(Math.min(...indents), "continuation indent (em)").toBeGreaterThanOrEqual(4);
   await wrap.click();
   expect(await wrap.getAttribute("aria-pressed")).toBe("false");
   expect(await pane.getAttribute("class")).not.toContain("wrap");
