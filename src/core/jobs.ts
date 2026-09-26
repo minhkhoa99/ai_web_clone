@@ -136,7 +136,7 @@ export async function discoverPages(db: DatabaseSync, projectId: string, handle?
   const t = tasksOf(db, projectId, "discover").find((x) => x.key === url)!;
   emit(projectId, { type: "phase", phase: "discover" });
   startTask(db, projectId, t);
-  const own = handle ?? (await openBrowser({ profileDir: join(ws, "profile") }));
+  const own = handle ?? (await openBrowser({ profileDir: join(ws, "profile"), headed: cfg.headed }));
   try {
     const pages = await crawl(own, { start: url, depth: mode === "single" ? 0 : cfg.depth, maxPages: cfg.maxPages, sameOriginOnly: true, delayMs: cfg.delayMs });
     await writeJsonAtomic(join(ws, "discover.json"), pages);
@@ -593,7 +593,7 @@ export async function runProject(db: DatabaseSync, projectId: string, opts: RunO
   let handle: BrowserHandle | undefined;
   try {
     const pages = JSON.parse(await readFile(join(ws, "pages.json"), "utf8").catch(() => "[]")) as PageRef[];
-    handle = live.handle = await deps.openBrowser({ profileDir: join(ws, "profile"), maxPages: cfg.concurrency });
+    handle = live.handle = await deps.openBrowser({ profileDir: join(ws, "profile"), maxPages: cfg.concurrency, headed: cfg.headed });
     const run: Run = { db, projectId, url, cfg, ws, handle, deps, credentials: opts.credentials, pages, aiFailures: 0, budgetHit: false, signal };
     for (const phase of PHASES) {
       if (signal.aborted) return setPaused(db, projectId);

@@ -158,7 +158,7 @@ test("new: centered card ≤1000px, copy-URL icon, mode toggle, crawl limits onl
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const foreign = trackForeignRequests(page);
   await page.goto(`${base}/new`);
-  await expectUi(page, ["ui_new_clone_page_header", "ui_new_clone_card", "ui_new_clone_url_input", "ui_new_clone_mode_toggle", "ui_new_clone_auth_select", "ui_new_clone_qa_threshold", "ui_new_clone_token_budget", "ui_new_clone_output_format", "ui_new_clone_cancel", "ui_new_clone_preview_sitemap"]);
+  await expectUi(page, ["ui_new_clone_page_header", "ui_new_clone_card", "ui_new_clone_url_input", "ui_new_clone_mode_toggle", "ui_new_headed_toggle", "ui_new_clone_auth_select", "ui_new_clone_qa_threshold", "ui_new_clone_token_budget", "ui_new_clone_output_format", "ui_new_clone_cancel", "ui_new_clone_preview_sitemap"]);
   expect((await page.locator('[data-ui="ui_new_clone_card"]').boundingBox())!.width).toBeLessThanOrEqual(1000);
   expect(await page.locator('[data-ui="ui_new_clone_crawl_limits"]').count()).toBe(0);
   await page.getByRole("group", { name: "Chế độ clone" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
@@ -255,6 +255,7 @@ test("new: delay, QA threshold, token budget and optional login selectors are sa
   await page.getByRole("textbox", { name: "URL trang web" }).fill(`${site.url}/index.html`);
   await page.getByRole("group", { name: "Chế độ clone" }).getByRole("button", { name: "Crawl nhiều trang" }).click();
   await page.getByLabel("Delay giữa request").fill("0");
+  await page.getByRole("checkbox", { name: "Hiện trình duyệt khi chạy" }).check();
   await page.getByRole("spinbutton", { name: "Chính xác (%)" }).fill("90");
   const budget = page.getByRole("textbox", { name: "Ngân sách token" });
   await budget.fill("1500000");
@@ -273,6 +274,7 @@ test("new: delay, QA threshold, token budget and optional login selectors are sa
   try {
     const cfg = JSON.parse((db.prepare("SELECT config_json FROM projects WHERE id=?").get(id) as { config_json: string }).config_json) as ProjectConfig;
     expect(cfg.delayMs).toBe(0);
+    expect(cfg.headed).toBe(true);
     expect(cfg.auth).toEqual({ mode: "auto", selectors: { pass: "#pw", submit: "button.go" } });
     expect(cfg.threshold).toBe(0.9);
     expect(cfg.tokenBudget).toBe(1_500_000);

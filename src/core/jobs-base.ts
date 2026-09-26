@@ -16,6 +16,7 @@ export const projectConfigSchema = z
     maxPages: z.number().int().min(1).max(100).default(20),
     concurrency: z.number().int().min(1).max(5).default(3),
     delayMs: z.number().int().min(0).max(10_000).default(500),
+    headed: z.boolean().default(false), // true: launch Chromium headed so the user can watch the run live (session/login window is unaffected)
     threshold: z.number().min(0).max(1).default(0.95),
     tokenBudget: z.number().int().positive().default(config.tokenBudget),
     providerId: z.string().optional(),

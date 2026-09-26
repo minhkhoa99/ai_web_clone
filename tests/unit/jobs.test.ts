@@ -9,6 +9,7 @@ import { buildIR } from "@/core/ir";
 import { PNG } from "pngjs";
 import { config } from "@/core/config";
 import { createProject, enqueue, pageIdsFor, pauseProject, recoverOnStartup, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
+import { projectConfigSchema } from "@/core/jobs-base";
 import type { FixCtx } from "@/core/qa-fix";
 
 test("pageIdsFor: / -> home, /a/b -> a-b, .html stripped, unsafe chars sanitized, dupes get -2 in URL order", () => {
@@ -35,6 +36,7 @@ test("createProject freezes validated config with defaults; bad values and secre
     maxPages: 20,
     concurrency: 3,
     delayMs: 500,
+    headed: false,
     threshold: 0.95,
     tokenBudget: 2_000_000,
     auth: { mode: "none" },
@@ -49,6 +51,27 @@ test("createProject freezes validated config with defaults; bad values and secre
   expect(bad({ auth: { mode: "auto", pass: "hunter2" } })).toThrow();
   expect(() => createProject(db, { url: "ftp://x.test/", mode: "single", config: {} })).toThrow();
   expect((db.prepare("SELECT COUNT(*) n FROM projects").get() as { n: number }).n).toBe(1);
+});
+
+test("projectConfigSchema.headed defaults to false and accepts true (hardening spec §5)", () => {
+  expect(projectConfigSchema.parse({}).headed).toBe(false);
+  expect(projectConfigSchema.parse({ headed: true }).headed).toBe(true);
+});
+
+test("runProject opens the browser with cfg.headed (hardening spec §5)", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: { headed: true } });
+  await enqueue(db, id, ["http://x.test/"]);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='pages/home/missing.json' WHERE project_id=? AND phase='capture'").run(id);
+  let seenHeaded: boolean | undefined;
+  const deps = {
+    openBrowser: async (opts?: { headed?: boolean }): Promise<BrowserHandle> => {
+      seenHeaded = opts?.headed;
+      return { context: {} as BrowserHandle["context"], close: async () => {} };
+    },
+  };
+  await expect(runProject(db, id, { deps })).rejects.toThrow(/ENOENT/);
+  expect(seenHeaded).toBe(true);
 });
 
 test("enqueue creates exactly capture/name per page + ir/emit/qa, all pending; re-enqueue replaces the selection", async () => {

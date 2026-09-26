@@ -63,6 +63,7 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
   const [remember, setRemember] = useState(false);
+  const [headed, setHeaded] = useState(cfg?.headed ?? false);
   const [threshold, setThreshold] = useState(Math.round((cfg?.threshold ?? 0.95) * 100));
   const [tokenBudget, setTokenBudget] = useState(cfg ? String(cfg.tokenBudget) : ""); // digits only; "" = server default
   const [budgetFocus, setBudgetFocus] = useState(false);
@@ -114,6 +115,7 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
         concurrency,
         delayMs,
         threshold: threshold / 100,
+        headed,
         ...(tokenBudget ? { tokenBudget: Number(tokenBudget) } : {}),
         auth: { mode: authMode, ...(authMode === "auto" && Object.keys(filled).length > 0 ? { selectors: filled } : {}) },
       };
@@ -195,6 +197,14 @@ export function NewCloneForm({ initial }: { initial?: Initial }) {
           </div>
         </Card>
       )}
+
+      <div className="new-section" data-ui="ui_new_headed_toggle">
+        <label className="check">
+          <input type="checkbox" checked={headed} onChange={(e) => setHeaded(e.target.checked)} />
+          Hiện trình duyệt khi chạy
+        </label>
+        <p className="t-body-sm text-3">Mở cửa sổ Chromium để xem trực tiếp; mặc định chạy nền.</p>
+      </div>
 
       <Section icon="lock" title="Đăng nhập" ui="ui_new_clone_auth_select">
         <select aria-label="Cách đăng nhập" className="full" value={authMode} onChange={(e) => setAuthMode(e.target.value as AuthMode)}>
