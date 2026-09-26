@@ -186,6 +186,25 @@ test("sections: a non-landmark wrapper holding main among siblings is descended;
   expect(ids(buildIR([cap]))).toEqual(ids(ir));
 });
 
+test("sections: noise siblings don't block the single-wrapper unwrap (Next.js shape, no main)", () => {
+  const ir = buildIR([
+    capture(
+      "p1",
+      "https://x.test/",
+      doc([
+        el("div", { id: "__next" }, [header(), el("section", { id: "hero" }, [txt("h")]), el("footer", {}, [txt("f")])]),
+        el("next-route-announcer", {}, [el("p", {}, [txt("")])]),
+        el("div", { id: "hidden" }, [txt("x")], { style: { display: "none" } }),
+      ]),
+    ),
+  ]);
+  expect(ir.sections.map((s) => [s.role, s.root.tag, s.root.attrs.id ?? ""])).toEqual([
+    ["header", "header", ""],
+    ["block", "section", "hero"],
+    ["footer", "footer", ""],
+  ]);
+});
+
 test("sections: when every candidate is noise, the unfiltered list is kept", () => {
   const ir = buildIR([capture("p1", "https://x.test/", doc([el("div", { id: "a" }, [txt("a")], { bbox: [0, 0, 0, 0] }), el("div", { id: "b" }, [txt("b")], { bbox: [0, 0, 0, 0] })]))]);
   expect(ir.sections.map((s) => s.root.attrs.id)).toEqual(["a", "b"]);

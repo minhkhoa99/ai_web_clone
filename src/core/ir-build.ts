@@ -68,16 +68,25 @@ const hasMainWithin = (node: Draft, depth: number): boolean =>
 const isNoise = (node: Draft) =>
   NOISE_TAGS.has(node.tag) || !!node.zeroBox || node.style.base.display === "none" || node.style.base.visibility === "hidden";
 
+// All-noise -> keep the unfiltered list (never zero sections for a non-empty body).
+const withoutNoise = (nodes: Draft[]) => {
+  const kept = nodes.filter((node) => !isNoise(node));
+  return kept.length > 0 ? kept : nodes;
+};
+
 // Body element children -> sections, after unwrapping (up to MAX_UNWRAP times) a single
-// non-landmark wrapper, or the one wrapper among siblings that holds `main` (so header/footer
-// beside main become sections); `main` contributes each element child. Noise (hidden,
-// zero-size, script-like) is never a section root. Body, wrappers, main and noise stay in the shell.
+// non-landmark wrapper (noise siblings ignored), or the one wrapper among siblings that holds
+// `main` (so header/footer beside main become sections); `main` contributes each element child.
+// Noise (hidden, zero-size, script-like) is never a section root. Body, wrappers, main and
+// noise stay in the shell.
 export function splitSections(html: Draft): { role: string; root: Draft }[] {
   const body = html.children.find((c) => c.tag === "body");
   if (!body) return [];
   let candidates = elements(body);
   for (let depth = 0; depth < MAX_UNWRAP; depth++) {
-    const wrappers = candidates.length === 1 ? candidates.filter(isWrapper) : candidates.filter((c) => isWrapper(c) && hasMainWithin(c, MAX_UNWRAP));
+    // Decide on non-noise candidates (noise siblings like next-route-announcer must not block the unwrap).
+    const live = withoutNoise(candidates);
+    const wrappers = live.length === 1 ? live.filter(isWrapper) : live.filter((c) => isWrapper(c) && hasMainWithin(c, MAX_UNWRAP));
     if (wrappers.length !== 1) break;
     const wrapper = wrappers[0]!;
     candidates = candidates.flatMap((c) => (c === wrapper ? elements(c) : [c]));
@@ -86,8 +95,7 @@ export function splitSections(html: Draft): { role: string; root: Draft }[] {
     const kids = isMain(node) ? elements(node) : [];
     return kids.length > 0 ? kids : [node];
   });
-  const kept = all.filter((node) => !isNoise(node));
-  return (kept.length > 0 ? kept : all).map((root) => ({ role: landmarkOf(root) ?? "block", root }));
+  return withoutNoise(all).map((root) => ({ role: landmarkOf(root) ?? "block", root }));
 }
 
 // html minus head, with every section root swapped for its placeholder (keyed by root node id).
