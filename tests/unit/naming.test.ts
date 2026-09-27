@@ -2,7 +2,7 @@ import { expect, test, vi, beforeEach } from "vitest";
 import type { IR, IRNode, Page, Section } from "@/core/ir";
 import { AppError } from "@/core/errors";
 import { PNG } from "pngjs";
-import { applySectionNames, buildOutline, capOutlineText, fitImages, nameSections, thumbnailOf, type SectionOutline } from "@/core/naming";
+import { applySectionNames, buildOutline, capOutlineText, fitImages, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, nameSections, thumbnailOf, type SectionOutline } from "@/core/naming";
 
 vi.mock("@/core/gateway", () => ({ generate: vi.fn() }));
 import { generate } from "@/core/gateway";
@@ -262,4 +262,18 @@ test("fitImages: over the base64 cap drops from the end (heat, then clone), keep
   // even a single image over cap: halving loop is bounded, still returns something
   const tiny = fitImages([noisyPng(2000, 2000)], { maxWidth: 1024, maxTotalB64: 1 });
   expect(tiny).toHaveLength(1);
+});
+
+// Real-run evidence (hardening spec §8): one 1024x608 crop was 1 245 662 base64 chars, which the proxy counted
+// as ~311k tokens. Every request's images are now capped at 384 KiB of base64 in total (~98k tokens worst case).
+test("MAX_IMAGES_B64 is 384 KiB: a real-run sized noisy crop trio is fitted under it", () => {
+  expect(MAX_IMAGES_B64).toBe(384 * 1024);
+  const noise = () => {
+    const png = new PNG({ width: 1024, height: 608 });
+    for (let i = 0; i < png.data.length; i++) png.data[i] = i % 4 === 3 ? 255 : Math.floor(Math.random() * 256);
+    return PNG.sync.write(png);
+  };
+  const fitted = fitImages([noise(), noise(), noise()], { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
+  expect(fitted.length).toBeGreaterThan(0);
+  expect(fitted.reduce((n, b) => n + b.length, 0)).toBeLessThanOrEqual(384 * 1024);
 });

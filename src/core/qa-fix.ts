@@ -219,7 +219,7 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
 
 // Generate <-> tool-call loop on the clone page; returns the final reply text. The evidence images go with the
 // first call only; a later call carries just the screenshots the AI asked for with the tool, under the same caps
-// (hardening spec §6: every request <= 1.5 MB). Exported for tests.
+// (hardening spec §6, §8: every request's images <= 384 KiB base64). Exported for tests.
 export async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
   const inspector = asTools({ clone: page });
   let attach = images;

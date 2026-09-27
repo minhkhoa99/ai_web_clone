@@ -44,7 +44,7 @@ test("replaceSubtree deeper than 20 or larger than 500 nodes is rejected", () =>
   rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: node("div", {}, Array.from({ length: 500 }, () => node("span"))) }]));
 });
 
-test("ask: the inspector's tool screenshots go through fitImages too (every request's images <= 1.5 MB base64, <= 1024 px wide)", async () => {
+test("ask: the inspector's tool screenshots go through fitImages too (every request's images <= MAX_IMAGES_B64 (384 KiB) base64, <= 1024 px wide)", async () => {
   const noise = () => {
     const png = new PNG({ width: 800, height: 800 });
     for (let i = 0; i < png.data.length; i++) png.data[i] = i % 4 === 3 ? 255 : Math.floor(Math.random() * 256);

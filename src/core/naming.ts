@@ -12,10 +12,11 @@ const MAX_NAME_CHARS = 60;
 const MAX_ROLE_CHARS = 30;
 const THUMB_MAX_WIDTH = 400;
 const THUMB_MAX_HEIGHT = 1200;
-// Real-run evidence (hardening spec §6): a 5.1MB fix request (3 full-size crops) and a 70,745-token naming
-// call. Every image sent to AI is capped the same way, fix loop and naming thumbnail alike.
+// Real-run evidence (hardening spec §6, §8): a 5.1MB fix request (3 full-size crops), a 70,745-token naming
+// call, and a proxy that counts base64 as text (one 1024x608 crop = 1 245 662 chars ≈ 311k tokens). Every
+// image sent to AI is capped the same way, fix loop, inspector tool screenshots and naming thumbnail alike.
 export const MAX_IMAGE_WIDTH = 1024;
-export const MAX_IMAGES_B64 = 1.5 * 1024 * 1024;
+export const MAX_IMAGES_B64 = 384 * 1024;
 const MAX_HALVINGS = 4;
 const MAX_NAMING_CHARS = 24_000;
 
