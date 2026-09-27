@@ -68,3 +68,29 @@ test("subtree limits reject deep and oversized legacy input", () => {
   wide.sections[0]!.root.children = Array.from({ length: 500 }, (_, i) => ({ id: `wide-${i}`, tag: "div", attrs: {}, cls: [], children: [] }));
   expect(() => migrateIR(wide, [capture])).toThrowError(AppError);
 });
+
+test("malformed v2 is rejected with a coded error before reference return", () => {
+  const valid = migrateIR(buildIR([capture]), [capture]);
+  for (const bad of [{ version: 2 }, { ...valid, sections: [{ ...valid.sections[0], root: { ...valid.sections[0]!.root, styles: null } }] }]) {
+    try {
+      migrateIR(bad, []);
+      throw new Error("accepted malformed v2");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(Codes.IR_PATCH_INVALID);
+    }
+  }
+});
+
+test("malformed legacy cssom is rejected with a coded error", () => {
+  const legacy = buildIR([capture]);
+  for (const cssom of [{}, { keyframes: [], fontFace: null, vars: {} }, { keyframes: [], fontFace: [], vars: null }]) {
+    try {
+      migrateIR({ ...legacy, cssom }, [capture]);
+      throw new Error("accepted malformed cssom");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(Codes.IR_PATCH_INVALID);
+    }
+  }
+});
