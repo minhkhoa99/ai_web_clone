@@ -10,12 +10,16 @@ import { serveDir } from "@/core/serve";
 import { capturePage, type PageCapture } from "@/core/capture";
 import { applyPatch, buildIR, type IR, type PatchOp, type Section } from "@/core/ir";
 import { openDb } from "@/core/db";
-import { writeGraph } from "@/core/graph";
+import { contextForFix, writeGraph } from "@/core/graph";
 import { AppError } from "@/core/errors";
 import { generate } from "@/core/gateway";
 import { fixAll, fixSection, type FixCtx } from "@/core/qa-fix";
 
 vi.mock("@/core/gateway", () => ({ generate: vi.fn() }));
+vi.mock("@/core/graph", async (orig) => {
+  const graph = await orig<typeof import("@/core/graph")>();
+  return { ...graph, contextForFix: vi.fn(graph.contextForFix) }; // real behaviour, budgets observable
+});
 const generateMock = vi.mocked(generate);
 
 const site1Dir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
@@ -237,4 +241,33 @@ test("a tool screenshot reaches the next generate call as an image, not as TOOL_
   const png = PNG.sync.read(Buffer.from(second.images![0]!, "base64"));
   expect(png.width).toBeLessThanOrEqual(800);
   expect(png.height).toBeLessThanOrEqual(800);
+});
+
+test("AI_TOO_LARGE spends that section's round; its next rounds go without images at half the CONTEXT budget; other sections unaffected", async () => {
+  const tooLarge = new AppError("AI_TOO_LARGE", 'provider "p" model "m" returned status 400: {"error":{"code":"context_length_exceeded"}}');
+  let heroCalls = 0;
+  generateMock.mockImplementation(async (_db, opts) => {
+    const text = opts.messages.map((m) => m.content).join("\n");
+    if (text.includes(`SECTION ${hero.id} `) && ++heroCalls === 1) throw tooLarge;
+    return reply([restore(text.includes(`SECTION ${hero.id} `) ? hero : header)]);
+  });
+  vi.mocked(contextForFix).mockClear();
+  const ctx = newCtx();
+  const logs = logsTo(ctx);
+  const all = await fixAll(ctx, [hero, header].map((s) => ({ sectionId: s.id, pageId: "home" })));
+  expect(all.map((r) => [r.sectionId, r.status, r.rounds])).toEqual([
+    [hero.id, "pass", 2],
+    [header.id, "pass", 1],
+  ]);
+  const calls = generateMock.mock.calls.map((c) => c[1]);
+  const heroOpts = calls.filter((o) => o.messages.some((m) => m.content.includes(`SECTION ${hero.id} `)));
+  const headerOpts = calls.filter((o) => o.messages.some((m) => m.content.includes(`SECTION ${header.id} `)));
+  expect(heroOpts[0]!.images).toHaveLength(3);
+  expect(heroOpts[1]!.images).toBeUndefined(); // reduced: no images
+  const budgets = (id: string) => [...new Set(vi.mocked(contextForFix).mock.calls.filter((c) => c[2] === id).map((c) => c[3]))];
+  expect(budgets(hero.id)).toEqual([24_000, 12_000]); // round 2: half the CONTEXT budget
+  expect(budgets(header.id)).toEqual([24_000]);
+  expect(headerOpts[0]!.images).toHaveLength(3); // the sibling keeps its images
+  expect(logs).toContainEqual(`warn fix home:${hero.id} vòng 1: request quá lớn (AI_TOO_LARGE), vòng sau bỏ ảnh và giảm ngữ cảnh`);
+  expect(logs.some((l) => l.includes("AI dừng"))).toBe(false);
 });

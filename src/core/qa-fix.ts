@@ -259,8 +259,9 @@ TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then 
   throw new AppError(Codes.AI_BAD_RESPONSE, `no patch after ${MAX_GENERATE_CALLS} generate calls`, { projectId: ctx.projectId });
 }
 
-// One round up to the AI's validated ops: evidence -> graph context -> AI.
-async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: string): Promise<PatchOp[]> {
+// One round up to the AI's validated ops: evidence -> graph context -> AI. `reduced` (after an AI_TOO_LARGE, hardening
+// spec §8): no images, CONTEXT and FOCUS_NODES at half their budgets.
+async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: string, reduced: boolean): Promise<PatchOp[]> {
   const section = ctx.ir.sections.find((s) => s.id === t.sectionId);
   const file = pageFileNames(ctx.ir.pages).get(t.pageId);
   if (!section || !file) throw new Error(`qa-fix: unknown section ${t.sectionId} / page ${t.pageId}`);
@@ -272,12 +273,13 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
       await prepareClonePage(page, `${server.url}/${file}`, bp);
       const evidence = await inspect(ctx, page, t, best, rootId);
       const focusIds = evidence.focus.map((f) => f.id);
-      const contextBudget = ctx.contextBudgetChars ?? DEFAULT_CONTEXT_CHARS;
+      const base = reduced ? 0.5 : 1;
+      const contextBudget = (ctx.contextBudgetChars ?? DEFAULT_CONTEXT_CHARS) * base;
       // Real-run evidence (hardening spec §6): three full-size crops made one fix request 5.1MB. Downscale to
       // <=1024px wide; if the total base64 is still over the cap, drop heat, then clone (fitImages drops from
       // the end, so [orig, clone, heat] order matters here).
       const buffers = [origPath, clonePath, heatPath].flatMap((p) => (p && best.files.has(p) ? [best.files.get(p)!] : []));
-      const images = fitImages(buffers, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
+      const images = reduced ? [] : fitImages(buffers, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
       // CONTEXT and FOCUS_NODES budgets scale down when the request is over MAX_REQUEST_TOKENS (fitRequest).
       const prompt = (scale: number): ChatMessage[] => {
         const context = contextForFix(ctx.db, ctx.projectId, t.sectionId, Math.floor(contextBudget * scale), focusIds);
@@ -285,7 +287,7 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
           `SECTION ${t.sectionId} page ${t.pageId}`,
           `SCORES ${JSON.stringify(best.scores)} threshold ${ctx.threshold ?? DEFAULT_THRESHOLD}; evidence at bp ${bp}, bbox delta ${bboxDelta}px`,
           `A11Y_SNAPSHOT (clone)\n${evidence.a11y}`,
-          `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus, Math.floor(MAX_FOCUS_CHARS * scale)))}`,
+          `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus, Math.floor(MAX_FOCUS_CHARS * base * scale)))}`,
           `CONTEXT ${JSON.stringify(context)}`,
         ].join("\n\n");
         return [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
@@ -318,6 +320,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
   let rounds = 0;
   let patched = false;
   let failed = false;
+  let reduced = false; // an AI_TOO_LARGE seen: this section's next rounds shrink (other sections unaffected)
   const log = (level: "info" | "warn", message: string) => ctx.log?.(level, `fix ${pageId}:${sectionId}${message}`);
   try {
     best = await scoreIr(ctx, ctx.ir, t, bestDir);
@@ -334,7 +337,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
       let ops: PatchOp[];
       let candidateIr: IR | undefined;
       try {
-        ops = await proposeOps(ctx, t, best, bestDir);
+        ops = await proposeOps(ctx, t, best, bestDir, reduced);
         candidateIr = tryApply(ctx.ir, ops);
       } catch (e) {
         if (ctx.signal?.aborted) throw e; // paused: never a budget / AI stop / spent round
@@ -345,6 +348,11 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         if (hasCode(e, ...STOP_AI_CODES)) {
           stop.ai ??= { code: e.code, message: e.message };
           return result("ai_stopped");
+        }
+        if (hasCode(e, Codes.AI_TOO_LARGE)) {
+          reduced = true;
+          log("warn", `${round}: request quá lớn (AI_TOO_LARGE), vòng sau bỏ ảnh và giảm ngữ cảnh`);
+          continue; // the round is spent
         }
         if (hasCode(e, Codes.AI_BAD_RESPONSE)) {
           log("warn", `${round}: AI trả sai định dạng`);

@@ -64,6 +64,7 @@ Bảng gợi ý (`src/app/_ui/error-hints.ts`):
 | `AI_QUOTA` | Provider hết credit/quota. Nạp thêm hoặc đổi provider ở Cài đặt AI, rồi Chạy lại QA / Tiếp tục. |
 | `AI_AUTH` | API key sai hoặc không có quyền. Sửa ở Cài đặt AI. |
 | `AI_BAD_CONFIG` | Base URL / model không hợp lệ hoặc request bị từ chối. Kiểm tra Cài đặt AI (Test kết nối). |
+| `AI_TOO_LARGE` | Request vượt giới hạn context của model. Vòng sau tự bỏ ảnh và giảm ngữ cảnh; nếu vẫn lỗi, chọn model có context lớn hơn ở Cài đặt AI. |
 | `AI_RATE_LIMIT` | Provider giới hạn tốc độ. Chờ rồi Tiếp tục. |
 | `AI_BAD_RESPONSE` | AI trả lời sai định dạng hoặc lỗi mạng/5xx. Thử lại hoặc đổi model. |
 | `AI_CIRCUIT_OPEN` | AI lỗi 5 lần liên tiếp. Sửa cấu hình AI rồi Tiếp tục. |

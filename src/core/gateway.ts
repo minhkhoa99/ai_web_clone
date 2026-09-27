@@ -257,8 +257,9 @@ export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: s
   const url = `${baseUrl}/models`;
   const res = await fetch(url, { headers: modelsHeaders(kind, apiKey), signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
-    const { code } = mapHttpError(res.status);
-    const excerpt = await bodyExcerpt(res, apiKey);
+    const body = await res.text().catch(() => "");
+    const { code } = mapHttpError(res.status, body);
+    const excerpt = excerptOf(body, apiKey);
     throw new AppError(code, `fetchModels failed with status ${res.status}${excerpt ? `: ${excerpt}` : ""}`, { status: res.status, url });
   }
   const raw = (await res.json()) as { data?: { id: string }[] };
@@ -266,7 +267,11 @@ export async function fetchModels(kind: ProviderKind, baseUrl: string, apiKey: s
   return { models: raw.data.map((m) => m.id), httpStatus: res.status };
 }
 
-function mapHttpError(status: number): { code: Code; retryable: boolean } {
+// A request over the model's context (hardening spec §8): OpenAI-compatible, Anthropic, and generic proxy wording.
+const TOO_LARGE = /context_length_exceeded|prompt is too long|maximum context length/i;
+
+function mapHttpError(status: number, body = ""): { code: Code; retryable: boolean } {
+  if (status === 413 || (status === 400 && TOO_LARGE.test(body))) return { code: "AI_TOO_LARGE", retryable: false };
   if (status === 429) return { code: "AI_RATE_LIMIT", retryable: true };
   if (status === 401 || status === 403) return { code: "AI_AUTH", retryable: false };
   if (status === 402) return { code: "AI_QUOTA", retryable: false };
@@ -275,8 +280,7 @@ function mapHttpError(status: number): { code: Code; retryable: boolean } {
 }
 
 // Body text with the api key scrubbed, whitespace collapsed, cut to 300 chars — for informative but leak-free error messages.
-async function bodyExcerpt(res: Response, apiKey: string): Promise<string> {
-  const text = await res.text().catch(() => "");
+function excerptOf(text: string, apiKey: string): string {
   const redacted = apiKey ? text.split(apiKey).join("[redacted]") : text;
   return redacted.replace(/\s+/g, " ").trim().slice(0, 300);
 }
@@ -370,9 +374,10 @@ export async function generate(db: DatabaseSync, opts: GenerateOptions, sleep: S
     }
 
     if (!res.ok) {
-      const { code, retryable } = mapHttpError(res.status);
+      const body = await res.text().catch(() => ""); // whole body: the too-large marker can sit past the excerpt
+      const { code, retryable } = mapHttpError(res.status, body);
       if (!retryable || attempt === MAX_RETRIES) {
-        const excerpt = await bodyExcerpt(res, apiKey);
+        const excerpt = excerptOf(body, apiKey);
         throw new AppError(
           code,
           `provider "${provider.name}" model "${provider.model}" returned status ${res.status}${excerpt ? `: ${excerpt}` : ""}`,

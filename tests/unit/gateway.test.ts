@@ -1,6 +1,7 @@
 import { expect, test, vi, afterEach } from "vitest";
 import { toRequest, parseResponse, saveProvider, updateProvider, generate, fetchModels } from "@/core/gateway";
 import { openDb } from "@/core/db";
+import { STOP_AI } from "@/core/statuses";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -313,4 +314,29 @@ test("generate: an abort during the retry backoff rejects at once with the abort
   await expect(run).rejects.toThrow("paused");
   expect(Date.now() - t0).toBeLessThan(100);
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+// Hardening spec §8: the real run's 400 (a proxy in front of an OpenAI-compatible API), verbatim.
+const REAL_TOO_LARGE_BODY =
+  '{"error":{"message":"This model\'s maximum context length is 270,000 tokens. However, your request resulted in 360,738 tokens. Please reduce the length of the messages.","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}';
+
+test("generate: context too large (413, or 400 naming the context limit) -> AI_TOO_LARGE, not retried; any other 400 stays AI_BAD_CONFIG", async () => {
+  const { db } = setupProvider();
+  const cases: [number, string, string][] = [
+    [400, REAL_TOO_LARGE_BODY, "AI_TOO_LARGE"],
+    [413, "Request Entity Too Large", "AI_TOO_LARGE"],
+    [400, '{"type":"error","error":{"type":"invalid_request_error","message":"Prompt is too long: 250000 tokens > 200000 maximum"}}', "AI_TOO_LARGE"],
+    [400, '{"error":{"message":"This model\'s MAXIMUM CONTEXT LENGTH is 8192 tokens"}}', "AI_TOO_LARGE"],
+    [400, '{"error":{"message":"model not found"}}', "AI_BAD_CONFIG"],
+  ];
+  for (const [status, body, code] of cases) {
+    const fetchMock = vi.fn(async () => new Response(body, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(generate(db, { role: "code", messages: [{ role: "user", content: "hi" }] }, async () => {}), `${status} ${body}`).rejects.toMatchObject({ code });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  }
+});
+
+test("AI_TOO_LARGE is not a STOP_AI code: only that section's next rounds shrink, AI keeps going", () => {
+  expect(STOP_AI.has("AI_TOO_LARGE")).toBe(false);
 });
