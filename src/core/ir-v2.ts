@@ -57,6 +57,7 @@ type Boxes = Map<string, Partial<Record<1440 | 768 | 375, { tag: string; bbox: C
 
 export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
   const boxes: Boxes = new Map();
+  const available = new Map(captures.map((capture) => [capture.pageId, new Set(capture.breakpoints.map((entry) => entry.bp))]));
   for (const capture of captures) {
     for (const { bp, dom } of capture.breakpoints) {
       if (bp !== 1440 && bp !== 768 && bp !== 375) continue;
@@ -104,7 +105,7 @@ export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
     }
     return out;
   };
-  return {
+  const result: IRV2 = {
     version: 2, revision: 0,
     pages: legacy.pages.map((page) => ({ ...page, shell: convert(page.shell) })),
     sections: legacy.sections.map((section) => ({ ...section, root: convert(section.root) })),
@@ -113,4 +114,23 @@ export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
     cssom: { keyframes: [...legacy.cssom.keyframes], fontFace: [...legacy.cssom.fontFace], vars: { ...legacy.cssom.vars } },
     interactions: legacy.interactions.map((interaction) => ({ ...interaction })), fidelity: [],
   };
+  for (const page of result.pages) {
+    const breakpoints = available.get(page.id);
+    for (const bp of [1440, 768, 375] as const) {
+      if (breakpoints?.has(bp)) continue;
+      result.fidelity.push({ pageId: page.id, feature: "capture-box", status: "partial", breakpoint: bp, note: `missing capture at ${bp}` });
+    }
+  }
+  const check = (node: IRNodeV2, pageId: string): void => {
+    const matches = boxes.get(node.id);
+    for (const bp of [1440, 768, 375] as const) {
+      if (!available.get(pageId)?.has(bp) || node.tag === "#section") continue;
+      if (matches?.[bp]?.tag === node.tag) continue;
+      result.fidelity.push({ pageId, feature: "capture-box", status: "partial", nodeId: node.id, breakpoint: bp, sourceRef: node.id, note: `capture path or tag mismatch at ${bp}` });
+    }
+    for (const child of node.children) check(child, pageId);
+  };
+  for (const page of result.pages) check(page.shell, page.id);
+  for (const section of result.sections) check(section.root, section.pageId);
+  return result;
 }
