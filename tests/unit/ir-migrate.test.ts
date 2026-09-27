@@ -94,3 +94,23 @@ test("malformed legacy cssom is rejected with a coded error", () => {
     }
   }
 });
+
+test("v2 rejects unknown node types and non-string declaration or attribute values", () => {
+  const valid = migrateIR(buildIR([capture]), [capture]);
+  const root = valid.sections[0]!.root;
+  for (const changed of [
+    { type: "not-a-node-type" },
+    { attrs: { title: 42 } },
+    { styles: { ...root.styles, base: { color: 42 } } },
+    { styles: { ...root.styles, bp: { 768: { color: 42 } } } },
+  ]) {
+    const bad = { ...valid, sections: [{ ...valid.sections[0], root: { ...root, ...changed } }] };
+    try {
+      migrateIR(bad, []);
+      throw new Error("accepted malformed v2 node");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe(Codes.IR_PATCH_INVALID);
+    }
+  }
+});

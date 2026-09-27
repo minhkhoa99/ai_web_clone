@@ -1,11 +1,14 @@
 import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
 import type { LegacyIR } from "./ir-legacy";
-import { toV2, type IRV2 } from "./ir-v2";
+import { toV2, type IRV2, type NodeType } from "./ir-v2";
 
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const invalid = (message: string): never => { throw new AppError(Codes.IR_PATCH_INVALID, message); };
 const cssomValid = (value: unknown): boolean => object(value) && Array.isArray(value.keyframes) && Array.isArray(value.fontFace) && object(value.vars);
+const nodeTypes = new Set<NodeType>(["container", "text", "image", "link", "button", "input", "media", "svg", "component-root"]);
+const strings = (value: unknown): boolean => object(value) && Object.values(value).every((entry) => typeof entry === "string");
+const declarations = (value: unknown): boolean => object(value) && Object.values(value).every(strings);
 
 export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   if (!object(input)) return invalid("IR must be an object");
@@ -16,9 +19,14 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     const seen = new Set<string>();
     const visitV2 = (node: unknown, depth: number, count: { value: number }): void => {
       if (!object(node) || typeof node.id !== "string" || !node.id || typeof node.tag !== "string" ||
-          typeof node.type !== "string" || !object(node.attrs) || !object(node.styles) ||
-          !object(node.styles.base) || !object(node.styles.bp) || !object(node.styles.state) ||
-          !object(node.styles.pseudo) || !Array.isArray(node.children)) return invalid("invalid v2 IR node");
+          !nodeTypes.has(node.type as NodeType) || !strings(node.attrs) || !object(node.styles) ||
+          !strings(node.styles.base) || !declarations(node.styles.bp) || !declarations(node.styles.state) ||
+          !declarations(node.styles.pseudo) || !Array.isArray(node.children) ||
+          (node.parentId !== undefined && typeof node.parentId !== "string") ||
+          (node.name !== undefined && typeof node.name !== "string") ||
+          (node.text !== undefined && typeof node.text !== "string") ||
+          (node.hidden !== undefined && typeof node.hidden !== "boolean") ||
+          (node.behavior !== undefined && typeof node.behavior !== "string")) return invalid("invalid v2 IR node");
       if (++count.value > 500 || depth > 20) return invalid("IR subtree limit exceeded");
       if (seen.has(node.id)) return invalid(`duplicate node id: ${node.id}`);
       seen.add(node.id);
