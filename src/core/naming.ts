@@ -98,11 +98,19 @@ export function thumbnailOf(src: PNG, maxWidth = THUMB_MAX_WIDTH, maxHeight = TH
 // base64 still exceeds maxTotalB64, images are dropped from the END of the array (spec order: pass
 // [orig, clone, heat] so heat drops first, then clone) until one is left; if that lone survivor is still
 // over, its width is halved up to MAX_HALVINGS times. Bounded, never throws: worst case it sends what's left.
+// A buffer that does not decode (hardening spec §8: an encoded 0-height crop) is skipped.
 export function fitImages(pngBuffers: Buffer[], opts: { maxWidth: number; maxTotalB64: number }): string[] {
+  const decoded = pngBuffers.flatMap((buf) => {
+    try {
+      return [PNG.sync.read(buf)];
+    } catch {
+      return [];
+    }
+  });
   let width = opts.maxWidth;
-  let kept = pngBuffers.length;
+  let kept = decoded.length;
   for (let halving = 0; halving <= MAX_HALVINGS; halving++) {
-    const encoded = pngBuffers.slice(0, kept).map((buf) => PNG.sync.write(scaleToWidth(PNG.sync.read(buf), width)).toString("base64"));
+    const encoded = decoded.slice(0, kept).map((png) => PNG.sync.write(scaleToWidth(png, width)).toString("base64"));
     const total = () => encoded.reduce((sum, b) => sum + b.length, 0);
     while (encoded.length > 1 && total() > opts.maxTotalB64) {
       encoded.pop();

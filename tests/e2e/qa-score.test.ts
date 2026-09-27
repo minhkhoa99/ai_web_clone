@@ -73,3 +73,25 @@ test("site1: every section x bp is scored with files on disk; a recolored sectio
     expect.objectContaining({ sectionId: footer.id, score: 0, origPath: null, heatPath: null, clonePath: null, bboxDelta: 0 }),
   ]);
 });
+
+// Hardening spec §8: a 0-height clone crop was written as a PNG, and reading it back ("bad png - invalid inflate
+// data") failed the project. A zero-area crop is scored as before but never written: its path is null.
+test("a section whose clone box has zero height: no clone PNG written, clonePath null, still scored", async () => {
+  const workspaceDir = join(tmp, "ws0");
+  const outDir = join(tmp, "out0");
+  const url = `${server.url}/index.html`;
+  const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
+  const cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
+  const ir = buildIR([cap]);
+  const hero = ir.sections.find((s) => JSON.stringify(s.root).includes("Build faster sites"))!;
+  const flat = { height: "0px", "min-height": "0px", "padding-top": "0px", "padding-bottom": "0px", "border-width": "0px", overflow: "hidden" };
+  const squashed = applyPatch(ir, [{ op: "setStyle", id: hero.root.id, style: flat }]);
+  await emitHtml(squashed, { outDir, workspaceDir, assetMap: cap.assets, pageUrls: { home: url } });
+
+  const [row] = await scoreSections(handle, { workspaceDir, outDir, ir: squashed, captures: [cap], bps: [1440], sectionIds: [hero.id] });
+  expect(row).toMatchObject({ sectionId: hero.id, bp: 1440, clonePath: null });
+  expect(row!.score).toBeGreaterThanOrEqual(0);
+  expect(row!.score).toBeLessThan(0.95);
+  await expect(access(join(workspaceDir, "qa", "home", hero.id, "1440-clone.png"))).rejects.toThrow();
+  for (const rel of [row!.origPath, row!.heatPath]) await access(join(workspaceDir, rel!)); // the non-empty ones still are
+});

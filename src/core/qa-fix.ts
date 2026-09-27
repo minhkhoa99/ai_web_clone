@@ -1,7 +1,7 @@
 // QA fix loop (spec §9): <=3 AI rounds per failing section. Before every AI call the orchestrator
 // gathers inspector evidence; each candidate IR is emitted + scored in its own temp dir and only
 // accepted when its min score over the breakpoints rises, so a section's score never regresses.
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { Page } from "playwright";
@@ -11,6 +11,7 @@ import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
 import type { CaptureNode, PageCapture } from "./capture";
 import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
+import { writeFileAtomic } from "./fsx";
 import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
@@ -395,7 +396,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
   } finally {
     try {
       // A reverted candidate left its crops under qa/; put the best's back.
-      if (best && !diskIsBest) await Promise.all([...best.files].map(([rel, buf]) => writeFile(join(ctx.workspaceDir, rel), buf)));
+      if (best && !diskIsBest) await Promise.all([...best.files].map(([rel, buf]) => writeFileAtomic(join(ctx.workspaceDir, rel), buf)));
       for (const dir of new Set([bestDir, candidateDir])) await rm(dir, RM_OPTS);
     } catch (cleanupErr) {
       if (!failed) throw cleanupErr; // never mask the error that got us here

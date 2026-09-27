@@ -318,3 +318,16 @@ test("nameSections: a request over 120k estimated tokens goes without the thumbn
   await nameSections({} as never, "proj1", ir, "p1", { thumbnail: "abc" });
   expect(generateMock.mock.calls[1]![1].images).toEqual(["abc"]);
 });
+
+// Hardening spec §8: a 0-height crop encoded as PNG does not read back ("bad png - invalid inflate data
+// response") and that throw failed the whole project. A buffer that does not decode is skipped instead.
+test("fitImages: buffers that fail to decode (0-height PNG, garbage, empty) are skipped, never thrown", () => {
+  const zeroHeight = PNG.sync.write(new PNG({ width: 1024, height: 0 }));
+  expect(() => PNG.sync.read(zeroHeight)).toThrow();
+  const good = noisyPng(50, 50);
+  const [solo] = fitImages([good], { maxWidth: 1024, maxTotalB64: Number.MAX_SAFE_INTEGER });
+  const opts = { maxWidth: 1024, maxTotalB64: Number.MAX_SAFE_INTEGER };
+  expect(fitImages([good, zeroHeight, Buffer.from("not a png"), Buffer.alloc(0)], opts)).toEqual([solo]);
+  expect(fitImages([zeroHeight, good], opts)).toEqual([solo]);
+  expect(fitImages([zeroHeight], opts)).toEqual([]);
+});

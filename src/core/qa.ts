@@ -20,6 +20,7 @@ export type SectionScore = {
   sectionId: string;
   bp: Bp;
   score: number;
+  // null also when that crop has zero area (hardening spec §8: never written)
   heatPath: string | null; // null: the section resolves in no capture dom (nothing to diff)
   origPath: string | null; // null: same
   clonePath: string | null; // null: the clone has no element for this section
@@ -180,19 +181,22 @@ export async function scoreSections(handle: BrowserHandle, opts: ScoreOpts): Pro
         for (const [i, [sectionId, node]] of nodes.entries()) {
           const cloneBox = clone.boxes[i] ?? null;
           const rel = posix.join("qa", pageId, sectionId);
-          const paths = {
-            origPath: node ? `${rel}/${bp}-orig.png` : null,
-            heatPath: node ? `${rel}/${bp}-heat.png` : null,
-            clonePath: cloneBox && `${rel}/${bp}-clone.png`,
-          };
           const origCrop = node && crop(orig, node.bbox);
           const cloneCrop = cloneBox && crop(clone.shot, cloneBox);
           const masks = node ? dynamicBoxes(node).map(([x, y, w, h]): Bbox => [x - node.bbox[0], y - node.bbox[1], w, h]) : [];
           const diff = origCrop && cloneCrop ? diffCrops(origCrop, cloneCrop, masks) : { score: 0, heat: origCrop };
+          // A zero-area crop is scored as usual but never written (hardening spec §8: an encoded 0-height PNG
+          // does not read back): its path is null.
+          const [origPng, heatPng, clonePng] = [origCrop, diff.heat, cloneCrop].map((png) => (png && png.width > 0 && png.height > 0 ? png : null));
+          const paths = {
+            origPath: origPng ? `${rel}/${bp}-orig.png` : null,
+            heatPath: heatPng ? `${rel}/${bp}-heat.png` : null,
+            clonePath: clonePng ? `${rel}/${bp}-clone.png` : null,
+          };
           await Promise.all([
-            origCrop && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.origPath!), origCrop),
-            diff.heat && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.heatPath!), diff.heat),
-            cloneCrop && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.clonePath!), cloneCrop),
+            origPng && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.origPath!), origPng),
+            heatPng && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.heatPath!), heatPng),
+            clonePng && writePng(join(/*turbopackIgnore: true*/ workspaceDir, paths.clonePath!), clonePng),
           ]);
           const bboxDelta = node && cloneBox ? Math.max(...node.bbox.map((v, k) => Math.abs(v - cloneBox[k]!))) : 0;
           results.push({ pageId, sectionId, bp, score: diff.score, ...paths, bboxDelta });
