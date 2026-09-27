@@ -150,6 +150,8 @@ npm run build       # build production, phải 0 warning
 | Project dừng ở `needs_auth` | Bấm **Mở cửa sổ**, tự đăng nhập, rồi **Tiếp tục** |
 | Server tắt giữa chừng | Mở lại app: project hiện trạng thái `interrupted`, bấm **Tiếp tục** để chạy từ checkpoint (không tự chạy lại) |
 | `AI_QUOTA` (HTTP 402) | Provider hết credit/quota: nạp thêm hoặc đổi provider ở Cài đặt AI, rồi **Chạy lại QA** / **Tiếp tục**. Project vẫn `completed`, chỉ phần AI bị dừng |
+| `AI_TOO_LARGE` / provider báo `context_length_exceeded` | Request vượt giới hạn context của model. Tool tự ước lượng token (ký tự/4, tính cả base64 ảnh) và giữ mỗi request ≤ 120 000; nếu provider vẫn từ chối thì vòng sau của section đó tự bỏ ảnh và giảm một nửa ngữ cảnh, các section khác không bị ảnh hưởng. Vẫn lỗi: chọn model có context lớn hơn ở Cài đặt AI |
+| `BROWSER_CRASH` "Cửa sổ Chrome đã bị đóng" | Khi bật **Hiện trình duyệt**, đừng đóng cửa sổ Chrome trong lúc đang chạy. Lỡ đóng thì bấm **Tiếp tục** để chạy lại |
 | Project có vẻ treo (log đứng yên lâu) | Bấm **Tạm dừng**: dừng ngay, task đang chạy về chờ; rồi **Tiếp tục**. Mở **Tải log** để xem bước cuối cùng. Xoá project đang chạy cũng được (tool dừng trước, chờ tối đa 15 s) |
 | Project `failed` nhưng muốn sửa kết quả | Nếu pha `emit` đã xong: mở **Editor** sửa tay rồi **Chạy lại QA**. Lý do lỗi xem ở banner và panel **Lỗi & cảnh báo** trang Tiến độ |
 | Điểm QA thấp trên site thật | Thêm AI provider để chạy vòng sửa, hoặc sửa tay trong Editor rồi **Chạy lại QA** |
