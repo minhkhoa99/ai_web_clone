@@ -346,7 +346,10 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
           return result("budget");
         }
         if (hasCode(e, ...STOP_AI_CODES)) {
-          stop.ai ??= { code: e.code, message: e.message };
+          if (!stop.ai) {
+            stop.ai = { code: e.code, message: e.message };
+            ctx.log?.("warn", `AI dừng: ${e.code} — ${e.message}`); // now, once per fixAll (hardening spec §8)
+          }
           return result("ai_stopped");
         }
         if (hasCode(e, Codes.AI_TOO_LARGE)) {

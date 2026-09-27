@@ -579,7 +579,8 @@ async function runFixes(run: Run): Promise<boolean> {
   run.aiFailures = 0;
   await persistFixes(run, ctx);
   const stopped = results.find((r) => r.status === "ai_stopped" && r.errorCode);
-  if (stopped) stopAi(run, { code: stopped.errorCode!, message: stopped.errorMessage ?? stopped.errorCode! });
+  // fixSection already logged "AI dừng" through ctx.log the moment it stopped: only the marker here
+  if (stopped) run.aiStopped = { code: stopped.errorCode!, message: stopped.errorMessage ?? stopped.errorCode! };
   tasks.forEach((t, i) => {
     const r = results[i];
     if (r?.status === "budget") finishTask(run.db, run.projectId, t, "qa.json", Codes.BUDGET_EXCEEDED, BUDGET_MSG);

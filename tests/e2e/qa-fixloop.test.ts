@@ -206,9 +206,13 @@ test("AI_AUTH stops the section with the best score kept (never rethrown)", asyn
 
 test("AI_QUOTA: fixAll resolves, every section ai_stopped, no AI call after the first failure", async () => {
   generateMock.mockRejectedValue(new AppError("AI_QUOTA", "provider \"p\" model \"m\" returned status 402: no credit"));
-  const all = await fixAll(newCtx(), [hero, header, features].map((s) => ({ sectionId: s.id, pageId: "home" })));
+  const ctx = newCtx();
+  const logs = logsTo(ctx);
+  const all = await fixAll(ctx, [hero, header, features].map((s) => ({ sectionId: s.id, pageId: "home" })));
   expect(all.map((r) => [r.status, r.errorCode])).toEqual(Array(3).fill(["ai_stopped", "AI_QUOTA"]));
   expect(generateMock.mock.calls.length).toBeLessThanOrEqual(2); // 2 in parallel may both be in flight
+  // hardening spec §8: logged when AI stops (the first section to hit it), once, not after the whole fix phase
+  expect(logs.filter((l) => l.includes("AI dừng"))).toEqual(['warn AI dừng: AI_QUOTA — provider "p" model "m" returned status 402: no credit']);
 });
 
 test("malformed tool calls (inherited tool name, unparseable args) waste the round; the project isn't failed", async () => {

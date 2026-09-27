@@ -291,8 +291,11 @@ test("AI_QUOTA in the fix phase: fix tasks done with the code + message, one war
   const deps = {
     openBrowser: fakeOpen,
     scoreSections: async () => [],
-    fixAll: async () =>
-      targets.map((t) => ({ ...t, finalScore: 0.5, scores: { 375: 0.5, 768: 0.5, 1440: 0.5 }, rounds: 1, patched: false, status: "ai_stopped" as const, errorCode: "AI_QUOTA" as const, errorMessage: QUOTA_MSG })),
+    // like the real fixAll (hardening spec §8): the stop is logged through ctx.log the moment it happens
+    fixAll: async (ctx: FixCtx) => {
+      ctx.log?.("warn", `AI dừng: AI_QUOTA — ${QUOTA_MSG}`);
+      return targets.map((t) => ({ ...t, finalScore: 0.5, scores: { 375: 0.5, 768: 0.5, 1440: 0.5 }, rounds: 1, patched: false, status: "ai_stopped" as const, errorCode: "AI_QUOTA" as const, errorMessage: QUOTA_MSG }));
+    },
   };
   await runProject(db, id, { deps });
   off();
