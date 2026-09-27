@@ -55,6 +55,7 @@ export type FixStop = { budget: boolean; ai?: AiStop };
 const MAX_ROUNDS = 3;
 const MAX_GENERATE_CALLS = 6; // per round; asTools already throws on the 6th tool call
 const FOCUS_NODES = 20;
+const MAX_FOCUS_CHARS = 20_000;
 const MAX_OPS = 50;
 const MAX_SUBTREE_DEPTH = 20;
 const MAX_SUBTREE_NODES = 500;
@@ -202,9 +203,26 @@ async function scoreIr(ctx: FixCtx, ir: IR, t: FixTarget, outDir: string): Promi
   return { scores: Object.fromEntries(rows.map((r) => [r.bp, r.score])) as Record<Bp, number>, min: worst.score, worst, files };
 }
 
+export type FocusNode = { id: string; diffPixels: number; captured: Record<string, string>; clone: Record<string, string> | string };
+
+// PURE. FOCUS_NODES as sent (hardening spec §8, real run: 59 124 chars): per node only the props whose captured
+// value differs from the clone's (a readStyle failure keeps its error text), the JSON cut to <= maxChars by
+// dropping nodes from the end (the fewest diff pixels).
+export function focusDiff(nodes: FocusNode[], maxChars = MAX_FOCUS_CHARS): FocusNode[] {
+  const pick = (style: Record<string, string>, props: string[]) => Object.fromEntries(props.flatMap((p) => (p in style ? [[p, style[p]!]] : [])));
+  const out = nodes.map((n) => {
+    if (typeof n.clone === "string") return n;
+    const clone = n.clone;
+    const props = Object.keys(n.captured).filter((p) => n.captured[p] !== clone[p]);
+    return { ...n, captured: pick(n.captured, props), clone: pick(clone, props) };
+  });
+  while (out.length > 0 && JSON.stringify(out).length > maxChars) out.pop();
+  return out;
+}
+
 // Mandatory evidence on the best clone at its worst bp: a11y snapshot + the 20 nodes covering the most
 // diff pixels, with their captured styles and the clone's computed values for the same props.
-async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, rootId: string) {
+async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, rootId: string): Promise<{ a11y: string; focus: FocusNode[] }> {
   const { bp, heatPath } = best.worst;
   const capture = ctx.captures.find((c) => c.pageId === t.pageId);
   const root = capture && sectionNodes(capture, ctx.ir, t.pageId, bp).get(t.sectionId);
@@ -213,8 +231,8 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
   const focus = heat ? topDiffNodes(PNG.sync.read(heat), boxes, FOCUS_NODES) : [];
   const captured = focus.map((f) => capturedNode(root, rootId, f.id)?.style ?? {});
   const props = [...new Set(captured.flatMap((s) => Object.keys(s)))];
-  const clone = await Promise.all(focus.map((f) => (props.length > 0 ? readStyle(page, selectorFor(f.id), props).catch(errorText) : {})));
-  return { a11y, focus: focus.map((f, i) => ({ ...f, captured: captured[i], clone: clone[i] })) };
+  const clone = await Promise.all(focus.map(async (f): Promise<FocusNode["clone"]> => (props.length > 0 ? readStyle(page, selectorFor(f.id), props).catch(errorText) : {})));
+  return { a11y, focus: focus.map((f, i) => ({ ...f, captured: captured[i]!, clone: clone[i]! })) };
 }
 
 // Generate <-> tool-call loop on the clone page; returns the final reply text. The evidence images go with the
@@ -260,7 +278,7 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
         `SECTION ${t.sectionId} page ${t.pageId}`,
         `SCORES ${JSON.stringify(best.scores)} threshold ${ctx.threshold ?? DEFAULT_THRESHOLD}; evidence at bp ${bp}, bbox delta ${bboxDelta}px`,
         `A11Y_SNAPSHOT (clone)\n${evidence.a11y}`,
-        `FOCUS_NODES ${JSON.stringify(evidence.focus)}`,
+        `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus))}`,
         `CONTEXT ${JSON.stringify(context)}`,
       ].join("\n\n");
       const text = await ask(ctx, page, [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: prompt }], images);
