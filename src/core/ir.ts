@@ -1,6 +1,7 @@
 // Pure: PageCapture[] -> IR, and immutable patches over it. No fs/network/db/Date/random.
 import type { PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
+import type { LegacyIR, LegacyIRNode, LegacySection, LegacyPage, LegacyLayout, LegacyComponent } from "./ir-legacy";
 import { dedupeStyles, extractTokens, structuralHash, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import {
@@ -19,41 +20,13 @@ import {
   type Walk,
 } from "./ir-build";
 
-export type IRNode = {
-  id: string;
-  tag: string;
-  attrs: Record<string, string>;
-  text?: string;
-  cls: string[];
-  hidden?: boolean;
-  states?: { hover?: string; focus?: string; active?: string };
-  behavior?: string; // Interaction id, or 'unresolved'
-  children: IRNode[];
-};
-export type Section = {
-  id: string;
-  pageId: string;
-  name: string;
-  role: string;
-  hash: string;
-  origin: "capture" | "ai";
-  root: IRNode;
-  layoutId?: string;
-};
-// shell = html (no head) > body > wrappers/main, each section's slot a `#section` placeholder node.
-export type Page = { id: string; path: string; title: string; meta: Record<string, string>; sectionIds: string[]; shell: IRNode };
-export type Layout = { id: string; hash: string; sectionId: string; pageIds: string[] };
-export type Component = { id: string; hash: string; instanceIds: string[] };
-export type IR = {
-  pages: Page[];
-  sections: Section[];
-  layouts: Layout[];
-  components: Component[];
-  classes: Record<string, StyleSet>;
-  tokens: Record<string, string>;
-  cssom: { keyframes: string[]; fontFace: string[]; vars: Record<string, string> };
-  interactions: (Interaction & { pageId: string })[];
-};
+// V1 remains public until the emitter and editor move to v2.
+export type IRNode = LegacyIRNode;
+export type Section = LegacySection;
+export type Page = LegacyPage;
+export type Layout = LegacyLayout;
+export type Component = LegacyComponent;
+export type IR = LegacyIR;
 export type PatchOp =
   | { op: "setStyle"; id: string; style: Decl }
   | { op: "setAttr"; id: string; attrs: Record<string, string> }

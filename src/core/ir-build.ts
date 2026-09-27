@@ -2,7 +2,7 @@
 // trigger matching, components. No fs/network/db/Date/random.
 import type { CaptureNode } from "./capture";
 import { hash6, structuralHash, type Decl, type StyleSet, type StyledNode } from "./dedupe";
-import type { IRNode } from "./ir";
+import type { LegacyIRNode as IRNode } from "./ir-legacy";
 
 // zeroBox: 1440 bbox width or height is 0, not display:contents (kept only to skip it as a section root).
 export type Draft = StyledNode & { text?: string; hidden?: boolean; zeroBox?: boolean; children: Draft[] };
