@@ -109,3 +109,30 @@ test("detaching a linked descendant remains detached on subsequent resolution", 
   expect(cards(resolved)[1]!.children[0]!.component).toBeUndefined();
   expect(texts(cards(resolved)[1]!)).toBe("Card 1");
 });
+
+test("generated IDs unambiguously encode colon-containing instance and source IDs", () => {
+  const ir = promoted();
+  for (const [i, id] of ["a", "a:b"].entries()) {
+    const card = cards(ir)[i]!;
+    card.id = id;
+    card.children.forEach(child => { child.parentId = id; });
+  }
+  const main = ir.components[0]!.root;
+  for (const id of ["b:c", "c"]) main.children.push({ ...structuredClone(main.children[1]!), id });
+  const resolved = resolveComponents(ir);
+  const added = cards(resolved).flatMap(card => card.children.slice(2).map(child => child.id));
+  expect(new Set(added).size).toBe(added.length);
+  expect(resolveComponents(resolved)).toEqual(resolved);
+  expect(migrateIR(resolved, [])).toBe(resolved);
+});
+
+test("malformed legacy component records fail with a coded error without mutation", () => {
+  for (const record of [null, {}, { id: 42, hash: "h", instanceIds: ["card0", "card1"] },
+    { id: "cards", hash: "h" }, { id: "cards", hash: "h", instanceIds: "card0" },
+    { id: "cards", hash: "h", instanceIds: [null] }, { id: "", hash: "h", instanceIds: [] },
+    { id: "cards", hash: 42, instanceIds: [] }]) {
+    const input = { ...legacy(), components: [record] }, before = structuredClone(input);
+    expect(() => migrateIR(input, [])).toThrowError(expect.objectContaining({ code: "IR_PATCH_INVALID" }));
+    expect(input).toEqual(before);
+  }
+});

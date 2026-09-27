@@ -90,7 +90,7 @@ export function promoteLegacyComponents(ir: IRV2, groups: LegacyComponent[]): IR
 }
 
 export function resolveComponents(ir: IRV2): IRV2 {
-  const all = indexTrees([...roots(ir), ...ir.components.map(c => c.root)]);
+  const reserved = new Set(indexTrees([...roots(ir), ...ir.components.map(c => c.root)]).keys());
   const sources = new Map<string, Map<string, IRNodeV2>>();
   for (const component of ir.components) {
     if (sources.has(component.id)) fail(`duplicate component: ${component.id}`);
@@ -124,8 +124,9 @@ export function resolveComponents(ir: IRV2): IRV2 {
     const children = ref.overrides?.includes("children") ? node.children : base.children.map(child => {
       const existing = counterparts!.get(child.id);
       if (existing) return existing;
-      const id = `instance:${instanceRoot}:${child.id}`;
-      if (all.has(id)) fail(`generated instance ID collision: ${id}`);
+      const id = `instance:${instanceRoot!.length}:${instanceRoot}:${child.id}`;
+      if (reserved.has(id)) fail(`generated instance ID collision: ${id}`);
+      reserved.add(id);
       return { ...child, id, component: { id: ref.id, role: "instance" as const, sourceId: child.id, overrides: [] } };
     });
     out.children = children.map(child => ({ ...resolve(child, next, depth + 1, budget, child.component?.id === ref.id ? counterparts : undefined, instanceRoot), parentId: out.id }));

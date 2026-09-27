@@ -51,6 +51,10 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   if (!Array.isArray(input.pages) || !Array.isArray(input.sections) || !Array.isArray(input.layouts) ||
       !Array.isArray(input.components) || !object(input.classes) || !object(input.tokens) ||
       !cssomValid(input.cssom) || !Array.isArray(input.interactions)) return invalid("invalid IR structure");
+  for (const component of input.components) {
+    if (!object(component) || typeof component.id !== "string" || !component.id || typeof component.hash !== "string" ||
+        !Array.isArray(component.instanceIds) || component.instanceIds.some(id => typeof id !== "string" || !id)) return invalid("invalid legacy component");
+  }
   const classes = input.classes;
   const classExists = (name: unknown): boolean => {
     const style = typeof name === "string" ? classes[name] : undefined;
