@@ -1,7 +1,7 @@
 # E1 — Document model v2, Command API, History và Fidelity
 
 - Ngày: 2026-09-27
-- Trạng thái: Chờ review spec
+- Trạng thái: Đã duyệt 2026-09-27; chờ review implementation plan
 - Phạm vi: E1, phần mở rộng SP1 đã được người dùng duyệt; không thuộc SP2/SP3
 - Quy tắc: `CLAUDE.md`, `rules.md` và các ràng buộc của SP1 vẫn áp dụng
 
