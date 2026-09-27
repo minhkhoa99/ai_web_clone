@@ -55,6 +55,7 @@ export interface ProviderRequest {
 const MAX_RETRIES = 2;
 const BASE_DELAY_MS = 500;
 const TIMEOUT_MS = 120_000;
+const MAX_OUTPUT_TOKENS = 4096; // both providers (hardening spec §8)
 const ANTHROPIC_VERSION = "2023-06-01";
 
 type Sleep = (ms: number) => Promise<void>;
@@ -116,7 +117,7 @@ function toAnthropicRequest(baseUrl: string, apiKey: string, opts: GenerateOptio
     }
   }
 
-  const body: Record<string, unknown> = { model: opts.model, max_tokens: 4096, messages };
+  const body: Record<string, unknown> = { model: opts.model, max_tokens: MAX_OUTPUT_TOKENS, messages };
   if (systemText) body.system = systemText;
   if (opts.tools?.length) {
     body.tools = opts.tools.map((t) => ({
@@ -154,7 +155,7 @@ function toOpenAiRequest(baseUrl: string, apiKey: string, opts: GenerateOptions 
     }
   }
 
-  const body: Record<string, unknown> = { model: opts.model, messages };
+  const body: Record<string, unknown> = { model: opts.model, max_tokens: MAX_OUTPUT_TOKENS, messages };
   if (opts.tools?.length) {
     body.tools = opts.tools.map((t) => ({
       type: "function",

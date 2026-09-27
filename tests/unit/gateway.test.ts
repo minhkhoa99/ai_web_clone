@@ -16,6 +16,7 @@ test("openai request shape", () => {
   const r = toRequest("openai", "https://o/v1", "sk", { role: "code", messages: [{ role: "user", content: "hi" }] });
   expect(r.url).toBe("https://o/v1/chat/completions");
   expect(r.headers["Authorization"]).toBe("Bearer sk");
+  expect(r.body).toMatchObject({ max_tokens: 4096 }); // hardening spec §8: output bounded like the anthropic branch
 });
 
 test("parse openai response", () => {
