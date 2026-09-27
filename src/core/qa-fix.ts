@@ -16,7 +16,7 @@ import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
 import { mapLimit } from "./limit";
-import { fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH } from "./naming";
+import { fitImages, fitRequest, MAX_IMAGES_B64, MAX_IMAGE_WIDTH } from "./naming";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
 import { attrsSchema, tagSchema } from "./safe-names";
 import { serveDir } from "./serve";
@@ -238,18 +238,21 @@ async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, root
 // Generate <-> tool-call loop on the clone page; returns the final reply text. The evidence images go with the
 // first call only; a later call carries just the screenshots the AI asked for with the tool, under the same caps
 // (hardening spec §6, §8: every request's images <= 384 KiB base64). Exported for tests.
-export async function ask(ctx: FixCtx, page: Page, messages: ChatMessage[], images: string[]): Promise<string> {
+export async function ask(ctx: FixCtx, page: Page, prompt: (scale: number) => ChatMessage[], images: string[]): Promise<string> {
   const inspector = asTools({ clone: page });
   let attach = images;
+  let turns: ChatMessage[] = [];
   for (let i = 0; i < MAX_GENERATE_CALLS; i++) {
-    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages, tools: inspector.tools, ...(attach.length ? { images: attach } : {}), signal: ctx.signal, onRetry: ctx.onRetry });
+    // hardening spec §8: each call <= MAX_REQUEST_TOKENS estimated (images dropped first, then the prompt rebuilt smaller)
+    const req = fitRequest((scale) => [...prompt(scale), ...turns], attach);
+    const res = await generate(ctx.db, { role: "code", projectId: ctx.projectId, messages: req.messages, tools: inspector.tools, ...(req.images.length ? { images: req.images } : {}), signal: ctx.signal, onRetry: ctx.onRetry });
     if (!res.toolCalls?.length) return res.text;
     const results: unknown[] = [];
     // Sequential on purpose: the calls act on one page in the order the AI asked (hover, then readStyle).
     for (const call of res.toolCalls) results.push({ name: call.name, result: await inspector.call(call.name, call.args) });
     const turn = `${res.text}
 TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then the results
-    messages = [...messages, { role: "assistant", content: turn }, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
+    turns = [...turns, { role: "assistant", content: turn }, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
     const shots = inspector.takeImages().map((b64) => Buffer.from(b64, "base64"));
     attach = fitImages(shots, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
   }
@@ -268,20 +271,26 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
       const { bp, bboxDelta, origPath, clonePath, heatPath } = best.worst;
       await prepareClonePage(page, `${server.url}/${file}`, bp);
       const evidence = await inspect(ctx, page, t, best, rootId);
-      const context = contextForFix(ctx.db, ctx.projectId, t.sectionId, ctx.contextBudgetChars ?? DEFAULT_CONTEXT_CHARS, evidence.focus.map((f) => f.id));
+      const focusIds = evidence.focus.map((f) => f.id);
+      const contextBudget = ctx.contextBudgetChars ?? DEFAULT_CONTEXT_CHARS;
       // Real-run evidence (hardening spec §6): three full-size crops made one fix request 5.1MB. Downscale to
       // <=1024px wide; if the total base64 is still over the cap, drop heat, then clone (fitImages drops from
       // the end, so [orig, clone, heat] order matters here).
       const buffers = [origPath, clonePath, heatPath].flatMap((p) => (p && best.files.has(p) ? [best.files.get(p)!] : []));
       const images = fitImages(buffers, { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
-      const prompt = [
-        `SECTION ${t.sectionId} page ${t.pageId}`,
-        `SCORES ${JSON.stringify(best.scores)} threshold ${ctx.threshold ?? DEFAULT_THRESHOLD}; evidence at bp ${bp}, bbox delta ${bboxDelta}px`,
-        `A11Y_SNAPSHOT (clone)\n${evidence.a11y}`,
-        `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus))}`,
-        `CONTEXT ${JSON.stringify(context)}`,
-      ].join("\n\n");
-      const text = await ask(ctx, page, [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: prompt }], images);
+      // CONTEXT and FOCUS_NODES budgets scale down when the request is over MAX_REQUEST_TOKENS (fitRequest).
+      const prompt = (scale: number): ChatMessage[] => {
+        const context = contextForFix(ctx.db, ctx.projectId, t.sectionId, Math.floor(contextBudget * scale), focusIds);
+        const text = [
+          `SECTION ${t.sectionId} page ${t.pageId}`,
+          `SCORES ${JSON.stringify(best.scores)} threshold ${ctx.threshold ?? DEFAULT_THRESHOLD}; evidence at bp ${bp}, bbox delta ${bboxDelta}px`,
+          `A11Y_SNAPSHOT (clone)\n${evidence.a11y}`,
+          `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus, Math.floor(MAX_FOCUS_CHARS * scale)))}`,
+          `CONTEXT ${JSON.stringify(context)}`,
+        ].join("\n\n");
+        return [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
+      };
+      const text = await ask(ctx, page, prompt, images);
       return parseOps(text, collectIds(section.root, new Set()));
     });
   } finally {

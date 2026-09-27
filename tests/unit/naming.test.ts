@@ -2,7 +2,7 @@ import { expect, test, vi, beforeEach } from "vitest";
 import type { IR, IRNode, Page, Section } from "@/core/ir";
 import { AppError } from "@/core/errors";
 import { PNG } from "pngjs";
-import { applySectionNames, buildOutline, capOutlineText, fitImages, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, nameSections, thumbnailOf, type SectionOutline } from "@/core/naming";
+import { applySectionNames, buildOutline, capOutlineText, estimateTokens, fitImages, fitRequest, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS, nameSections, thumbnailOf, type SectionOutline } from "@/core/naming";
 
 vi.mock("@/core/gateway", () => ({ generate: vi.fn() }));
 import { generate } from "@/core/gateway";
@@ -276,4 +276,45 @@ test("MAX_IMAGES_B64 is 384 KiB: a real-run sized noisy crop trio is fitted unde
   const fitted = fitImages([noise(), noise(), noise()], { maxWidth: MAX_IMAGE_WIDTH, maxTotalB64: MAX_IMAGES_B64 });
   expect(fitted.length).toBeGreaterThan(0);
   expect(fitted.reduce((n, b) => n + b.length, 0)).toBeLessThanOrEqual(384 * 1024);
+});
+
+// Real-run evidence (hardening spec §8): the fix request of home-s2 was a 1 245 662-char image + ~156k chars of
+// text ≈ 360k tokens (limit 270k). Every request is estimated at chars/4, base64 included, and kept <= 120 000.
+test("fitRequest: the real-run request (1 245 662-char image + 156k text) fits under 120k tokens once the image is dropped", () => {
+  expect(MAX_REQUEST_TOKENS).toBe(120_000);
+  const scales: number[] = [];
+  const build = (scale: number) => (scales.push(scale), [{ role: "user" as const, content: "t".repeat(Math.round(156_000 * scale)) }]);
+  const image = "i".repeat(1_245_662);
+  expect(estimateTokens(build(1), [image])).toBeGreaterThan(350_000);
+  scales.length = 0;
+  const fitted = fitRequest(build, [image]);
+  expect(fitted.images).toEqual([]);
+  expect(estimateTokens(fitted.messages, fitted.images)).toBeLessThanOrEqual(MAX_REQUEST_TOKENS);
+  expect(scales).toEqual([1]); // the text was never shrunk: dropping the image was enough
+});
+
+test("fitRequest: images drop from the end first; then the text budgets halve (<= 3 steps); still over -> sent anyway", () => {
+  const text = (chars: number) => (scale: number) => [{ role: "user" as const, content: "t".repeat(Math.round(chars * scale)) }];
+  // the small first image survives when dropping the big last one is enough
+  expect(fitRequest(text(1000), ["a".repeat(100), "b".repeat(600_000)]).images).toEqual(["a".repeat(100)]);
+  // 1M chars of text: 250k tokens at scale 1, 125k at 1/2, 62.5k at 1/4
+  const scales: number[] = [];
+  const shrinkable = fitRequest((s) => (scales.push(s), text(1_000_000)(s)), ["a".repeat(100)]);
+  expect(scales).toEqual([1, 0.5, 0.25]);
+  expect(shrinkable.images).toEqual([]);
+  expect(estimateTokens(shrinkable.messages)).toBeLessThanOrEqual(MAX_REQUEST_TOKENS);
+  // text that ignores the scale: 3 halvings, then it goes as is (the provider decides)
+  scales.length = 0;
+  const stuck = fitRequest((s) => (scales.push(s), text(2_000_000)(1)), []);
+  expect(scales).toEqual([1, 0.5, 0.25, 0.125]);
+  expect(stuck.messages[0]!.content.length).toBe(2_000_000);
+});
+
+test("nameSections: a request over 120k estimated tokens goes without the thumbnail", async () => {
+  const ir = makeIr([section("s1", "header", node("header"))]);
+  generateMock.mockResolvedValue({ text: "{}", tokens: 1 });
+  await nameSections({} as never, "proj1", ir, "p1", { thumbnail: "a".repeat(500_000) });
+  expect(generateMock.mock.calls[0]![1].images).toBeUndefined();
+  await nameSections({} as never, "proj1", ir, "p1", { thumbnail: "abc" });
+  expect(generateMock.mock.calls[1]![1].images).toEqual(["abc"]);
 });

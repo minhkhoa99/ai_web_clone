@@ -3,7 +3,7 @@ import type { Page } from "playwright";
 import { PNG } from "pngjs";
 import { generate } from "@/core/gateway";
 import { asTools } from "@/core/inspector";
-import { MAX_IMAGE_WIDTH, MAX_IMAGES_B64 } from "@/core/naming";
+import { estimateTokens, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS } from "@/core/naming";
 import { ask, focusDiff, parseOps, type FixCtx } from "@/core/qa-fix";
 
 vi.mock("@/core/gateway", async (orig) => ({ ...(await orig<typeof import("@/core/gateway")>()), generate: vi.fn() }));
@@ -58,7 +58,7 @@ test("ask: the inspector's tool screenshots go through fitImages too (every requ
     return sent.length === 1 ? { text: "", tokens: 1, toolCalls: [{ name: "screenshot", args: {} }] } : { text: "done", tokens: 1 };
   });
   const ctx = { db: {}, projectId: "p1" } as unknown as FixCtx;
-  expect(await ask(ctx, {} as Page, [{ role: "user", content: "fix" }], [])).toBe("done");
+  expect(await ask(ctx, {} as Page, () => [{ role: "user", content: "fix" }], [])).toBe("done");
   const second = sent[1]!;
   expect(second.length).toBeGreaterThan(0);
   expect(second.reduce((n, b) => n + b.length, 0)).toBeLessThanOrEqual(MAX_IMAGES_B64);
@@ -89,4 +89,26 @@ test("focusDiff: per node only the props where captured != clone; the JSON cut t
   expect(cut.map((n) => n.id)).toEqual(all.slice(0, cut.length).map((n) => n.id));
   expect(cut[1]!.clone).toBe("error: readStyle failed");
   expect(JSON.stringify(focusDiff(all, 10_000)).length).toBeLessThanOrEqual(10_000); // the reduced budget
+});
+
+// Hardening spec §8: every generate call of the fix loop is estimated (chars/4, base64 included) and shrunk under
+// 120k tokens: images first, then the prompt rebuilt at smaller budgets. The later calls carry the tool turns too.
+test("ask: every generate call is fitted under MAX_REQUEST_TOKENS (images dropped, then the prompt rebuilt smaller)", async () => {
+  vi.mocked(asTools).mockReturnValue({ tools: [], call: async () => ({}), calls: () => 1, takeImages: () => [] });
+  const sent: { chars: number; images?: string[]; tokens: number }[] = [];
+  vi.mocked(generate).mockReset().mockImplementation(async (_db, opts) => {
+    sent.push({ chars: opts.messages[1]!.content.length, images: opts.images, tokens: estimateTokens(opts.messages, opts.images) });
+    return sent.length === 1 ? { text: "", tokens: 1, toolCalls: [{ name: "readStyle", args: {} }] } : { text: "done", tokens: 1 };
+  });
+  const scales: number[] = [];
+  const prompt = (scale: number) => (scales.push(scale), [{ role: "system" as const, content: "sys" }, { role: "user" as const, content: "u".repeat(Math.round(600_000 * scale)) }]);
+  const ctx = { db: {}, projectId: "p1" } as unknown as FixCtx;
+  expect(await ask(ctx, {} as Page, prompt, ["i".repeat(1_245_662)])).toBe("done");
+  expect(sent).toHaveLength(2);
+  for (const s of sent) {
+    expect(s.images).toBeUndefined();
+    expect(s.tokens).toBeLessThanOrEqual(MAX_REQUEST_TOKENS);
+    expect(s.chars).toBe(300_000); // 150k tokens at full size -> halved once
+  }
+  expect(scales).toEqual([1, 0.5, 1, 0.5]);
 });

@@ -3,7 +3,7 @@ import { PNG } from "pngjs";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { AppError } from "./errors";
-import { generate, type GenerateOptions } from "./gateway";
+import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import type { IR, IRNode, Section } from "./ir";
 
 const MAX_TAG_DEPTH = 3;
@@ -19,6 +19,9 @@ export const MAX_IMAGE_WIDTH = 1024;
 export const MAX_IMAGES_B64 = 384 * 1024;
 const MAX_HALVINGS = 4;
 const MAX_NAMING_CHARS = 24_000;
+// Real-run evidence (hardening spec §8): a 1 424 391-byte fix request ≈ 360 738 tokens against a 270k limit.
+export const MAX_REQUEST_TOKENS = 120_000;
+const MAX_SHRINK_STEPS = 3;
 
 export type OutlineTag = { tag: string; children: OutlineTag[] };
 export type SectionOutline = { id: string; tag: OutlineTag; text: string };
@@ -111,6 +114,22 @@ export function fitImages(pngBuffers: Buffer[], opts: { maxWidth: number; maxTot
   return []; // unreachable (loop always returns on its last iteration)
 }
 
+// PURE. Worst-case token estimate of one request: chars / 4 over the serialized messages plus the base64 images
+// (a proxy may count an image's base64 as text).
+export const estimateTokens = (messages: ChatMessage[], images: string[] = []): number =>
+  Math.ceil((JSON.stringify(messages).length + images.reduce((n, b) => n + b.length, 0)) / 4);
+
+// PURE. One request under maxTokens: images dropped from the end first (heat, then clone, then orig), then the
+// text rebuilt by `build` at 1/2, 1/4, 1/8 of its budgets; still over after that, it goes as is (the provider decides).
+export function fitRequest(build: (scale: number) => ChatMessage[], images: string[], maxTokens = MAX_REQUEST_TOKENS): { messages: ChatMessage[]; images: string[] } {
+  let messages = build(1);
+  let kept = images;
+  const fits = () => estimateTokens(messages, kept) <= maxTokens;
+  while (kept.length > 0 && !fits()) kept = kept.slice(0, -1);
+  for (let step = 1; step <= MAX_SHRINK_STEPS && !fits(); step++) messages = build(0.5 ** step);
+  return { messages, images: kept };
+}
+
 // PURE, immutable. Only touches Section.name/role.
 export function applySectionNames(ir: IR, names: SectionNames): IR {
   const sections: Section[] = ir.sections.map((s) => {
@@ -160,17 +179,21 @@ export async function nameSections(
 ): Promise<{ names: SectionNames; error?: string; errorMessage?: string }> {
   const page = ir.pages.find((p) => p.id === pageId);
   const sectionIds = page?.sectionIds ?? [];
-  const outline = capOutlineText(buildOutline(ir, pageId));
+  const outline = buildOutline(ir, pageId);
+  const request = fitRequest(
+    (scale) => [
+      { role: "system", content: "Name each web page section and classify its role. Respond with JSON: {sectionId: {name, role}}." },
+      { role: "user", content: JSON.stringify(capOutlineText(outline, Math.floor(MAX_NAMING_CHARS * scale))) },
+    ],
+    opts.thumbnail ? [opts.thumbnail] : [],
+  );
 
   let text: string;
   try {
     const result = await generate(db, {
       role: "vision",
       projectId,
-      messages: [
-        { role: "system", content: "Name each web page section and classify its role. Respond with JSON: {sectionId: {name, role}}." },
-        { role: "user", content: JSON.stringify(outline) },
-      ],
+      messages: request.messages,
       jsonSchema: {
         name: "section_names",
         schema: {
@@ -182,7 +205,7 @@ export async function nameSections(
           },
         },
       },
-      ...(opts.thumbnail ? { images: [opts.thumbnail] } : {}),
+      ...(request.images.length ? { images: request.images } : {}),
       signal: opts.signal,
       onRetry: opts.onRetry,
     });
