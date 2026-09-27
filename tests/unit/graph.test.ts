@@ -259,3 +259,24 @@ test("writeGraph: an interaction id repeated across pages (shared header) and tw
   const assetEdges = d.prepare("SELECT src,dst FROM edges WHERE project_id='proj1' AND type='USES_ASSET'").all();
   expect(assetEdges).toEqual([{ src: expect.any(String), dst: "asset:assets/aa.png" }]);
 });
+
+// Real-run evidence (hardening spec §8): CONTEXT sent all 43 classes of the section (82 679 chars) whatever
+// the budget, 4x its 24 000. Only the classes the pruned subtree still uses go, and they count in the budget.
+test("contextForFix: 43 heavy classes (~82k chars) -> only the pruned subtree's classes, whole context <= budgetChars", () => {
+  const heavy = (i: number) => Object.fromEntries(Array.from({ length: 40 }, (_, k) => [`--p-${k}`, `value-${i}-${k}-${"x".repeat(24)}`]));
+  const items = Array.from({ length: 43 }, (_, i) => el("div", {}, [el("p", {}, [txt(`item ${i}`)])], { style: heavy(i) }));
+  const ir = buildIR([capture("p1", "https://x.test/", doc([el("section", {}, [el("h2", {}, [txt("T")]), el("div", {}, items)]), el("footer", {}, [txt("F")])]))]);
+  const section = ir.sections[0]!;
+  const d = db();
+  writeGraph(d, "proj1", ir, {});
+  const full = contextForFix(d, "proj1", section.id, 1_000_000);
+  expect(Object.keys(full.classes).length).toBeGreaterThanOrEqual(43);
+  expect(JSON.stringify(full.classes).length).toBeGreaterThan(80_000);
+
+  const ctx = contextForFix(d, "proj1", section.id, 24_000);
+  expect(JSON.stringify(ctx).length).toBeLessThanOrEqual(24_000);
+  const used = new Set<string>();
+  const walk = (n: IRNode): void => (n.cls.forEach((c) => used.add(c)), n.children.forEach(walk));
+  walk(ctx.subtree);
+  for (const cls of Object.keys(ctx.classes)) expect(used.has(cls), cls).toBe(true);
+});

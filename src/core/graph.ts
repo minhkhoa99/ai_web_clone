@@ -170,7 +170,7 @@ function pruneToBudget(root: IRNode, protectedIds: Set<string>, fits: (candidate
 /**
  * The bounded slice of graph state the AI fix loop sends for one section: its subtree (pruned
  * to `budgetChars`, deepest nodes dropped first, but always keeping the path to any `focusIds`
- * node), the style classes it uses, the tokens/interactions/asset paths linked to it in the
+ * node), the style classes that pruned subtree uses, the tokens/interactions/asset paths linked to it in the
  * graph. Reads only via SQL over nodes/edges — never the in-memory IR.
  */
 export function contextForFix(
@@ -213,14 +213,17 @@ export function contextForFix(
     return interaction;
   });
 
+  // Only the classes the (pruned) subtree still uses, counted in the budget (hardening spec §8: all 43 classes of a
+  // real section were 82k chars, 4x the budget, whatever the pruning).
+  const classesOf = (tree: IRNode) => usedClasses(indexSubtree(tree), section.classes);
   const protectedIds = focusPathIds(section.root, focusIds);
   const subtree = pruneToBudget(
     section.root,
     protectedIds,
-    (candidate) => JSON.stringify({ subtree: candidate, classes: section.classes, tokens, interactions, assetPaths }).length <= budgetChars,
+    (candidate) => JSON.stringify({ subtree: candidate, classes: classesOf(candidate), tokens, interactions, assetPaths }).length <= budgetChars,
   );
 
-  return { subtree, classes: section.classes, tokens, interactions, assetPaths };
+  return { subtree, classes: classesOf(subtree), tokens, interactions, assetPaths };
 }
 
 /** Interaction node count by status, grouped by page path; pages with none still list zeros. */
