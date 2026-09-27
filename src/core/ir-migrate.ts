@@ -1,3 +1,4 @@
+import { promoteLegacyComponents } from "./ir-component";
 import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
 import type { LegacyIR } from "./ir-legacy";
@@ -77,5 +78,5 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     if (!object(section) || typeof section.id !== "string" || typeof section.pageId !== "string") return invalid("invalid section");
     visit(section.root, 1, { value: 0 });
   }
-  return toV2(input as LegacyIR, captures);
+  return promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
 }
