@@ -34,18 +34,22 @@ interface PooledHandle extends BrowserHandle {
   _closed: Promise<never>; // rejects once close() is called or the context closes
 }
 
+// Hardening spec §8: a headed run's window closed by the user (not a pause) says what happened and what to do.
+const WINDOW_CLOSED = "Cửa sổ Chrome đã bị đóng — bấm Tiếp tục để chạy lại (đừng đóng cửa sổ khi đang chạy).";
+
 // context.newPage() issued during or after a close never settles (Playwright): withPage races it with _closed.
-function pooled(context: BrowserContext, close: () => Promise<void>, maxPages: number): PooledHandle {
-  let markClosed!: () => void;
-  const closed = new Promise<never>((_, reject) => (markClosed = () => reject(new AppError(Codes.BROWSER_CRASH, "browser closed"))));
+function pooled(context: BrowserContext, close: () => Promise<void>, maxPages: number, headed = false): PooledHandle {
+  let markClosed!: (message: string) => void;
+  const closed = new Promise<never>((_, reject) => (markClosed = (message) => reject(new AppError(Codes.BROWSER_CRASH, message))));
   closed.catch(() => {}); // observed only by withPage
-  context.once("close", markClosed);
   // Memoized: Playwright's second close() returns before Chromium has exited, so every caller (a pause, then
   // the run's finally) awaits the one real shutdown; a re-run or DELETE then never meets a live profile.
   let closing: Promise<void> | undefined;
+  // our own close() marks first, so a "close" event after it is a no-op (a promise settles once)
+  context.once("close", () => markClosed(headed && !closing ? WINDOW_CLOSED : "browser closed"));
   return {
     context,
-    close: () => (closing ??= (markClosed(), close())),
+    close: () => (closing ??= (markClosed("browser closed"), close())),
     _semaphore: createSemaphore(maxPages),
     _closed: closed,
   };
@@ -59,7 +63,7 @@ async function openViaCdp(cdpUrl: string, maxPages: number): Promise<PooledHandl
 
 async function openPersistent(profileDir: string, headed: boolean, maxPages: number): Promise<PooledHandle> {
   const context = await chromium.launchPersistentContext(profileDir, { headless: !headed });
-  return pooled(context, () => context.close(), maxPages);
+  return pooled(context, () => context.close(), maxPages, headed);
 }
 
 async function openEphemeral(headed: boolean, maxPages: number): Promise<PooledHandle> {
@@ -69,7 +73,7 @@ async function openEphemeral(headed: boolean, maxPages: number): Promise<PooledH
     await context.close();
     await browser.close();
   };
-  return pooled(context, close, maxPages);
+  return pooled(context, close, maxPages, headed);
 }
 
 export async function openBrowser(
