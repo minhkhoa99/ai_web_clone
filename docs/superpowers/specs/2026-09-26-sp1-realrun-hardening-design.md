@@ -100,3 +100,17 @@ Bảng gợi ý (`src/app/_ui/error-hints.ts`):
 - Không tự giải CAPTCHA / stealth (`rule_no_captcha_bypass`), không làm drift_*.
 - Không giữ log sau khi xoá project (người dùng không chọn).
 - Không thêm tính năng SP2/SP3.
+
+## 8. Request AI theo token, không theo byte (2026-09-27)
+
+Bằng chứng: fix `home-s2` gửi 1 424 391 byte ≈ 360 738 token (proxy tính base64 ảnh như text); ảnh orig 1024×608 = 1 245 662 ký tự ≈ 315k token; CONTEXT 94 796 ký tự (43 class gửi nguyên, vượt ngân sách 24 000); FOCUS_NODES 59 124 ký tự. `context_length_exceeded` rơi vào `AI_BAD_CONFIG` → dừng AI cả 6 section.
+
+- Ước lượng token = số ký tự / 4 (tính cả base64 ảnh — trường hợp xấu nhất). Mỗi request fix/naming ≤ **120 000 token ước lượng** (`MAX_REQUEST_TOKENS`).
+- Ảnh: `MAX_IMAGES_B64` = **384 KiB** tổng mỗi request (fix, naming, ảnh tool-call inspector). Vẫn thu nhỏ/bỏ theo thứ tự cũ (heat → clone → halve).
+- CONTEXT: chỉ gửi class mà subtree đã cắt dùng tới, và tính chúng vào ngân sách `contextBudgetChars`.
+- FOCUS_NODES: mỗi node chỉ gửi các prop mà captured ≠ clone; tổng ≤ **20 000 ký tự**.
+- OpenAI-compatible: body có `max_tokens: 4096` (như nhánh Anthropic).
+- Mã mới `AI_TOO_LARGE`: HTTP 413, hoặc 400 có body chứa `context_length_exceeded` / `prompt is too long` / `maximum context length`. **Không** thuộc STOP_AI: vòng đó tính là đã dùng, vòng kế tiếp của section đó gửi không ảnh và ngân sách CONTEXT/FOCUS còn một nửa. Section khác không bị ảnh hưởng.
+- Log "AI dừng: …" phát ngay lúc AI bị dừng (không đợi cả pha fix xong).
+- Crop diện tích 0 (bbox rỗng) không ghi file PNG, path = null; `fitImages` bỏ qua buffer không decode được (không bao giờ ném lỗi).
+- Headed: context bị đóng khi không pause → mã `BROWSER_CRASH` với thông báo "Cửa sổ Chrome đã bị đóng — bấm Tiếp tục để chạy lại (đừng đóng cửa sổ khi đang chạy)."
