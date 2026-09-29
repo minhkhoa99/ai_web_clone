@@ -51,7 +51,7 @@ const TYPES: Record<string, NodeType> = {
   input: "input", textarea: "input", select: "input", option: "input",
   video: "media", audio: "media", canvas: "media", iframe: "media", svg: "svg",
 };
-const typeOf = (tag: string): NodeType => TYPES[tag.toLowerCase()] ?? "container";
+export const typeOf = (tag: string): NodeType => TYPES[tag.toLowerCase()] ?? "container";
 
 type Boxes = Map<string, Partial<Record<1440 | 768 | 375, { tag: string; bbox: CaptureNode["bbox"] }>>>;
 

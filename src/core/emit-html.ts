@@ -10,6 +10,7 @@ import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
 import { normalizeUrl, pathSlug } from "./url";
+import { isScriptValue } from "./safe-names";
 
 export type RenderOpts = {
   assetMap: Record<string, string>; // absolute url -> "assets/<sha>.<ext>"
@@ -102,18 +103,6 @@ function rewriteAttr(node: IRNode, name: string, value: string, base: string | u
     default:
       return value;
   }
-}
-
-// Browsers strip whitespace/control chars before reading the scheme ("java\tscript:" still runs).
-const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
-const SVG_ANIMATION = new Set(["animate", "set"]);
-const ANIMATION_VALUES = new Set(["values", "to", "from", "by"]);
-
-// A javascript: URL in any attribute, or inside an SVG <animate>/<set> value list ("a;javascript:…"): those can
-// animate an href into a script URL.
-export function isScriptValue(tag: string, name: string, value: string): boolean {
-  if (isJavascriptUrl(value)) return true;
-  return SVG_ANIMATION.has(tag.toLowerCase()) && ANIMATION_VALUES.has(name.toLowerCase()) && value.split(";").some(isJavascriptUrl);
 }
 
 function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {

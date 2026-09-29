@@ -4,10 +4,10 @@
 // diffs what the editor sends back by those ids into PatchOps (display values mapped back to the raw IR ones),
 // applied with the same applyPatch as the fix loop (applyGrapesSave).
 import type { Decl } from "./dedupe";
-import { attrRewriter, isScriptValue, pageFileNames, renderStylesheet, type RenderOpts } from "./emit-html";
+import { attrRewriter, pageFileNames, renderStylesheet, type RenderOpts } from "./emit-html";
 import { AppError, Codes } from "./errors";
 import { applyPatch, syncSections, type IR, type IRNode, type PatchOp } from "./ir";
-import { attrsSchema, tagSchema } from "./safe-names";
+import { attrsSchema, isSafeCss, isScriptValue, tagSchema } from "./safe-names";
 
 export type GrapesComponent = {
   tagName?: string;
@@ -38,8 +38,6 @@ const PRESETS: Record<string, string> = {
   "sp1-fade-in": "@keyframes sp1-fade-in{from{opacity:0}to{opacity:1}}",
   "sp1-slide-up": "@keyframes sp1-slide-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}",
 };
-const CSS_PROP = /^-?[a-z][a-z0-9-]*$/;
-const CSS_BREAKOUT = /[{};<]/;
 const MAX_NODES = 60_000; // 3x the capture node limit: room for edits, bounded work
 const MAX_DEPTH = 400;
 // GrapesJS omits a tagName equal to its type's default
@@ -174,7 +172,7 @@ function rulesById(styles: unknown[]): Map<string, Decl> {
     if (!id || !isObject(rule.style)) continue;
     const decl = out.get(id) ?? {};
     for (const [prop, value] of Object.entries(rule.style)) {
-      if (CSS_PROP.test(prop) && typeof value === "string" && value && !CSS_BREAKOUT.test(value)) decl[prop] = value;
+      if (isSafeCss(prop, value)) decl[prop] = value;
     }
     out.set(id, decl);
   }
