@@ -34,6 +34,14 @@ function differences(main: IRNodeV2, instance: IRNodeV2): string[] {
   }
   return paths;
 }
+// A `attrs.<name>` / `styles.<slot>.<prop>` path split into its map and key; undefined when not one.
+function mapPath(path: string): [string, string] | undefined {
+  const match = /^(attrs|styles\.base|styles\.bp\.(?:768|375)|styles\.state\.(?:hover|focus|active)|styles\.pseudo\.(?:before|after))\.(.+)$/.exec(path);
+  return match && !["__proto__", "constructor", "prototype"].includes(match[2]!) ? [match[1]!, match[2]!] : undefined;
+}
+// The one override-path rule: the resolver applies exactly the paths this accepts.
+export const isOverridePath = (path: string): boolean =>
+  path === "children" || fields.includes(path as typeof fields[number]) || mapPath(path) !== undefined;
 function overlay(out: IRNodeV2, instance: IRNodeV2, path: string): void {
   if (path === "children") return;
   if (fields.includes(path as typeof fields[number])) {
@@ -42,9 +50,7 @@ function overlay(out: IRNodeV2, instance: IRNodeV2, path: string): void {
     if (instance[key] === undefined) delete out[key];
     return;
   }
-  const match = /^(attrs|styles\.base|styles\.bp\.(?:768|375)|styles\.state\.(?:hover|focus|active)|styles\.pseudo\.(?:before|after))\.(.+)$/.exec(path);
-  if (!match || ["__proto__", "constructor", "prototype"].includes(match[2]!)) fail(`invalid component override: ${path}`);
-  const prefix = match![1]!, key = match![2]!;
+  const [prefix, key] = mapPath(path) ?? fail(`invalid component override: ${path}`);
   let target = maps(out)[prefix];
   if (!target) {
     const [, kind, slot] = prefix.split(".");

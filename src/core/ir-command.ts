@@ -4,7 +4,7 @@
 import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { promoteLayout, syncSections, type IR } from "./ir";
-import { detachComponent, overridingInstance, resetOverride } from "./ir-component";
+import { detachComponent, isOverridePath, overridingInstance, resetOverride } from "./ir-component";
 import { typeOf, type IRNodeV2, type IRV2, type NodeStyles, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
 import { CSS_PROP, isSafeAttr, isSafeCss, tagSchema } from "./safe-names";
@@ -226,12 +226,13 @@ function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "
   } else if (found.node.tag === "#text") return fail(`${c.op} on a #text node`);
   else if (c.op === "setHidden") {
     if (typeof c.hidden !== "boolean") fail("hidden must be a boolean");
+    if (found.tree.kind === "pages" && (found.node.tag === "html" || found.node.tag === "body")) fail(`the page ${found.node.tag} cannot be hidden`);
     const { hidden: _hidden, ...shown } = old;
     props = c.hidden ? { ...shown, hidden: true } : shown;
   }
   else if (c.op === "setAttribute") {
     const attrs = { ...found.node.attrs };
-    if (typeof c.name !== "string") fail("attribute name must be a string");
+    if (typeof c.name !== "string" || !c.name) fail("attribute name must be a non-empty string");
     if (c.value === null) delete attrs[c.name]; // removal is always safe
     else if (isSafeAttr(found.node.tag, c.name, c.value)) attrs[c.name] = c.value;
     else fail(`attribute not allowed: ${c.name.slice(0, 80)}`);
@@ -256,7 +257,7 @@ function overridden(ir: IRV2, node: IRNodeV2, c: Extract<Edit, { op: "setStyle" 
     const [group, key] = styleTarget(c.target, fail);
     paths = Object.keys(c.changes).map((prop) => `styles.${group === "base" ? "base" : `${group}.${key!}`}.${prop}`);
   }
-  if (paths.some((p) => /\.(__proto__|constructor|prototype)$/.test(p))) fail("invalid component override path");
+  if (!paths.every(isOverridePath)) fail("invalid component override path");
   return { ...ref, overrides: [...new Set([...(ref.overrides ?? []), ...paths])] };
 }
 
@@ -375,7 +376,7 @@ function applyLayout(ir: IRV2, c: Extract<Edit, { op: "promoteLayout" }>, fail: 
   return { ir: next, inverse: { op: "restoreLayout", sectionIds: [...c.sectionIds], ...(first.layoutId !== undefined && { layoutId: first.layoutId }), placeholders, refs: refsBetween(ir, next) } };
 }
 function restoreLayout(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreLayout" }>, fail: Fail): Step {
-  if (!Array.isArray(c.sectionIds) || !Array.isArray(c.placeholders)) return fail("invalid layout restore");
+  if (!Array.isArray(c.sectionIds) || !Array.isArray(c.placeholders) || (c.layoutId !== undefined && typeof c.layoutId !== "string")) return fail("invalid layout restore");
   let next = ir;
   for (const entry of c.placeholders) {
     const found = Array.isArray(entry) ? find(next, entry[0]) : undefined;
@@ -406,7 +407,8 @@ function applyComponent(ir: IRV2, c: ComponentEdit, fail: Fail): Step {
   return { ir: next, inverse: { op: "restoreComponent", command, trees: trees.map((tree) => ({ tree, root: rootOf(ir, tree) })), instanceIds: ir.components.map((m) => m.instanceIds) } };
 }
 function restoreComponent(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreComponent" }>, fail: Fail): Step {
-  if (!Array.isArray(c.trees) || !Array.isArray(c.instanceIds) || c.instanceIds.length !== ir.components.length || !isObject(c.command)) return fail("invalid component restore");
+  if (!Array.isArray(c.trees) || !Array.isArray(c.instanceIds) || c.instanceIds.length !== ir.components.length ||
+      !isObject(c.command) || (c.command.op !== "resetOverride" && c.command.op !== "detachComponent")) return fail("invalid component restore");
   let next: IRV2 = { ...ir, components: ir.components.map((m, i) => ({ ...m, instanceIds: c.instanceIds[i]! })) };
   for (const { tree, root } of c.trees) {
     const ok = isObject(tree) && (tree.kind === "sections" || tree.kind === "pages") && Number.isInteger(tree.index) &&

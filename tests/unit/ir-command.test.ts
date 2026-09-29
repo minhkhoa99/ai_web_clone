@@ -337,3 +337,57 @@ test("main structure edits that orphan an instance override are refused; instanc
   // shell placeholder delete drops the section and its instances from instanceIds
   expect(roundTrip(ir, [{ op: "deleteNode", id: "ph" }]).ir.components[0]!.instanceIds).toEqual([]);
 });
+
+test("instance override paths follow the resolver's rule: an empty attribute name is refused and the document still resolves", () => {
+  const ir = cardsIr();
+  for (const value of ["x", null]) {
+    expect(() => applyCommands(ir, [{ op: "setAttribute", id: "card0", name: "", value }])).toThrow(/command 0 \(setAttribute\).*non-empty/);
+  }
+  expect(() => resolveComponents(ir)).not.toThrow();
+  const bad = [{ op: "restoreComponent", command: { op: "setText", id: "text0", text: "x" }, trees: [], instanceIds: [["card0", "card1", "card2"]] }] as never;
+  expect(() => applyCommands(ir, bad)).toThrow(/invalid component restore/);
+  const out = applyCommands(twoPages(), [{ op: "promoteLayout", sectionIds: ["s1", "s3"] }]);
+  const inverse = [{ ...out.inverse[0]!, layoutId: 42 }] as never;
+  expect(() => applyCommands(out.ir, inverse)).toThrow(/invalid layout restore/);
+});
+
+test("setHidden refuses the page html/body but allows other shell nodes; on a main it reaches non-overriding instances", () => {
+  const ir = fixture();
+  for (const id of ["html", "body"]) expect(() => applyCommands(ir, [{ op: "setHidden", id, hidden: true }])).toThrow(/cannot be hidden/);
+  const shell = { ...ir, pages: [{ ...ir.pages[0]!, shell: n("html", "html", [n("body", "body", [n("nav", "nav"), ...ir.pages[0]!.shell.children[0]!.children.map((c) => ({ ...c }))])]) }] };
+  expect(roundTrip(shell, [{ op: "setHidden", id: "nav", hidden: true }]).ir.pages[0]!.shell.children[0]!.children[0]!.hidden).toBe(true);
+
+  const cards = cardsIr(), extraMain = cards.components[0]!.root.children[1]!.id;
+  const own = applyCommands(cards, [{ op: "setHidden", id: "extra2", hidden: false }]).ir; // card2 overrides "hidden"
+  const out = roundTrip(own, [{ op: "setHidden", id: extraMain, hidden: true }]).ir;
+  expect([0, 1, 2].map((i) => card(out, i).children[1]!.hidden)).toEqual([true, true, undefined]);
+});
+
+test("a batch mixing detach with property edits round-trips (undo and redo)", () => {
+  const ir = cardsIr();
+  const batch: Parameters<typeof applyCommands>[1] = [
+    { op: "setText", id: "text1", text: "One" },
+    { op: "detachComponent", instanceId: "card1" },
+    { op: "setStyle", id: "card1", target: "base", changes: { color: "black" } }, // plain node now: no override
+    { op: "setStyle", id: "card0", target: "base", changes: { color: "gold" } },
+  ];
+  const { ir: out, inverse } = roundTrip(ir, batch);
+  expect(out.sections[0]!.root.children[1]!.component).toBeUndefined();
+  expect(textOf(out.sections[0]!.root.children[1]!)).toBe("One");
+  expect(overridesOf(out, "card0")).toEqual(["styles.base.color"]);
+  const undone = applyCommands(out, inverse);
+  expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out);
+});
+
+test("promoteLayout dropping a section that holds instances round-trips instanceIds", () => {
+  const v1 = cardsLegacy();
+  v1.pages.push({ id: "p2", path: "/b", title: "", meta: {}, sectionIds: ["s2"], shell: { id: "shell2", tag: "html", attrs: {}, cls: [], children: [{ id: "ph2", tag: "#section", attrs: { "data-section": "s2" }, cls: [], children: [] }] } });
+  v1.sections.push({ id: "s2", pageId: "p2", name: "other", role: "main", hash: "s2", origin: "capture", root: { id: "plain", tag: "section", attrs: {}, cls: [], children: [] } });
+  const ir = deepFreeze(promoteLegacyComponents(toV2(v1, []), v1.components));
+  const { ir: out, inverse } = roundTrip(ir, [{ op: "promoteLayout", sectionIds: ["s2", "s"] }]);
+  expect(out.sections.map((s) => s.id)).toEqual(["s2"]);
+  expect(out.components[0]!.instanceIds).toEqual([]);
+  const undone = applyCommands(out, inverse);
+  expect(undone.ir.components[0]!.instanceIds).toEqual(["card0", "card1", "card2"]);
+  expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out);
+});
