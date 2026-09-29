@@ -223,7 +223,8 @@ function mainIdOf(id: string): string | undefined {
   return id[end] === ":" ? id.slice(end + 1) : undefined;
 }
 
-export type CommandOpts = RenderOpts & { skipped?: string[] }; // skipped: style rules with no IR target (shown to the user)
+// skipped: style rules with no IR target and refused attribute values (the old value stays), shown to the user
+export type CommandOpts = RenderOpts & { skipped?: string[] };
 
 // `before`: the document at the revision the editor loaded. Commands only name document IDs (page nodes, section
 // placeholders, component mains): never a generated instance ID, never replaceSubtree.
@@ -369,10 +370,10 @@ export function grapesToCommands(before: IRV2, pageId: string, json: GrapesJson,
     if (items.length !== now.length || items.some((it, i) => it.keep !== now[i])) {
       const doc = docNode.get(p.id);
       if (!doc || doc.component?.role === "instance") {
-        throw new AppError(Codes.IR_PATCH_INVALID, `the structure inside component instance ${p.id.slice(0, 200)} can't be edited here: edit its content, or detach it first`);
+        throw new AppError(Codes.IR_PATCH_INVALID, `Không sửa được cấu trúc bên trong component instance ${p.id.slice(0, 200)}: chỉ sửa nội dung, hoặc tách (detach) trước.`);
       }
       if (docTree.get(p.id)!.startsWith("page:") && items.some((it) => !it.keep)) {
-        throw new AppError(Codes.IR_PATCH_INVALID, "the page body only holds sections: drop new elements inside a section");
+        throw new AppError(Codes.IR_PATCH_INVALID, "Thân trang chỉ chứa section: thả khối hoặc phần tử mới vào bên trong một section.");
       }
       const wanted = new Set(items.flatMap((it) => (it.keep ? [slotId(it.keep.id)] : [])));
       let prev: string | undefined;
@@ -415,11 +416,15 @@ export function grapesToCommands(before: IRV2, pageId: string, json: GrapesJson,
     diffKids(v, kidsOf(c));
     const id = targetId(v.id);
     const attrs = attrsFrom(c, v, v.tag);
-    for (const [name, value] of Object.entries(attrs)) {
-      if (v.attrs[name] !== value && isSafeAttr(v.tag, name, value)) out.push({ op: "setAttribute", id, name, value });
+    const sent = attrsOf(c);
+    for (const name of Object.keys(sent)) {
+      if (SKIP_ATTRS.has(name)) continue;
+      const raw = attrs[name];
+      if (raw === undefined || !isSafeAttr(v.tag, name, raw)) opts.skipped?.push(`${v.id.slice(0, 80)} [${name.slice(0, 40)}]`); // refused value: the old one stays
+      else if (v.attrs[name] !== raw) out.push({ op: "setAttribute", id, name, value: raw });
     }
     for (const [name, value] of Object.entries(v.attrs)) {
-      if (safeAttr(v.tag, name, value) && !Object.hasOwn(attrs, name)) out.push({ op: "setAttribute", id, name, value: null });
+      if (safeAttr(v.tag, name, value) && !Object.hasOwn(sent, name)) out.push({ op: "setAttribute", id, name, value: null });
     }
     const shownNode = resolved.get(v.id);
     for (const [target, decl] of rulesOf(c)) {
@@ -431,8 +436,12 @@ export function grapesToCommands(before: IRV2, pageId: string, json: GrapesJson,
         } else if (was[prop] !== value) changes[prop] = value;
       }
       if (Object.keys(changes).length) out.push({ op: "setStyle", id, target, changes });
-      // the Layers eye writes display:none on the base rule: the node is hidden (the style keeps it hidden in the output)
-      if (target === "base" && changes.display === "none" && !shownNode?.hidden) out.push({ op: "setHidden", id, hidden: true });
+      // the Layers eye writes display:none on the base rule: the node is hidden (the style keeps it hidden in the output);
+      // a hidden node whose base display becomes anything else is shown again
+      if (target === "base" && Object.hasOwn(changes, "display")) {
+        const hide = changes.display === "none";
+        if (hide !== !!shownNode?.hidden) out.push({ op: "setHidden", id, hidden: hide });
+      }
     }
   };
 

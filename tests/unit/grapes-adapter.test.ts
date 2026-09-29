@@ -310,7 +310,7 @@ test("the page body only holds sections: a new element there is refused; id-less
   expect(grapesToCommands(d, "p1", stray, OPTS)).toEqual([]);
   const dropped = grapesJson(d);
   dropped.components.push(JSON.parse(JSON.stringify(irToGrapes(compileV2(d), "p2", OPTS).components[0])) as GrapesComponent);
-  expect(() => grapesToCommands(d, "p1", dropped, OPTS)).toThrow(/section/);
+  expect(() => grapesToCommands(d, "p1", dropped, OPTS)).toThrow("Thân trang chỉ chứa section: thả khối hoặc phần tử mới vào bên trong một section.");
 });
 
 test("component styles: base / 768 / 375 / hover targets from mediaText + state; '' removes; unsafe and unrepresentable are skipped", () => {
@@ -364,6 +364,48 @@ test("the Layers eye (display:none on the base rule) -> setHidden plus the displ
     { op: "setStyle", id: "p", target: "base", changes: { display: "none" } },
     { op: "setHidden", id: "p", hidden: true },
   ]);
+});
+
+test("a refused attribute value keeps the old value and is reported, never deleted", () => {
+  const d = doc();
+  const json = grapesJson(d);
+  const link = kids(json.components[0]!)[2]!;
+  link.attributes = { ...link.attributes, href: "javascript:alert(1)", title: "ok" };
+  const skipped: string[] = [];
+  expect(grapesToCommands(d, "p1", json, { ...OPTS, skipped })).toEqual([{ op: "setAttribute", id: "a", name: "title", value: "ok" }]);
+  expect(skipped).toEqual(["a [href]"]);
+});
+
+test("unhide: a hidden node whose base display becomes visible again -> setHidden(false)", () => {
+  const ir = sampleIr();
+  const p = ir.sections[0]!.root.children[1]!;
+  p.hidden = true;
+  p.cls = ["gone"];
+  ir.classes.gone = { base: { display: "none" } };
+  const d = doc(ir);
+  const json = grapesJson(d);
+  kids(json.components[0]!)[1]!.attributes.id = "ip";
+  json.styles = [{ selectors: ["#ip"], style: { display: "block" } }];
+  expect(grapesToCommands(d, "p1", json, OPTS)).toEqual([
+    { op: "setStyle", id: "p", target: "base", changes: { display: "block" } },
+    { op: "setHidden", id: "p", hidden: false },
+  ]);
+  json.styles = [{ selectors: ["#ip"], style: { display: "" } }];
+  expect(grapesToCommands(d, "p1", json, OPTS)).toEqual([
+    { op: "setStyle", id: "p", target: "base", changes: { display: null } },
+    { op: "setHidden", id: "p", hidden: false },
+  ]);
+});
+
+test("preset keyframes match the animation name exactly, not a substring", () => {
+  const d = doc();
+  const json = grapesJson(d);
+  json.components[1]!.attributes.id = "ifoot";
+  json.styles = [{ selectors: ["#ifoot"], style: { animation: "my-sp1-fade-in-x 1s", "animation-name": "sp1-fade-inner" } }];
+  const css = renderSiteV2(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]!;
+  expect(css).not.toContain("@keyframes sp1-fade-in");
+  json.styles = [{ selectors: ["#ifoot"], style: { animation: "fast, sp1-fade-in 1s" } }];
+  expect(renderSiteV2(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]).toContain("@keyframes sp1-fade-in{");
 });
 
 // cards: three instances of one main; after promotion the main gains a child, which the instances show under

@@ -338,8 +338,8 @@ export function compileV2(input: IRV2): IR {
   const presets = new Set<string>();
   const collect = (n: IRNodeV2): void => {
     for (const decl of [n.styles.base, ...Object.values(n.styles.bp), ...Object.values(n.styles.state), ...Object.values(n.styles.pseudo)]) {
-      const animation = `${decl?.animation ?? ""} ${decl?.["animation-name"] ?? ""}`;
-      for (const [name, css] of Object.entries(EFFECT_PRESETS)) if (animation.includes(name)) presets.add(css);
+      const names = `${decl?.animation ?? ""} ${decl?.["animation-name"] ?? ""}`.split(/[\s,]+/);
+      for (const [name, css] of Object.entries(EFFECT_PRESETS)) if (names.includes(name)) presets.add(css);
     }
     for (const state of STATES) {
       const decl = n.styles.state[state];

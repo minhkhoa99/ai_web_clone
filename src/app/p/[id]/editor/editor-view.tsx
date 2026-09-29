@@ -44,6 +44,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
   const [effect, setEffect] = useState("sp1-fade-in");
   const [effectMs, setEffectMs] = useState(DEFAULT_EFFECT_MS);
   const [msg, setMsg] = useState("");
+  const [stale, setStale] = useState(false); // a 409 named a newer revision: offer "Tải lại"
   const [saved, setSaved] = useState(false); // qa.json is stale from now on: offer the preview (Chạy lại QA)
   const [busy, setBusy] = useState(false);
   const holder = useRef<HTMLDivElement>(null);
@@ -120,6 +121,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
   const run = async (label: string, fn: () => Promise<string>) => {
     setBusy(true);
     setMsg(label);
+    setStale(false);
     try {
       setMsg(await fn());
       setSaved(true);
@@ -127,27 +129,39 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
     } catch (e) {
       const { code, revision } = e as { code?: string; revision?: number };
       const moved = typeof revision === "number" && (code === "STALE_REVISION" || code === "PROJECT_BUSY");
+      setStale(moved);
       setMsg(moved ? `Dự án đã thay đổi ở nơi khác (revision ${revision}). Tải lại để tiếp tục.` : errorText(e));
     } finally {
       setBusy(false);
     }
   };
 
+  // A text still being edited is only synced into the model when rich-text editing ends.
+  const flushEditing = async () => {
+    const view = editorRef.current?.getEditing()?.getView() as { disableEditing?: () => Promise<void> } | undefined;
+    await view?.disableEditing?.();
+  };
+  // The reload after a server change would drop canvas edits not saved yet (text, styles, the Layers eye: all in the
+  // UndoManager, cleared at load).
+  const requireSaved = async () => {
+    await flushEditing();
+    if (editorRef.current?.UndoManager.hasUndo()) throw new Error("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout.");
+  };
+
   const save = () =>
     run("Đang lưu…", async () => {
       const editor = editorRef.current;
       if (!editor || !project) return "Editor chưa sẵn sàng.";
-      // a text still being edited is only synced into the model when rich-text editing ends
-      const view = editor.getEditing()?.getView() as { disableEditing?: () => Promise<void> } | undefined;
-      await view?.disableEditing?.();
+      await flushEditing();
       const body = { baseRevision: project.revision, pageId: project.pageId, project: { components: editor.getComponents(), styles: editor.Css.getAll() } };
       const res = await api<Saved>(`/api/projects/${id}/editor/save`, { body });
-      const skipped = res.skipped?.length ? ` · ${res.skipped.length} kiểu không lưu được (trạng thái theo breakpoint chưa hỗ trợ)` : "";
+      const skipped = res.skipped?.length ? ` · ${res.skipped.length} thay đổi không lưu được (chưa hỗ trợ hoặc không an toàn): ${res.skipped.slice(0, 3).join(", ")}` : "";
       return `Đã lưu: ${res.ops ?? 0} thay đổi — điểm QA cần chạy lại${skipped}`;
     });
 
   const mergeLayout = () =>
     run("Đang gộp…", async () => {
+      await requireSaved();
       await api<Saved>(`/api/projects/${id}/editor/promote-layout`, { body: { baseRevision: project?.revision, sectionIds: picked } });
       setPicked([]);
       return "Đã gộp thành layout chung";
@@ -156,8 +170,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
   const history = (op: "undo" | "redo") =>
     run(op === "undo" ? "Đang hoàn tác…" : "Đang làm lại…", async () => {
       if (!project) return "Editor chưa sẵn sàng.";
-      // the reload would drop edits not saved yet
-      if (editorRef.current?.UndoManager.hasUndo()) throw new Error("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại.");
+      await requireSaved();
       await api<Saved>(`/api/projects/${id}/editor/${op}`, { body: { baseRevision: project.revision } });
       return `${op === "undo" ? "Đã hoàn tác" : "Đã làm lại"} — điểm QA cần chạy lại`;
     });
@@ -202,6 +215,18 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
         <span role="status" className="t-label-md text-2">
           {msg}
         </span>
+        {stale && (
+          <Button
+            icon="refresh"
+            onClick={() => {
+              setStale(false);
+              setMsg("");
+              setVersion((v) => v + 1);
+            }}
+          >
+            Tải lại
+          </Button>
+        )}
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
       </div>
       <div className="editor-grid">

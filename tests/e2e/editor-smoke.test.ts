@@ -345,6 +345,21 @@ test("editor: edit one heading in the canvas, save -> exactly one command, out/i
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe(`Dự án đã thay đổi ở nơi khác (revision ${revision + 1}). Tải lại để tiếp tục.`);
   expect(await outHtml()).not.toContain("Lost update");
   expect(await outHtml()).toContain('title="other tab"');
+  // "Tải lại" reloads the editor from the server document
+  await page.getByRole("button", { name: "Tải lại" }).click();
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
+  expect(await heading.getAttribute("title")).toBe("other tab");
+  expect(await page.getByRole("button", { name: "Tải lại" }).count()).toBe(0);
+
+  // text typed but still in rich-text editing is flushed first: Hoàn tác refuses instead of dropping it on reload
+  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  await heading.dblclick();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Unsaved words");
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout.");
+  expect(await heading.innerText()).toBe("Unsaved words");
+  expect(await outHtml()).toMatch(/Edited headline<\/h1>/);
   await page.close();
 });
 
