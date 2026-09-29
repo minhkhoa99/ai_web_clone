@@ -325,7 +325,7 @@ const stateKey = (id: string, state: string) => `${id}\u0000${state}`;
 
 // IR v2 -> transient v1 view for the renderer. Class names are derived here (same dedupe, same traversal order
 // as buildIR: sections, shells, then state styles) and never written back into the v2 document.
-function compileV2(input: IRV2): IR {
+export function compileV2(input: IRV2): IR {
   const ir = resolveComponents(input);
   const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
   const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(n.styles), children: n.children.map(styled) });

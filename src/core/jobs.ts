@@ -12,11 +12,14 @@ import { openBrowser, withPage, type BrowserHandle } from "./browser";
 import { capturePage, type PageCapture } from "./capture";
 import { crawl, type CrawlPage } from "./crawl";
 import { tx } from "./db";
-import { emitHtml, type RenderOpts } from "./emit-html";
+import { compileV2, emitHtml, type RenderOpts } from "./emit-html";
 import { AppError, Codes } from "./errors";
 import { workspaceOf, writeJsonAtomic } from "./fsx";
 import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
+import { migrateIR } from "./ir-migrate";
+import { documentStore } from "./ir-store";
+import type { IRV2 } from "./ir-v2";
 import { mapLimit } from "./limit";
 import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
@@ -299,30 +302,55 @@ function closeOutstandingFixes(db: DatabaseSync, projectId: string, message = FI
   ).run(message, projectId);
 }
 
-// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR. The QA scores are not
-// recomputed: qa.json is marked stale. Used by both the editor save and promote-layout routes.
+// The QA scores are not recomputed after an edit: qa.json keeps them, marked stale.
+async function markQaStale(ws: string): Promise<void> {
+  const qa = await readFile(join(ws, "qa.json"), "utf8").then(
+    (t) => JSON.parse(t) as QaFile,
+    (e: unknown) => {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return { scores: [] } as QaFile;
+      throw e;
+    },
+  );
+  await writeJsonAtomic(join(ws, "qa.json"), { scores: qa.scores, stale: true } satisfies QaFile);
+}
+
+// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR, qa.json stale. Used by both the
+// editor save and promote-layout routes.
 export async function saveEdited(
   db: DatabaseSync,
   projectId: string,
   edit: (ir: IR, emit: Pick<RenderOpts, "assetMap" | "pageUrls">) => IR,
 ): Promise<void> {
   const src = await editSource(db, projectId);
-  const [before, emit, qa] = await Promise.all([
-    readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR),
-    emitOpts(src),
-    readFile(join(src.ws, "qa.json"), "utf8").then(
-      (t) => JSON.parse(t) as QaFile,
-      (e: unknown) => {
-        if ((e as NodeJS.ErrnoException).code === "ENOENT") return { scores: [] } as QaFile;
-        throw e;
-      },
-    ),
-  ]);
+  const [before, emit] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR), emitOpts(src)]);
   const ir = edit(before, emit);
   await writeJsonAtomic(join(src.ws, "ir.json"), ir);
   await emitOut(src, ir);
-  await writeJsonAtomic(join(src.ws, "qa.json"), { scores: qa.scores, stale: true } satisfies QaFile);
+  await markQaStale(src.ws);
   closeOutstandingFixes(db, projectId);
+}
+
+// The editor document (E1 §3): SQLite holds the IR v2 snapshot + History; these files are its materialization.
+// The first idle read migrates ir.json (v1 -> v2; the file becomes the v2 mirror on the first step). Every step
+// marks qa.json stale (first: a crash mid-way never leaves fresh-looking scores over a new out/), rewrites ir.json,
+// out/ and the graph. A user step closes the outstanding fix tasks in its transaction (the manual edit wins).
+async function materializeDocument(db: DatabaseSync, projectId: string, ir: IRV2): Promise<void> {
+  const src = await editSource(db, projectId);
+  await markQaStale(src.ws);
+  await writeJsonAtomic(join(src.ws, "ir.json"), ir);
+  await emitOut(src, compileV2(ir)); // ponytail: the graph gets no Component nodes from a v2 doc until Task 13's graph.ts
+}
+
+export function projectDocuments(db: DatabaseSync) {
+  return documentStore(db, (projectId, ir) => materializeDocument(db, projectId, ir), {
+    loadInitial: async (projectId) => {
+      const src = await editSource(db, projectId);
+      const [raw, captures] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8"), loadCaptures(src)]);
+      return migrateIR(JSON.parse(raw), captures);
+    },
+    isBusy: isQueuedOrActive,
+    onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
+  });
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).

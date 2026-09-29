@@ -10,6 +10,9 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_nodes_pt ON nodes(project_id,type);`,
   `CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src,type);`,
   `CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst,type);`,
+  // E1 History: one current IR v2 snapshot per project + at most 500 steps (ir-store.ts)
+  `CREATE TABLE IF NOT EXISTS document_state(project_id TEXT PRIMARY KEY, ir_json TEXT NOT NULL, revision INTEGER NOT NULL, cursor INTEGER NOT NULL, materialized_revision INTEGER NOT NULL);`,
+  `CREATE TABLE IF NOT EXISTS document_history(project_id TEXT NOT NULL, seq INTEGER NOT NULL, forward_json TEXT NOT NULL, inverse_json TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), PRIMARY KEY(project_id,seq));`,
 ];
 
 export function openDb(path: string): DatabaseSync {
@@ -28,8 +31,9 @@ export function openDb(path: string): DatabaseSync {
   return db;
 }
 
-export function tx<T>(db: DatabaseSync, fn: () => T): T {
-  db.exec("BEGIN");
+// immediate: take the write lock up front, so a read-check-write (revision CAS) cannot interleave with another writer
+export function tx<T>(db: DatabaseSync, fn: () => T, immediate = false): T {
+  db.exec(immediate ? "BEGIN IMMEDIATE" : "BEGIN");
   try {
     const r = fn();
     db.exec("COMMIT");

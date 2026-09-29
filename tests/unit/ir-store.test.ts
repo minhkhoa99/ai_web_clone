@@ -1,0 +1,220 @@
+import { expect, test } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import type { CaptureNode, PageCapture } from "@/core/capture";
+import { config } from "@/core/config";
+import { openDb } from "@/core/db";
+import { AppError } from "@/core/errors";
+import { buildIR } from "@/core/ir";
+import { documentStore, type StoreHooks } from "@/core/ir-store";
+import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
+import { createProject, enqueue, projectDocuments } from "@/core/jobs";
+
+const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
+  const node: IRNodeV2 = { id, tag, type: tag === "#text" ? "text" : "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children, ...extra };
+  for (const child of children) child.parentId = id;
+  return node;
+};
+const fixture = (): IRV2 => ({
+  version: 2, revision: 0,
+  pages: [{ id: "pg", path: "/", title: "", meta: {}, sectionIds: ["s1"], shell: n("html", "html", [n("body", "body", [n("ph1", "#section", [], { attrs: { "data-section": "s1" } })])]) }],
+  sections: [{ id: "s1", pageId: "pg", name: "one", role: "main", hash: "h1", origin: "capture", root: n("r", "div", [n("t", "#text", [], { text: "old" })]) }],
+  layouts: [], components: [], tokens: {}, cssom: { keyframes: [], fontFace: [], vars: {} }, interactions: [], fidelity: [],
+});
+const textOf = (ir: IRV2) => ir.sections[0]!.root.children[0]!.text;
+const dbFile = () => join(mkdtempSync(join(tmpdir(), "ir-store-")), "t.db");
+const stateOf = (db: DatabaseSync, id: string) =>
+  db.prepare("SELECT revision,cursor,materialized_revision FROM document_state WHERE project_id=?").get(id) as { revision: number; cursor: number; materialized_revision: number } | undefined;
+const historyRows = (db: DatabaseSync, id: string) => (db.prepare("SELECT COUNT(*) n FROM document_history WHERE project_id=?").get(id) as { n: number }).n;
+const codeOf = async (p: Promise<unknown>) => p.then(() => "resolved", (e: unknown) => (e instanceof AppError ? e.code : String(e)));
+
+function setup(path = ":memory:", hooks: Partial<StoreHooks> = {}) {
+  const db = openDb(path);
+  const written: number[] = [];
+  const ctl = { fail: false, loads: 0 };
+  const materialize = async (_id: string, ir: IRV2) => {
+    if (ctl.fail) throw new Error("disk full");
+    written.push(ir.revision);
+  };
+  const store = documentStore(db, materialize, { loadInitial: async () => (ctl.loads++, fixture()), ...hooks });
+  return { db, store, written, ctl };
+}
+const setText = (text: string) => [{ op: "setText" as const, id: "t", text }];
+
+test("a batch commits as one step: revision + cursor move, the snapshot and output follow", async () => {
+  const { db, store, written } = setup();
+  const r = await store.commitCommands("p", 0, [...setText("new"), { op: "setAttribute", id: "r", name: "title", value: "x" }], "user");
+  expect(r).toEqual({ revision: 1, createdIds: [], canUndo: true, canRedo: false });
+  expect(stateOf(db, "p")).toEqual({ revision: 1, cursor: 1, materialized_revision: 1 });
+  expect(historyRows(db, "p")).toBe(1);
+  const doc = await store.loadDocument("p");
+  expect([textOf(doc), doc.revision, doc.sections[0]!.root.attrs.title]).toEqual(["new", 1, "x"]);
+  expect(written).toEqual([1]);
+});
+
+test("Undo/Redo survive a reopened db; Redo reuses the created IDs; a new edit after Undo drops the Redo tail", async () => {
+  const path = dbFile();
+  const first = setup(path);
+  await first.store.commitCommands("p", 0, setText("new"), "user");
+  const created = await first.store.commitCommands("p", 1, [{ op: "createNode", parentId: "r", index: 1, draft: { tag: "p" } }], "user");
+  expect(created.createdIds).toHaveLength(1);
+  first.db.close();
+
+  const { db, store } = setup(path);
+  const undone = await store.undoDocument("p", 2);
+  expect(undone).toMatchObject({ revision: 3, canUndo: true, canRedo: true });
+  expect((await store.loadDocument("p")).sections[0]!.root.children).toHaveLength(1);
+  const redone = await store.redoDocument("p", 3);
+  expect(redone).toEqual({ revision: 4, createdIds: created.createdIds, canUndo: true, canRedo: false });
+  expect((await store.loadDocument("p")).sections[0]!.root.children[1]!.id).toBe(created.createdIds[0]);
+
+  await store.undoDocument("p", 4);
+  await store.undoDocument("p", 5);
+  expect(textOf(await store.loadDocument("p"))).toBe("old");
+  expect(stateOf(db, "p")).toMatchObject({ revision: 6, cursor: 0 });
+  expect(await codeOf(store.undoDocument("p", 6))).toBe("IR_PATCH_INVALID"); // nothing left to undo
+
+  const edit = await store.commitCommands("p", 6, setText("other"), "user");
+  expect(edit).toMatchObject({ revision: 7, canUndo: true, canRedo: false });
+  expect(historyRows(db, "p")).toBe(1);
+  expect(await codeOf(store.redoDocument("p", 7))).toBe("IR_PATCH_INVALID");
+  db.close();
+});
+
+test("a stale baseRevision is refused with the current revision; nothing is written", async () => {
+  const { db, store } = setup();
+  await store.commitCommands("p", 0, setText("a"), "user");
+  for (const attempt of [() => store.commitCommands("p", 0, setText("b"), "user"), () => store.undoDocument("p", 0), () => store.redoDocument("p", 0)]) {
+    const e = await attempt().catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AppError);
+    expect([(e as AppError).code, (e as AppError).context?.revision]).toEqual(["STALE_REVISION", 1]);
+  }
+  expect(stateOf(db, "p")).toEqual({ revision: 1, cursor: 1, materialized_revision: 1 });
+  expect(textOf(await store.loadDocument("p"))).toBe("a");
+});
+
+test("501 steps keep the newest 500; the document is unchanged by the prune and 500 Undo steps remain", async () => {
+  const { db, store } = setup();
+  for (let i = 0; i < 501; i++) await store.commitCommands("p", i, setText(`v${i + 1}`), "user");
+  expect(historyRows(db, "p")).toBe(500);
+  expect(textOf(await store.loadDocument("p"))).toBe("v501");
+  let revision = 501;
+  for (let i = 0; i < 500; i++) revision = (await store.undoDocument("p", revision)).revision;
+  expect(textOf(await store.loadDocument("p"))).toBe("v1"); // the oldest step was dropped, not its effect
+  expect(await store.historyState("p")).toEqual({ revision: 1001, canUndo: false, canRedo: true });
+});
+
+test("a materializer exception keeps the commit, leaves materialized_revision behind; ensureMaterialized repairs", async () => {
+  const { db, store, written, ctl } = setup();
+  await store.ensureMaterialized("p"); // no document yet: nothing to do
+  ctl.fail = true;
+  const e = await store.commitCommands("p", 0, setText("new"), "user").catch((x: unknown) => x);
+  expect([(e as AppError).code, (e as AppError).context?.revision]).toEqual(["DOCUMENT_MATERIALIZE_FAILED", 1]);
+  expect(stateOf(db, "p")).toEqual({ revision: 1, cursor: 1, materialized_revision: 0 });
+  expect(await codeOf(store.ensureMaterialized("p"))).toBe("DOCUMENT_MATERIALIZE_FAILED");
+  ctl.fail = false;
+  await store.ensureMaterialized("p");
+  expect(stateOf(db, "p")!.materialized_revision).toBe(1);
+  await store.ensureMaterialized("p"); // up to date: no second write
+  expect(written).toEqual([1]);
+});
+
+test("concurrent repairs of one project materialize once, never overlapping", async () => {
+  const db = openDb(":memory:");
+  let active = 0, calls = 0, fail = true;
+  const store = documentStore(db, async () => {
+    if (fail) throw new Error("x");
+    calls++;
+    if (++active > 1) throw new Error("overlap");
+    await new Promise((r) => setTimeout(r, 10));
+    active--;
+  }, { loadInitial: async () => fixture() });
+  await store.commitCommands("p", 0, setText("new"), "user").catch(() => {});
+  fail = false;
+  await Promise.all([store.ensureMaterialized("p"), store.ensureMaterialized("p"), store.ensureMaterialized("p")]);
+  expect(calls).toBe(1);
+});
+
+test("a queued/active job blocks commit, Undo and Redo with PROJECT_BUSY; an uninitialized read stays in memory", async () => {
+  let busy = true;
+  const { db, store } = setup(":memory:", { isBusy: () => busy });
+  expect(textOf(await store.loadDocument("p"))).toBe("old");
+  expect(stateOf(db, "p")).toBeUndefined(); // the job may still rewrite ir.json: not adopted yet
+  expect(await codeOf(store.commitCommands("p", 0, setText("x"), "user"))).toBe("PROJECT_BUSY");
+  busy = false;
+  await store.commitCommands("p", 0, setText("x"), "user");
+  busy = true;
+  expect(await codeOf(store.undoDocument("p", 1))).toBe("PROJECT_BUSY");
+  expect(await codeOf(store.redoDocument("p", 1))).toBe("PROJECT_BUSY");
+  expect(stateOf(db, "p")).toMatchObject({ revision: 1, cursor: 1 });
+});
+
+test("the first idle read adopts revision 0 once; later reads never reload or change IDs", async () => {
+  const { db, store, ctl, written } = setup();
+  const a = await store.loadDocument("p");
+  const b = await store.loadDocument("p");
+  expect([a.revision, b.revision, ctl.loads, historyRows(db, "p")]).toEqual([0, 0, 1, 0]);
+  expect(b.sections[0]!.root.id).toBe(a.sections[0]!.root.id);
+  expect(stateOf(db, "p")).toEqual({ revision: 0, cursor: 0, materialized_revision: 0 });
+  expect(await store.historyState("p")).toEqual({ revision: 0, canUndo: false, canRedo: false });
+  await store.ensureMaterialized("p");
+  expect(written).toEqual([]); // the existing output is revision 0's
+});
+
+test("invalid or oversized steps are refused before anything is written", async () => {
+  const { db, store } = setup();
+  expect(await codeOf(store.commitCommands("p", 0, [{ op: "setText", id: "missing", text: "x" }], "user"))).toBe("IR_PATCH_INVALID");
+  expect(await codeOf(store.commitCommands("p", 0, setText("x".repeat(9 * 1024 * 1024)), "user"))).toBe("IR_PATCH_INVALID"); // > 8 MB step
+  expect(stateOf(db, "p")).toEqual({ revision: 0, cursor: 0, materialized_revision: 0 });
+  expect(historyRows(db, "p")).toBe(0);
+});
+
+test("user commits and Undo/Redo run the manual-edit hook inside the commit; ai_editor commits do not", async () => {
+  const seen: string[] = [];
+  const { store } = setup(":memory:", { onUserEdit: (id) => seen.push(id) });
+  await store.commitCommands("p", 0, setText("a"), "ai_editor");
+  expect(seen).toEqual([]);
+  await store.commitCommands("p", 1, setText("b"), "user");
+  await store.undoDocument("p", 2);
+  await store.redoDocument("p", 3);
+  expect(seen).toEqual(["p", "p", "p"]);
+});
+
+test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror, out/, stale QA and closes fix tasks", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(buildIR([capture])));
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ score: 0.5 }] }));
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase='capture'").run("pages/home/capture.json", id);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
+  db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','home:s','pending')").run(id);
+  db.prepare("UPDATE projects SET status='failed' WHERE id=?").run(id);
+
+  const store = projectDocuments(db);
+  const doc = await store.loadDocument(id);
+  expect([doc.version, doc.revision]).toEqual([2, 0]);
+  const text = doc.sections.flatMap((s) => [s.root, ...s.root.children]).find((x) => x.text === "Top")!;
+  await store.commitCommands(id, 0, [{ op: "setText", id: text.id, text: "Changed" }], "user");
+
+  const mirror = JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2;
+  expect([mirror.version, mirror.revision]).toEqual([2, 1]);
+  expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain("Changed");
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
+  expect(db.prepare("SELECT status FROM tasks WHERE id='fx'").get()).toEqual({ status: "done" });
+  expect(stateOf(db, id)).toMatchObject({ revision: 1, materialized_revision: 1 });
+});
