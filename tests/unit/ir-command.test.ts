@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { applyCommands, prepareCommands, type EditorCommand, type NodeDraft } from "@/core/ir-command";
-import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
+import { promoteLegacyComponents, resolveComponents } from "@/core/ir-component";
+import type { LegacyIR, LegacyIRNode } from "@/core/ir-legacy";
+import { toV2, type IRNodeV2, type IRV2 } from "@/core/ir-v2";
 import { MAX_CAPTURE_NODES } from "@/core/limit";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
@@ -212,4 +214,126 @@ test("results stay loadable: page node ceiling and tree depth are enforced", () 
   const tall = { ...base, sections: [...base.sections, { ...base.sections[1]!, id: "s4", root: deep }] };
   expect(prepareCommands(tall, [{ op: "createNode", parentId: "chain-999", index: 0, draft: { tag: "b" } }], ids())).toHaveLength(1);
   expect(() => prepareCommands(tall, [{ op: "createNode", parentId: "chain-999", index: 0, draft: { tag: "b", children: [{ tag: "b" }] } }], ids())).toThrow(/depth limit/);
+});
+
+// --- Task 6: layout + component commands ---
+const twoPages = (): IRV2 => deepFreeze({
+  ...fixture(),
+  pages: [
+    fixture().pages[0]!,
+    { id: "pg2", path: "/b", title: "", meta: {}, sectionIds: ["s3"], shell: n("html2", "html", [n("body2", "body", [n("ph3", "#section", [], { attrs: { "data-section": "s3" } })])]) },
+  ],
+  sections: [...fixture().sections, { id: "s3", pageId: "pg2", name: "three", role: "footer", hash: "h2", origin: "capture", root: n("r", "footer", [n("e", "span")]) }],
+});
+
+test("promoteLayout across two pages: undo restores sectionIds, placeholder, layout and the dropped root", () => {
+  const ir = twoPages();
+  const { ir: out, inverse } = roundTrip(ir, [{ op: "promoteLayout", sectionIds: ["s1", "s3"] }]);
+  expect(out.pages.map((p) => p.sectionIds)).toEqual([["s1", "s2"], ["s1"]]);
+  expect(out.pages[1]!.shell.children[0]!.children[0]!.attrs["data-section"]).toBe("s1");
+  expect(out.sections.map((s) => s.id)).toEqual(["s1", "s2"]);
+  const layout = out.layouts.find((l) => l.sectionId === "s1")!;
+  expect(layout.pageIds).toEqual(["pg", "pg2"]);
+  expect(out.sections[0]!.layoutId).toBe(layout.id);
+  const undone = applyCommands(out, inverse);
+  expect(undone.ir.sections[2]!.root).toEqual(ir.sections[2]!.root);
+  expect("layoutId" in undone.ir.sections[0]!).toBe(false);
+  expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out); // redo
+  // a follow-up shell edit on the layout still round-trips
+  roundTrip(out, [{ op: "deleteNode", id: "ph3" }]);
+  for (const sectionIds of [["s1", "s2"], ["s1"], ["s1", "nope"], "s1"] as never[]) {
+    expect(() => applyCommands(ir, [{ op: "promoteLayout", sectionIds }])).toThrow(/command 0 \(promoteLayout\)/);
+  }
+  expect(prepareCommands(ir, [{ op: "promoteLayout", sectionIds: ["s1", "s3"] }], ids())).toEqual([{ op: "promoteLayout", sectionIds: ["s1", "s3"] }]);
+});
+
+const cardsLegacy = (): LegacyIR => {
+  const l = (id: string, tag: string, children: LegacyIRNode[] = [], text?: string): LegacyIRNode => ({ id, tag, attrs: {}, cls: [], children, ...(text === undefined ? {} : { text }) });
+  return {
+    pages: [{ id: "p", path: "/", title: "", meta: {}, sectionIds: ["s"], shell: l("shell", "html", [{ ...l("ph", "#section"), attrs: { "data-section": "s" } }]) }],
+    sections: [{ id: "s", pageId: "p", name: "cards", role: "main", hash: "s", origin: "capture", root: l("section", "section", [0, 1, 2].map((i) => ({ ...l(`card${i}`, "article", [l(`label${i}`, "span", [l(`text${i}`, "#text", [], `Card ${i}`)]), l(`extra${i}`, "small")]), cls: [i === 1 ? "blue" : "red"] }))) }],
+    components: [{ id: "cards", hash: "cards", instanceIds: ["card0", "card1", "card2"] }],
+    classes: { red: { base: { color: "red" } }, blue: { base: { color: "blue" } } }, layouts: [], tokens: {}, cssom: { keyframes: [], fontFace: [], vars: {} }, interactions: [],
+  };
+};
+const cardsIr = (): IRV2 => { const v1 = cardsLegacy(); return deepFreeze(promoteLegacyComponents(toV2(v1, []), v1.components)); };
+const card = (ir: IRV2, i: number) => resolveComponents(ir).sections[0]!.root.children[i]!;
+const textOf = (x: IRNodeV2): string => (x.text ?? "") + x.children.map(textOf).join("");
+const all = (x: IRNodeV2): IRNodeV2[] => [x, ...x.children.flatMap(all)];
+const overridesOf = (ir: IRV2, id: string) => all(ir.sections[0]!.root).find((x) => x.id === id)?.component?.overrides;
+
+test("instance property edits record override paths and survive resolve; main edits reach non-overriding instances", () => {
+  const ir = cardsIr(), mainRoot = ir.components[0]!.root.id;
+  const { ir: out } = roundTrip(ir, [
+    { op: "setStyle", id: "card2", target: 768, changes: { color: "pink" } },
+    { op: "setAttribute", id: "card0", name: "title", value: "t" },
+    { op: "setText", id: "text0", text: "Zero" },
+    { op: "setHidden", id: "extra2", hidden: true },
+    { op: "setStyle", id: mainRoot, target: "base", changes: { color: "green" } },
+  ]);
+  expect(overridesOf(out, "card2")).toEqual(["styles.bp.768.color"]);
+  expect(overridesOf(out, "text0")).toEqual(["text"]);
+  expect(overridesOf(out, "extra2")).toEqual(["hidden"]);
+  expect(card(out, 2).styles.bp[768]).toEqual({ color: "pink" });
+  expect(card(out, 0).attrs.title).toBe("t");
+  expect(textOf(card(out, 0))).toBe("Zero");
+  expect(card(out, 2).children[1]!.hidden).toBe(true);
+  // main change: card0/card2 do not override base color, card1 does
+  expect([0, 1, 2].map((i) => card(out, i).styles.base.color)).toEqual(["green", "blue", "green"]);
+  // editing an overridden path again keeps a single entry
+  expect(overridesOf(applyCommands(out, [{ op: "setText", id: "text0", text: "Z" }]).ir, "text0")).toEqual(["text"]);
+  expect(() => applyCommands(ir, [{ op: "setAttribute", id: "card0", name: "constructor", value: null }])).toThrow(/override/);
+});
+
+test("setHidden toggles, undoes exactly and validates", () => {
+  const ir = fixture();
+  const hidden = roundTrip(ir, [{ op: "setHidden", id: "b", hidden: true }]).ir;
+  expect(kids(hidden)[1]!.hidden).toBe(true);
+  expect("hidden" in kids(roundTrip(hidden, [{ op: "setHidden", id: "b", hidden: false }]).ir)[1]!).toBe(false);
+  expect(() => applyCommands(ir, [{ op: "setHidden", id: "b", hidden: "yes" as never }])).toThrow(/boolean/);
+  expect(() => applyCommands(ir, [{ op: "setHidden", id: "ph1", hidden: true }])).toThrow(/placeholder/);
+  expect(prepareCommands(ir, [{ op: "setHidden", id: "b", hidden: true, x: 1 } as never], ids())).toEqual([{ op: "setHidden", id: "b", hidden: true }]);
+});
+
+test("resetOverride and detachComponent undo exactly", () => {
+  const ir = cardsIr();
+  const reset = roundTrip(ir, [{ op: "resetOverride", instanceId: "card1", path: "styles.base.color" }]);
+  expect(overridesOf(reset.ir, "card1")).toEqual([]);
+  expect(card(reset.ir, 1).styles.base.color).toBe("red");
+  const undone = applyCommands(reset.ir, reset.inverse);
+  expect(overridesOf(undone.ir, "card1")).toEqual(["styles.base.color"]);
+  expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(reset.ir); // redo
+  expect(textOf(card(roundTrip(ir, [{ op: "resetOverride", instanceId: "card1" }]).ir, 1))).toBe("Card 0");
+
+  const result = applyCommands(ir, [{ op: "detachComponent", instanceId: "card1" }]);
+  expect(result.ir.components[0]!.instanceIds).toEqual(["card0", "card2"]);
+  expect(result.ir.sections[0]!.root.children[1]!.component).toBeUndefined();
+  expect(applyCommands(result.ir, result.inverse).ir).toEqual(ir);
+
+  expect(() => applyCommands(ir, [{ op: "resetOverride", instanceId: "card1", path: "text" }])).toThrow(/no override/);
+  expect(() => applyCommands(ir, [{ op: "resetOverride", instanceId: "section" }])).toThrow(/instance/);
+  expect(() => applyCommands(ir, [{ op: "detachComponent", instanceId: ir.components[0]!.root.id }])).toThrow(/command 0 \(detachComponent\)/);
+});
+
+test("main structure edits that orphan an instance override are refused; instance roots keep instanceIds in sync", () => {
+  const ir = cardsIr(), main = ir.components[0]!.root;
+  const overriddenMainChildId = main.children[0]!.children[0]!.id; // text0's source: text1/text2 override "text"
+  expect(() => applyCommands(ir, [{ op: "deleteNode", id: overriddenMainChildId }])).toThrow(/instance/);
+  expect(() => applyCommands(ir, [{ op: "deleteNode", id: main.children[0]!.id }])).toThrow(/instance text/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: overriddenMainChildId, parentId: main.children[1]!.id, index: 0 }])).toThrow(/instance/);
+  // extra has no override anywhere: it can be removed from the main, and undone
+  const trimmed = roundTrip(ir, [{ op: "deleteNode", id: main.children[1]!.id }]).ir;
+  expect(card(trimmed, 0).children.map((x) => x.id)).toEqual(["label0"]);
+  // editing the orphaned instance node is refused (it would never render)
+  expect(() => applyCommands(trimmed, [{ op: "setHidden", id: "extra0", hidden: true }])).toThrow(/main source/);
+
+  const { ir: out } = roundTrip(ir, [{ op: "deleteNode", id: "card1" }]);
+  expect(out.components[0]!.instanceIds).toEqual(["card0", "card2"]);
+  expect(out.components[0]!.root).toBe(main); // deleting an instance never touches the main
+  // structural edits inside an instance: edit the main or detach first
+  expect(() => applyCommands(ir, [{ op: "deleteNode", id: "extra0" }])).toThrow(/inside component instance/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "card1", parentId: "card0", index: 0 }])).toThrow(/inside component instance/);
+  expect(() => applyCommands(ir, [{ op: "createNode", parentId: "card0", index: 0, node: n("x", "div") }])).toThrow(/inside component instance/);
+  // shell placeholder delete drops the section and its instances from instanceIds
+  expect(roundTrip(ir, [{ op: "deleteNode", id: "ph" }]).ir.components[0]!.instanceIds).toEqual([]);
 });

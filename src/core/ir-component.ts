@@ -137,6 +137,19 @@ export function resolveComponents(ir: IRV2): IRV2 {
   return { ...ir, sections: ir.sections.map(s => ({ ...s, root: materialize(s.root) })), pages: ir.pages.map(p => ({ ...p, shell: materialize(p.shell) })) };
 }
 
+// The first instance node a structural edit of these main nodes would break: an override on one of them, or a
+// `children` override on the counterpart of their parent (it keeps its own copy, whose source would go away).
+export function overridingInstance(ir: IRV2, componentId: string, sourceIds: ReadonlySet<string>, parentId: string): string | undefined {
+  const stack = [...roots(ir), ...ir.components.map(c => c.root)];
+  while (stack.length) {
+    const n = stack.pop()!, ref = n.component;
+    if (ref?.role === "instance" && ref.id === componentId && ref.overrides?.length &&
+        (sourceIds.has(ref.sourceId ?? "") || (ref.sourceId === parentId && ref.overrides.includes("children")))) return n.id;
+    stack.push(...n.children);
+  }
+  return undefined;
+}
+
 export function resetOverride(ir: IRV2, instanceId: string, path?: string): IRV2 {
   const result = structuredClone(ir), node = indexTrees(roots(result)).get(instanceId);
   if (node?.component?.role !== "instance") fail(`not a component instance: ${instanceId}`);

@@ -3,7 +3,8 @@
 // prepareCommands' server allocator, never from client/AI input.
 import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
-import { syncSections, type IR } from "./ir";
+import { promoteLayout, syncSections, type IR } from "./ir";
+import { detachComponent, overridingInstance, resetOverride } from "./ir-component";
 import { typeOf, type IRNodeV2, type IRV2, type NodeStyles, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
 import { CSS_PROP, isSafeAttr, isSafeCss, tagSchema } from "./safe-names";
@@ -25,6 +26,10 @@ type Edit =
   | { op: "setStyle"; id: string; target: StyleTarget; changes: Record<string, string | null> }
   | { op: "setText"; id: string; text: string }
   | { op: "setAttribute"; id: string; name: string; value: string | null }
+  | { op: "setHidden"; id: string; hidden: boolean }
+  | { op: "promoteLayout"; sectionIds: string[] }
+  | { op: "resetOverride"; instanceId: string; path?: string }
+  | { op: "detachComponent"; instanceId: string }
   | { op: "moveNode"; id: string; parentId: string; index: number }
   | { op: "deleteNode"; id: string };
 export type EditorCommand =
@@ -38,9 +43,14 @@ export type NormalizedCommand =
 
 // Private inverse payloads: produced here, stored by History, never accepted by prepareCommands.
 type NodeProps = Omit<IRNodeV2, "id" | "parentId" | "children">;
-type Refs = { sectionIds: string[][]; layouts: IRV2["layouts"]; sections: { index: number; section: IRV2["sections"][number] }[] };
+type Refs = { sectionIds: string[][]; layouts: IRV2["layouts"]; sections: { index: number; section: IRV2["sections"][number] }[]; instanceIds: string[][] };
+type ComponentEdit = Extract<Edit, { op: "resetOverride" | "detachComponent" }>;
 type Plain = NormalizedCommand | { op: "restoreProps"; id: string; props: NodeProps } | { op: "restoreNode"; parentId: string; index: number; node: IRNodeV2 };
-export type HistoryCommand = Plain | { op: "restoreRefs"; command: Plain; refs: Refs };
+export type HistoryCommand =
+  | Plain
+  | { op: "restoreRefs"; command: Plain; refs: Refs }
+  | { op: "restoreLayout"; sectionIds: string[]; layoutId?: string; placeholders: [string, string][]; refs: Refs } // placeholder id -> old section
+  | { op: "restoreComponent"; command: ComponentEdit; trees: { tree: Tree; root: IRNodeV2 }[]; instanceIds: string[][] };
 
 type Fail = (message: string) => never;
 type Tree = { kind: "sections" | "pages" | "components"; index: number };
@@ -50,6 +60,7 @@ type Step = { ir: IRV2; inverse: HistoryCommand; created?: string };
 const NODE_TYPES = new Set<NodeType>(["container", "text", "image", "link", "button", "input", "media", "svg", "component-root"]);
 const NODE_KEYS = new Set(["id", "parentId", "tag", "type", "name", "attrs", "text", "hidden", "styles", "children"]);
 const STYLE_GROUPS = { bp: ["768", "375"], state: ["hover", "focus", "active"], pseudo: ["before", "after"] } as const;
+const TREE_OPS = new Set(["createNode", "restoreNode", "moveNode", "deleteNode", "duplicateNode"]);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 const failer = (i: number, command: unknown): Fail => (message) => {
@@ -127,6 +138,8 @@ function checkSubtree(root: unknown, fail: Fail): void {
 const SHELL_ONLY_PLACEHOLDERS = "a page shell only allows moving or deleting section placeholders";
 const checkParent = (parent: IRNodeV2, fail: Fail) => {
   if (parent.tag === "#text" || parent.tag === "#section") fail(`parent cannot have children: ${parent.id}`);
+  // an instance's structure comes from its main (Figma-style): its children are not edited in place
+  if (parent.component?.role === "instance") fail(`structural edit inside component instance ${parent.id}: edit the main or detach first`);
 };
 const checkIndex = (index: unknown, length: number, fail: Fail) => {
   if (!Number.isInteger(index) || (index as number) < 0 || (index as number) > length) fail(`index out of range 0..${length}`);
@@ -200,7 +213,7 @@ function setStyle(styles: NodeStyles, target: unknown, changes: unknown, fail: F
   if (Object.keys(decl).length) next[key!] = decl; else delete next[key!]; // an empty override is no override
   return { ...styles, [group]: next };
 }
-function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "setAttribute" | "restoreProps" }>, fail: Fail): Step {
+function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" | "restoreProps" }>, fail: Fail): Step {
   const found = need(ir, c.id, fail);
   const { id, parentId, children, ...old } = found.node;
   let props: NodeProps;
@@ -211,6 +224,11 @@ function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "
     if (typeof c.text !== "string") fail("text must be a string");
     props = { ...old, text: c.text };
   } else if (found.node.tag === "#text") return fail(`${c.op} on a #text node`);
+  else if (c.op === "setHidden") {
+    if (typeof c.hidden !== "boolean") fail("hidden must be a boolean");
+    const { hidden: _hidden, ...shown } = old;
+    props = c.hidden ? { ...shown, hidden: true } : shown;
+  }
   else if (c.op === "setAttribute") {
     const attrs = { ...found.node.attrs };
     if (typeof c.name !== "string") fail("attribute name must be a string");
@@ -219,8 +237,27 @@ function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "
     else fail(`attribute not allowed: ${c.name.slice(0, 80)}`);
     props = { ...old, attrs };
   } else props = { ...old, styles: setStyle(found.node.styles, c.target, c.changes, fail) };
+  if (c.op !== "restoreProps" && old.component?.role === "instance") props = { ...props, component: overridden(ir, found.node, c, fail) };
   const node: IRNodeV2 = { ...props, id, children, ...(parentId !== undefined && { parentId }) };
   return { ir: withRoot(ir, found.tree, update(rootOf(ir, found.tree), id, () => node)!), inverse: { op: "restoreProps", id, props: old } };
+}
+
+// An instance edit marks the paths it sets, so resolveComponents keeps them over the main; a main edit needs nothing,
+// the resolver already takes every non-overridden path from the main.
+function overridden(ir: IRV2, node: IRNodeV2, c: Extract<Edit, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" }>, fail: Fail): NonNullable<IRNodeV2["component"]> {
+  const ref = node.component!;
+  const main = ir.components.find((m) => m.id === ref.id);
+  if (!main || !preorder(main.root).some((n) => n.id === ref.sourceId)) fail(`instance node ${node.id} has no main source: edit the main or detach it`);
+  let paths: string[];
+  if (c.op === "setText") paths = ["text"];
+  else if (c.op === "setHidden") paths = ["hidden"];
+  else if (c.op === "setAttribute") paths = [`attrs.${c.name}`];
+  else {
+    const [group, key] = styleTarget(c.target, fail);
+    paths = Object.keys(c.changes).map((prop) => `styles.${group === "base" ? "base" : `${group}.${key!}`}.${prop}`);
+  }
+  if (paths.some((p) => /\.(__proto__|constructor|prototype)$/.test(p))) fail("invalid component override path");
+  return { ...ref, overrides: [...new Set([...(ref.overrides ?? []), ...paths])] };
 }
 
 // --- tree commands (one tree each: a node never changes owner) ---
@@ -260,6 +297,11 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
   if (!parent) return fail(`tree root is protected: ${node.id}`);
   if (tree.kind === "pages" && (c.op === "duplicateNode" || node.tag !== "#section")) fail(SHELL_ONLY_PLACEHOLDERS);
   checkSubtree(node, fail);
+  if (c.op !== "duplicateNode") checkParent(parent, fail);
+  if (tree.kind === "components" && c.op !== "duplicateNode") {
+    const hit = overridingInstance(ir, ir.components[tree.index]!.id, new Set(preorder(node).map((n) => n.id)), parent.id);
+    if (hit) fail(`main node ${node.id} is overridden in instance ${hit}: reset or detach that instance first`);
+  }
   if (c.op === "deleteNode") {
     const root = update(rootOf(ir, tree), parent.id, (p) => ({ ...p, children: splice(p.children, found.index, 1) }))!;
     return { ir: withRoot(ir, tree, root), tree, inverse: { op: "restoreNode", parentId: parent.id, index: found.index, node } };
@@ -297,34 +339,109 @@ function refsBetween(before: IRV2, after: IRV2): Refs {
     sectionIds: before.pages.map((p) => p.sectionIds),
     layouts: before.layouts,
     sections: before.sections.map((section, index) => ({ index, section })).filter(({ section }) => !kept.has(section.id)),
+    instanceIds: before.components.map((c) => c.instanceIds),
   };
 }
 function withRefs(ir: IRV2, refs: Refs, fail: Fail): IRV2 {
-  if (!isObject(refs) || !Array.isArray(refs.sectionIds) || refs.sectionIds.length !== ir.pages.length) return fail("invalid section references");
+  if (!isObject(refs) || !Array.isArray(refs.sectionIds) || refs.sectionIds.length !== ir.pages.length ||
+      !Array.isArray(refs.instanceIds) || refs.instanceIds.length !== ir.components.length) return fail("invalid section references");
   const sections = ir.sections.slice();
   for (const { index, section } of refs.sections) {
     if (sections.some((s) => s.id === section.id)) fail(`section already exists: ${section.id}`);
     sections.splice(index, 0, section);
   }
-  return { ...ir, sections, layouts: refs.layouts, pages: ir.pages.map((p, i) => ({ ...p, sectionIds: refs.sectionIds[i]! })) };
+  return {
+    ...ir, sections, layouts: refs.layouts, pages: ir.pages.map((p, i) => ({ ...p, sectionIds: refs.sectionIds[i]! })),
+    components: ir.components.map((c, i) => ({ ...c, instanceIds: refs.instanceIds[i]! })),
+  };
 }
+// A deleted instance root (or a dropped section holding instances) leaves its component's instanceIds; the main stays.
+function pruneInstances(ir: IRV2): IRV2 {
+  if (!ir.components.length) return ir;
+  const present = allIds(ir);
+  if (ir.components.every((c) => c.instanceIds.every((id) => present.has(id)))) return ir;
+  return { ...ir, components: ir.components.map((c) => ({ ...c, instanceIds: c.instanceIds.filter((id) => present.has(id)) })) };
+}
+
+// --- layout: shares ir.ts promoteLayout (still used by the v1 route) and restores what it repoints/drops ---
+function applyLayout(ir: IRV2, c: Extract<Edit, { op: "promoteLayout" }>, fail: Fail): Step {
+  if (!Array.isArray(c.sectionIds) || c.sectionIds.some((id) => typeof id !== "string")) return fail("sectionIds must be a list of section IDs");
+  // promoteLayout only reads/writes shells, sections and layouts, which IR v2 shares with v1
+  const next = pruneInstances(guard(() => promoteLayout(ir as unknown as IR, c.sectionIds) as unknown as IRV2, fail));
+  const dropped = new Set(c.sectionIds.slice(1)), first = ir.sections.find((s) => s.id === c.sectionIds[0])!;
+  const placeholders = ir.pages.flatMap((p) => preorder(p.shell))
+    .filter((n) => n.tag === "#section" && dropped.has(n.attrs["data-section"] ?? ""))
+    .map((n): [string, string] => [n.id, n.attrs["data-section"]!]);
+  return { ir: next, inverse: { op: "restoreLayout", sectionIds: [...c.sectionIds], ...(first.layoutId !== undefined && { layoutId: first.layoutId }), placeholders, refs: refsBetween(ir, next) } };
+}
+function restoreLayout(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreLayout" }>, fail: Fail): Step {
+  if (!Array.isArray(c.sectionIds) || !Array.isArray(c.placeholders)) return fail("invalid layout restore");
+  let next = ir;
+  for (const entry of c.placeholders) {
+    const found = Array.isArray(entry) ? find(next, entry[0]) : undefined;
+    if (found?.tree.kind !== "pages" || found.node.tag !== "#section" || typeof entry[1] !== "string") return fail("invalid layout restore");
+    next = withRoot(next, found.tree, update(rootOf(next, found.tree), found.node.id, (n) => ({ ...n, attrs: { ...n.attrs, "data-section": entry[1] } }))!);
+  }
+  next = withRefs(next, c.refs, fail);
+  const sections = next.sections.map((s) => {
+    if (s.id !== c.sectionIds[0]) return s;
+    const { layoutId: _layout, ...rest } = s;
+    return c.layoutId === undefined ? rest : { ...rest, layoutId: c.layoutId };
+  });
+  return { ir: { ...next, sections }, inverse: { op: "promoteLayout", sectionIds: c.sectionIds } };
+}
+
+// --- components: ir-component owns the semantics; the inverse keeps the page/section trees it rewrote ---
+function applyComponent(ir: IRV2, c: ComponentEdit, fail: Fail): Step {
+  const found = need(ir, c.instanceId, fail, "instance");
+  const ref = found.node.component;
+  if (ref?.role !== "instance" || found.tree.kind === "components") return fail(`not a component instance on a page: ${found.node.id}`);
+  if (c.op === "resetOverride" && c.path !== undefined && (typeof c.path !== "string" || !(ref.overrides ?? []).includes(c.path))) fail("no override at that path");
+  const resolved = guard(() => (c.op === "resetOverride" ? resetOverride(ir, c.instanceId, c.path) : detachComponent(ir, c.instanceId)), fail);
+  // keep unchanged trees shared; a JSON compare is enough, both sides are plain data
+  const trees = treesOf(ir).filter((t) => t.kind !== "components" && JSON.stringify(rootOf(ir, t)) !== JSON.stringify(rootOf(resolved, t)));
+  let next: IRV2 = { ...ir, components: ir.components.map((m, i) => ({ ...m, instanceIds: resolved.components[i]!.instanceIds })) };
+  for (const t of trees) next = withRoot(next, t, rootOf(resolved, t));
+  const command: ComponentEdit = c.op === "detachComponent" ? { op: c.op, instanceId: c.instanceId } : { op: c.op, instanceId: c.instanceId, ...(c.path !== undefined && { path: c.path }) };
+  return { ir: next, inverse: { op: "restoreComponent", command, trees: trees.map((tree) => ({ tree, root: rootOf(ir, tree) })), instanceIds: ir.components.map((m) => m.instanceIds) } };
+}
+function restoreComponent(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreComponent" }>, fail: Fail): Step {
+  if (!Array.isArray(c.trees) || !Array.isArray(c.instanceIds) || c.instanceIds.length !== ir.components.length || !isObject(c.command)) return fail("invalid component restore");
+  let next: IRV2 = { ...ir, components: ir.components.map((m, i) => ({ ...m, instanceIds: c.instanceIds[i]! })) };
+  for (const { tree, root } of c.trees) {
+    const ok = isObject(tree) && (tree.kind === "sections" || tree.kind === "pages") && Number.isInteger(tree.index) &&
+      ir[tree.kind][tree.index] !== undefined && isObject(root) && root.id === rootOf(ir, tree).id;
+    if (!ok) return fail("invalid component restore");
+    next = withRoot(next, tree, root);
+  }
+  return { ir: next, inverse: c.command };
+}
+const guard = <T>(run: () => T, fail: Fail): T => {
+  try { return run(); } catch (e) { if (e instanceof AppError) return fail(e.message); throw e; }
+};
 
 function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
   if (!isObject(c)) return fail("command must be an object");
   switch (c.op) {
-    case "setStyle": case "setText": case "setAttribute": case "restoreProps":
+    case "setStyle": case "setText": case "setAttribute": case "setHidden": case "restoreProps":
       return applyProps(ir, c, fail);
+    case "promoteLayout": return applyLayout(ir, c, fail);
+    case "restoreLayout": return restoreLayout(ir, c, fail);
+    case "resetOverride": case "detachComponent": return applyComponent(ir, c, fail);
+    case "restoreComponent": return restoreComponent(ir, c, fail);
     case "createNode": case "restoreNode": case "moveNode": case "deleteNode": case "duplicateNode": {
       const step = applyTree(ir, c, fail);
-      if (step.tree.kind !== "pages") return step;
-      const synced = sync(step.ir);
+      const shell = step.tree.kind === "pages" ? sync(step.ir) : step.ir;
+      const synced = c.op === "deleteNode" ? pruneInstances(shell) : shell;
+      if (synced === step.ir) return step;
       return { ...step, ir: synced, inverse: { op: "restoreRefs", command: step.inverse as Plain, refs: refsBetween(ir, synced) } };
     }
     case "restoreRefs": {
-      if (!isObject(c.command) || (c.command as { op: unknown }).op === "restoreRefs") return fail("invalid restore");
+      // it only ever wraps a tree edit (the inverse of a shell edit or of an instance delete)
+      if (!isObject(c.command) || !TREE_OPS.has((c.command as { op: unknown }).op as string)) return fail("invalid restore");
       const step = applyOne(ir, c.command, fail);
       const done = withRefs(step.ir, c.refs, fail);
-      const inner = step.inverse.op === "restoreRefs" ? step.inverse.command : step.inverse;
+      const inner = (step.inverse.op === "restoreRefs" ? step.inverse.command : step.inverse) as Plain;
       return { ...step, ir: done, inverse: { op: "restoreRefs", command: inner, refs: refsBetween(ir, done) } };
     }
     default:
@@ -344,6 +461,10 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
       case "setStyle": normalized = { op: command.op, id: command.id, target: command.target, changes: command.changes }; break;
       case "setText": normalized = { op: command.op, id: command.id, text: command.text }; break;
       case "setAttribute": normalized = { op: command.op, id: command.id, name: command.name, value: command.value }; break;
+      case "setHidden": normalized = { op: command.op, id: command.id, hidden: command.hidden }; break;
+      case "promoteLayout": normalized = { op: command.op, sectionIds: Array.isArray(command.sectionIds) ? [...command.sectionIds] : command.sectionIds }; break;
+      case "resetOverride": normalized = { op: command.op, instanceId: command.instanceId, ...(command.path !== undefined && { path: command.path }) }; break;
+      case "detachComponent": normalized = { op: command.op, instanceId: command.instanceId }; break;
       case "moveNode": normalized = { op: command.op, id: command.id, parentId: command.parentId, index: command.index }; break;
       case "deleteNode": normalized = { op: command.op, id: command.id }; break;
       case "createNode": normalized = { op: command.op, parentId: command.parentId, index: command.index, node: fromDraft(command.draft, allocateId, fail) }; break;

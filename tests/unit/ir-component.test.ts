@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { promoteLegacyComponents, resolveComponents, resetOverride, detachComponent } from "@/core/ir-component";
+import { promoteLegacyComponents, resolveComponents, resetOverride, detachComponent, overridingInstance } from "@/core/ir-component";
 import { migrateIR } from "@/core/ir-migrate";
 import { MAX_CAPTURE_NODES } from "@/core/limit";
 import { toV2, type IRNodeV2 } from "@/core/ir-v2";
@@ -139,4 +139,15 @@ test("malformed legacy component records fail with a coded error without mutatio
     expect(() => migrateIR(input, [])).toThrowError(expect.objectContaining({ code: "IR_PATCH_INVALID" }));
     expect(input).toEqual(before);
   }
+});
+
+test("overridingInstance names the instance that a main structure edit would orphan", () => {
+  const ir = promoted(), main = ir.components[0]!.root;
+  const [label, extra] = main.children as [IRNodeV2, IRNodeV2];
+  expect(overridingInstance(ir, "cards", new Set([label.children[0]!.id]), label.id)).toMatch(/^text[12]$/);
+  expect(overridingInstance(ir, "cards", new Set([extra.id]), main.id)).toBeUndefined();
+  expect(overridingInstance(ir, "other", new Set([label.children[0]!.id]), label.id)).toBeUndefined();
+  // a kept child under a children-overridden instance parent would lose its source
+  cards(ir)[0]!.component!.overrides = ["children"];
+  expect(overridingInstance(ir, "cards", new Set([extra.id]), main.id)).toBe("card0");
 });
