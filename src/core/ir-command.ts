@@ -5,6 +5,7 @@ import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { syncSections, type IR } from "./ir";
 import { typeOf, type IRNodeV2, type IRV2, type NodeStyles, type NodeType } from "./ir-v2";
+import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
 import { CSS_PROP, isSafeAttr, isSafeCss, tagSchema } from "./safe-names";
 
 export const COMMAND_LIMITS = { commands: 50, nodes: 500, depth: 20, stepBytes: 8 * 1024 * 1024 } as const;
@@ -43,7 +44,7 @@ export type HistoryCommand = Plain | { op: "restoreRefs"; command: Plain; refs: 
 
 type Fail = (message: string) => never;
 type Tree = { kind: "sections" | "pages" | "components"; index: number };
-type Found = { tree: Tree; node: IRNodeV2; parent: IRNodeV2 | undefined; index: number };
+type Found = { tree: Tree; node: IRNodeV2; parent: IRNodeV2 | undefined; index: number; depth: number }; // root depth 1
 type Step = { ir: IRV2; inverse: HistoryCommand; created?: string };
 
 const NODE_TYPES = new Set<NodeType>(["container", "text", "image", "link", "button", "input", "media", "svg", "component-root"]);
@@ -78,16 +79,16 @@ const sameTree = (a: Tree, b: Tree) => a.kind === b.kind && a.index === b.index;
 
 function find(ir: IRV2, id: unknown): Found | undefined {
   if (typeof id !== "string") return undefined;
-  const search = (node: IRNodeV2, parent: IRNodeV2 | undefined, index: number): Omit<Found, "tree"> | undefined => {
-    if (node.id === id) return { node, parent, index };
+  const search = (node: IRNodeV2, parent: IRNodeV2 | undefined, index: number, depth: number): Omit<Found, "tree"> | undefined => {
+    if (node.id === id) return { node, parent, index, depth };
     for (let i = 0; i < node.children.length; i++) {
-      const hit = search(node.children[i]!, node, i);
+      const hit = search(node.children[i]!, node, i, depth + 1);
       if (hit) return hit;
     }
     return undefined;
   };
   for (const tree of treesOf(ir)) {
-    const hit = search(rootOf(ir, tree), undefined, 0);
+    const hit = search(rootOf(ir, tree), undefined, 0, 1);
     if (hit) return { tree, ...hit };
   }
   return undefined;
@@ -228,9 +229,22 @@ function insert(ir: IRV2, parentId: unknown, index: unknown, node: IRNodeV2, fai
   checkParent(parent.node, fail);
   checkIndex(index, parent.node.children.length, fail);
   checkFreshIds(ir, preorder(node).map((n) => n.id), fail);
+  checkDepth(parent, node, fail);
   const pid = parent.node.id;
   const root = update(rootOf(ir, parent.tree), pid, (p) => ({ ...p, children: splice(p.children, index as number, 0, withParent(node, pid)) }))!;
-  return { ir: withRoot(ir, parent.tree, root), tree: parent.tree };
+  const next = withRoot(ir, parent.tree, root);
+  // the whole document stays loadable by migrateIR: nodes per page (shell + its sections) or across component mains
+  const host = parent.tree.kind === "components" ? next.components.map((c) => c.root) : pageTrees(next, parent.tree);
+  if (host.reduce((sum, r) => sum + preorder(r).length, 0) > MAX_CAPTURE_NODES) fail(`page node limit exceeded (${MAX_CAPTURE_NODES})`);
+  return { ir: next, tree: parent.tree };
+}
+const height = (n: IRNodeV2): number => 1 + Math.max(0, ...n.children.map(height));
+const checkDepth = (parent: Found, node: IRNodeV2, fail: Fail) => {
+  if (parent.depth + height(node) > MAX_TREE_DEPTH) fail(`tree depth limit exceeded (${MAX_TREE_DEPTH})`);
+};
+function pageTrees(ir: IRV2, t: Tree): IRNodeV2[] {
+  const pageId = t.kind === "pages" ? ir.pages[t.index]!.id : ir.sections[t.index]!.pageId;
+  return [...ir.pages.filter((p) => p.id === pageId).map((p) => p.shell), ...ir.sections.filter((s) => s.pageId === pageId).map((s) => s.root)];
 }
 function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode" | "moveNode" | "deleteNode" | "duplicateNode" }>, fail: Fail): Step & { tree: Tree } {
   if (c.op === "createNode" || c.op === "restoreNode") {
@@ -269,6 +283,7 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
   const lifted = update(rootOf(ir, tree), parent.id, (p) => ({ ...p, children: splice(p.children, found.index, 1) }))!;
   const length = target.node.id === parent.id ? parent.children.length - 1 : target.node.children.length;
   checkIndex(c.index, length, fail);
+  checkDepth(target, node, fail);
   const root = update(lifted, target.node.id, (p) => ({ ...p, children: splice(p.children, c.index, 0, { ...node, parentId: p.id }) }))!;
   return { ir: withRoot(ir, tree, root), tree, inverse: { op: "moveNode", id: node.id, parentId: parent.id, index: found.index } };
 }

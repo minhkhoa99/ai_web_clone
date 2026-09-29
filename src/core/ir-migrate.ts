@@ -48,6 +48,7 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     }
     for (const section of input.sections) {
       if (!object(section) || typeof section.id !== "string" || typeof section.pageId !== "string") return invalid("invalid v2 section");
+      if (!input.pages.some((page) => page.id === section.pageId)) return invalid(`orphan section: ${section.id}`);
       visitV2(section.root, 1, `page:${section.pageId}`);
     }
     for (const component of input.components) {
@@ -89,6 +90,7 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   }
   for (const section of input.sections) {
     if (!object(section) || typeof section.id !== "string" || typeof section.pageId !== "string") return invalid("invalid section");
+    if (!input.pages.some((page) => object(page) && page.id === section.pageId)) return invalid(`orphan section: ${section.id}`);
     visit(section.root, 1, `page:${section.pageId}`);
   }
   return promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);

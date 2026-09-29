@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { applyCommands, prepareCommands, type EditorCommand, type NodeDraft } from "@/core/ir-command";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
+import { MAX_CAPTURE_NODES } from "@/core/limit";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
   const node: IRNodeV2 = { id, tag, type: tag === "#text" ? "text" : "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children, ...extra };
@@ -193,4 +194,22 @@ test("dependent shell commands in one batch undo exactly; malformed restore payl
       expect.unreachable();
     } catch (e) { expect((e as { code: string }).code).toBe("IR_PATCH_INVALID"); }
   }
+});
+
+test("results stay loadable: page node ceiling and tree depth are enforced", () => {
+  const base = fixture();
+  // fixture page pg has 11 nodes; a third section brings it to MAX_CAPTURE_NODES - 3
+  const filler = n("big", "div", Array.from({ length: MAX_CAPTURE_NODES - 15 }, (_, i) => n(`f${i}`, "i")));
+  const full = { ...base, sections: [...base.sections, { ...base.sections[1]!, id: "s3", root: filler }] };
+  const three = { tag: "div", children: [{ tag: "b" }, { tag: "b" }] };
+  expect(applyCommands(full, prepareCommands(full, [{ op: "createNode", parentId: "p", index: 0, draft: three }], ids())).createdIds).toEqual(["new1"]);
+  const four = { tag: "div", children: [{ tag: "b" }, { tag: "b" }, { tag: "b" }] };
+  expect(() => prepareCommands(full, [{ op: "createNode", parentId: "p", index: 0, draft: four }], ids())).toThrow(/command 0.*page node limit/);
+  expect(() => prepareCommands(full, [{ op: "duplicateNode", id: "a", parentId: "p", index: 0 }, { op: "duplicateNode", id: "a", parentId: "p", index: 0 }], ids())).toThrow(/command 1.*page node limit/);
+
+  let deep = n("chain-999", "div");
+  for (let i = 998; i >= 1; i--) deep = n(`chain-${i}`, "div", [deep]); // root depth 1 ... leaf depth 999
+  const tall = { ...base, sections: [...base.sections, { ...base.sections[1]!, id: "s4", root: deep }] };
+  expect(prepareCommands(tall, [{ op: "createNode", parentId: "chain-999", index: 0, draft: { tag: "b" } }], ids())).toHaveLength(1);
+  expect(() => prepareCommands(tall, [{ op: "createNode", parentId: "chain-999", index: 0, draft: { tag: "b", children: [{ tag: "b" }] } }], ids())).toThrow(/depth limit/);
 });

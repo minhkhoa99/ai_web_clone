@@ -123,3 +123,11 @@ test("v2 rejects unknown node types and non-string declaration or attribute valu
     }
   }
 });
+
+test("a section whose page does not exist is refused (v1 and v2)", () => {
+  const legacy = buildIR([capture]);
+  const v2 = migrateIR(buildIR([capture]), [capture]);
+  legacy.sections[0]!.pageId = "nope";
+  expect(() => migrateIR(legacy, [capture])).toThrow(/orphan section/);
+  expect(() => migrateIR({ ...v2, sections: [{ ...v2.sections[0]!, pageId: "nope" }] }, [])).toThrow(/orphan section/);
+});
