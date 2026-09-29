@@ -112,14 +112,18 @@ function update(node: IRNodeV2, id: string, edit: (n: IRNodeV2) => IRNodeV2): IR
 const splice = (list: IRNodeV2[], index: number, remove: number, ...add: IRNodeV2[]) => { const out = list.slice(); out.splice(index, remove, ...add); return out; };
 const withParent = (node: IRNodeV2, parentId: string): IRNodeV2 => ({ ...node, parentId, children: node.children.map((c) => withParent(c, node.id)) });
 
-function checkTree(root: IRNodeV2, fail: Fail): void {
+// The subtree a command creates, moves, deletes, copies or restores (not its host tree): bounded and well-formed.
+function checkSubtree(root: unknown, fail: Fail): void {
   let count = 0;
-  const visit = (node: IRNodeV2, depth: number): void => {
+  const visit = (n: unknown, depth: number): void => {
     if (++count > COMMAND_LIMITS.nodes || depth > COMMAND_LIMITS.depth) fail(`subtree limit exceeded (${COMMAND_LIMITS.nodes} nodes, ${COMMAND_LIMITS.depth} levels)`);
-    node.children.forEach((c) => visit(c, depth + 1));
+    if (!isObject(n) || typeof n.id !== "string" || !n.id || typeof n.tag !== "string" || !isObject(n.attrs) ||
+        !isObject(n.styles) || !Array.isArray(n.children)) fail("invalid node payload");
+    (n as { children: unknown[] }).children.forEach((c) => visit(c, depth + 1));
   };
   visit(root, 1);
 }
+const SHELL_ONLY_PLACEHOLDERS = "a page shell only allows moving or deleting section placeholders";
 const checkParent = (parent: IRNodeV2, fail: Fail) => {
   if (parent.tag === "#text" || parent.tag === "#section") fail(`parent cannot have children: ${parent.id}`);
 };
@@ -231,13 +235,17 @@ function insert(ir: IRV2, parentId: unknown, index: unknown, node: IRNodeV2, fai
 function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode" | "moveNode" | "deleteNode" | "duplicateNode" }>, fail: Fail): Step & { tree: Tree } {
   if (c.op === "createNode" || c.op === "restoreNode") {
     if (c.op === "createNode") checkNewNode(c.node, fail);
-    else if (!isObject(c.node)) fail("node must be an object");
+    else checkSubtree(c.node, fail);
+    // restoreNode in a shell only undoes a placeholder delete
+    if (find(ir, c.parentId)?.tree.kind === "pages" && (c.op === "createNode" || c.node.tag !== "#section")) fail(SHELL_ONLY_PLACEHOLDERS);
     const done = insert(ir, c.parentId, c.index, c.node, fail);
     return { ...done, inverse: { op: "deleteNode", id: c.node.id }, ...(c.op === "createNode" && { created: c.node.id }) };
   }
   const found = need(ir, c.id, fail);
   const { node, parent, tree } = found;
   if (!parent) return fail(`tree root is protected: ${node.id}`);
+  if (tree.kind === "pages" && (c.op === "duplicateNode" || node.tag !== "#section")) fail(SHELL_ONLY_PLACEHOLDERS);
+  checkSubtree(node, fail);
   if (c.op === "deleteNode") {
     const root = update(rootOf(ir, tree), parent.id, (p) => ({ ...p, children: splice(p.children, found.index, 1) }))!;
     return { ir: withRoot(ir, tree, root), tree, inverse: { op: "restoreNode", parentId: parent.id, index: found.index, node } };
@@ -293,7 +301,6 @@ function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
       return applyProps(ir, c, fail);
     case "createNode": case "restoreNode": case "moveNode": case "deleteNode": case "duplicateNode": {
       const step = applyTree(ir, c, fail);
-      checkTree(rootOf(step.ir, step.tree), fail);
       if (step.tree.kind !== "pages") return step;
       const synced = sync(step.ir);
       return { ...step, ir: synced, inverse: { op: "restoreRefs", command: step.inverse as Plain, refs: refsBetween(ir, synced) } };

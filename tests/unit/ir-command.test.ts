@@ -160,3 +160,37 @@ test("limits: 50 commands, 500 nodes, 20 levels, 8 MB per step", () => {
   // forward (4.5 MB) + inverse of the second edit (restores the 4.5 MB text) > 8 MB
   expect(() => applyCommands(ir, [{ op: "setText", id: "ta", text: big }, { op: "setText", id: "ta", text: "y" }])).toThrow(/8 MB/);
 });
+
+test("limits apply to the edited subtree, not the host section", () => {
+  const blob = n("blob", "div", Array.from({ length: 500 }, (_, i) => n(`x${i}`, "span")));
+  const leaves = Array.from({ length: 98 }, (_, i) => n(`leaf${i}`, "i"));
+  const base = fixture();
+  const ir = deepFreeze({ ...base, sections: [{ ...base.sections[0]!, id: "big", root: n("big", "div", [...leaves, blob]) }, ...base.sections.slice(1)] });
+  expect(roundTrip(ir, [{ op: "deleteNode", id: "leaf0" }]).ir.sections[0]!.root.children).toHaveLength(98);
+  expect(roundTrip(ir, [{ op: "moveNode", id: "leaf1", parentId: "leaf2", index: 0 }]).ir.sections[0]!.root.children).toHaveLength(98);
+  expect(() => applyCommands(ir, [{ op: "deleteNode", id: "blob" }])).toThrow(/limit/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "blob", parentId: "leaf0", index: 0 }])).toThrow(/limit/);
+});
+
+test("page shells: property edits on existing nodes, only placeholders move or delete", () => {
+  const ir = fixture();
+  roundTrip(ir, [{ op: "setStyle", id: "body", target: "base", changes: { margin: "0" } }, { op: "setAttribute", id: "body", name: "lang", value: "vi" }]);
+  const refused: EditorCommand[] = [
+    { op: "createNode", parentId: "body", index: 0, draft: { tag: "div" } }, { op: "duplicateNode", id: "ph1", parentId: "body", index: 0 },
+    { op: "deleteNode", id: "body" }, { op: "moveNode", id: "body", parentId: "html", index: 0 },
+  ];
+  for (const command of refused) expect(() => prepareCommands(ir, [command], ids()), command.op).toThrow(/placeholders/);
+  expect(() => applyCommands(ir, [{ op: "restoreNode", parentId: "body", index: 0, node: n("x", "div") } as never])).toThrow(/placeholders/);
+});
+
+test("dependent shell commands in one batch undo exactly; malformed restore payloads are IR_PATCH_INVALID", () => {
+  const ir = fixture();
+  const { ir: out } = roundTrip(ir, [{ op: "moveNode", id: "ph2", parentId: "body", index: 0 }, { op: "deleteNode", id: "ph2" }]);
+  expect(out.pages[0]!.sectionIds).toEqual(["s1"]);
+  for (const node of [null, { id: "x" }, { id: "x", tag: "div", attrs: {}, styles: {}, children: [null] }]) {
+    try {
+      applyCommands(ir, [{ op: "restoreNode", parentId: "p", index: 0, node } as never]);
+      expect.unreachable();
+    } catch (e) { expect((e as { code: string }).code).toBe("IR_PATCH_INVALID"); }
+  }
+});
