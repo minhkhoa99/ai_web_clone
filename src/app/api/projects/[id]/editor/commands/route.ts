@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { COMMAND_LIMITS, type EditorCommand, type NodeDraft } from "@/core/ir-command";
-import { projectDocuments } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, jsonBody, requireProject, type IdCtx } from "@/app/_server/http";
-import { exclusive, requireEditable } from "@/app/_server/session";
+import { exclusiveEdit, requireEditable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +33,6 @@ export function POST(req: Request, { params }: IdCtx) {
     const { baseRevision, commands } = await jsonBody(req, bodySchema);
     const db = getDb();
     requireEditable(db, requireProject(db, id));
-    return Response.json(await exclusive(id, () => projectDocuments(db).commitCommands(id, baseRevision, commands, "user")));
+    return Response.json(await exclusiveEdit(db, id, (store) => store.commitCommands(id, baseRevision, commands, "user")));
   });
 }

@@ -4,7 +4,8 @@
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
-import { isQueuedOrActive, pipelineUnfinished } from "@/core/jobs";
+import type { DocumentStore } from "@/core/ir-store";
+import { isQueuedOrActive, pipelineUnfinished, projectDocuments } from "@/core/jobs";
 import { emit } from "@/core/jobs-base";
 import { ApiError, type ProjectRow, workspaceOf } from "./http";
 
@@ -64,6 +65,25 @@ export async function exclusive<T>(projectId: string, fn: () => Promise<T>): Pro
     return await fn();
   } finally {
     state.inflight.delete(projectId);
+  }
+}
+
+// Document edits (commands, Undo, Redo) under exclusive(). The loser of two concurrent edits waits for the winner,
+// then gets 409 PROJECT_BUSY carrying the revision the winner produced, so its tab reloads at the right revision.
+// (The store's own busy check covers jobs only; exclusive() also covers crawl/export/login and other edits.)
+const edits = new Map<string, Promise<unknown>>();
+export async function exclusiveEdit<T>(db: DatabaseSync, projectId: string, fn: (store: DocumentStore) => Promise<T>): Promise<T> {
+  const store = projectDocuments(db);
+  try {
+    return await exclusive(projectId, () => {
+      const run = fn(store);
+      edits.set(projectId, run);
+      return run.finally(() => edits.delete(projectId));
+    });
+  } catch (e) {
+    if (!(e instanceof ApiError && e.code === "PROJECT_BUSY")) throw e;
+    await edits.get(projectId)?.catch(() => {});
+    throw new ApiError(409, e.code, e.message, { revision: (await store.historyState(projectId)).revision }); // never adopts while a job runs
   }
 }
 

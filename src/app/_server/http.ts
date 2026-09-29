@@ -11,7 +11,7 @@ export type IdCtx = { params: Promise<{ id: string }> };
 
 // A client-facing error raised by the route layer itself (bad input the core doesn't check, missing project, wrong state).
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  constructor(public status: number, public code: string, message: string, public extra?: { revision?: number }) {
     super(message);
   }
 }
@@ -35,7 +35,7 @@ const CLIENT_CONTEXT = ["revision", "createdIds"] as const;
 
 // Messages come from our own code (never from request bodies), so they carry no secrets.
 export function errorResponse(e: unknown): Response {
-  if (e instanceof ApiError) return Response.json({ code: e.code, message: e.message }, { status: e.status });
+  if (e instanceof ApiError) return Response.json({ code: e.code, message: e.message, ...e.extra }, { status: e.status });
   if (e instanceof ZodError) return Response.json({ code: "VALIDATION", message: z.prettifyError(e) }, { status: 400 });
   if (e instanceof SyntaxError || e instanceof RangeError) return Response.json({ code: "VALIDATION", message: e.message }, { status: 400 });
   if (e instanceof AppError) {
@@ -124,6 +124,7 @@ export async function jsonBody<T>(req: Request, schema: z.ZodType<T>, max = MAX_
   }
   const parsed = schema.safeParse(value);
   if (parsed.success) return parsed.data;
+  // safe only because callers pass a top-level strictObject: path[0] is then always a schema key, never a sent key
   const at = parsed.error.issues[0]!.path.slice(0, 2).filter((p, i) => i === 0 || typeof p === "number");
   throw new ApiError(400, "VALIDATION", `invalid request body${at.length ? ` at ${at.join(".")}` : ""}`);
 }

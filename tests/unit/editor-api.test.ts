@@ -8,6 +8,7 @@ import { buildIR } from "@/core/ir";
 import type { IRV2 } from "@/core/ir-v2";
 import { createProject, enqueue, projectDocuments } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
+import { exclusive } from "@/app/_server/session";
 import * as commandsRoute from "@/app/api/projects/[id]/editor/commands/route";
 import * as undoRoute from "@/app/api/projects/[id]/editor/undo/route";
 import * as redoRoute from "@/app/api/projects/[id]/editor/redo/route";
@@ -83,7 +84,23 @@ test("two tabs at the same revision: one commits, the other gets 409 STALE_REVIS
   // sent together: exactly one is committed, the other is a 409 (stale, or busy while the first holds the project)
   const both = await Promise.all(["a", "b"].map((x) => post(commandsRoute, id, { baseRevision: 1, commands: setText(t, x) })));
   expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+  const [winner, loser] = await Promise.all([both.find((r) => r.status === 200)!.json(), both.find((r) => r.status === 409)!.json()]);
+  expect(winner.revision).toBe(2);
+  expect(loser).toMatchObject({ code: expect.stringMatching(/^(PROJECT_BUSY|STALE_REVISION)$/), revision: 2 }); // reload at the winner's revision
   expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(2);
+
+  // another exclusive operation (crawl, export…) holds the project: 409 PROJECT_BUSY still names the current revision
+  let release!: () => void;
+  const held = exclusive(id, () => new Promise<void>((r) => (release = r)));
+  try {
+    for (const route of [commandsRoute, undoRoute, redoRoute]) {
+      const res = await post(route, id, { baseRevision: 2, ...(route === commandsRoute && { commands: setText(t, "c") }) });
+      expect([res.status, await res.json()]).toEqual([409, expect.objectContaining({ code: "PROJECT_BUSY", revision: 2 })]);
+    }
+  } finally {
+    release();
+    await held;
+  }
 });
 
 test("only client command ops are accepted; bodies are validated and capped before parsing, never echoed", async () => {
@@ -138,8 +155,8 @@ test("Undo/Redo: server history with revision CAS; nothing to undo/redo is 409; 
 
   busy.add(id);
   try {
-    expect((await post(undoRoute, id, { baseRevision: 3 })).status).toBe(409);
-    expect((await post(commandsRoute, id, { baseRevision: 3, commands: setText(t, "x") })).status).toBe(409);
+    for (const res of [await post(undoRoute, id, { baseRevision: 3 }), await post(commandsRoute, id, { baseRevision: 3, commands: setText(t, "x") })])
+      expect([res.status, (await res.json()).code]).toEqual([409, "BAD_STATE"]); // requireEditable: "Project đang chạy"
   } finally {
     busy.delete(id);
   }
