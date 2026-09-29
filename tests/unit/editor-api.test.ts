@@ -1,0 +1,180 @@
+// E1 Task 8: thin command/Undo/Redo routes over the document store, and the out/ gate on the files route.
+import { afterAll, expect, test, vi } from "vitest";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { CaptureNode, PageCapture } from "@/core/capture";
+import { config } from "@/core/config";
+import { buildIR } from "@/core/ir";
+import type { IRV2 } from "@/core/ir-v2";
+import { createProject, enqueue, projectDocuments } from "@/core/jobs";
+import { getDb } from "@/app/_server/db";
+import * as commandsRoute from "@/app/api/projects/[id]/editor/commands/route";
+import * as undoRoute from "@/app/api/projects/[id]/editor/undo/route";
+import * as redoRoute from "@/app/api/projects/[id]/editor/redo/route";
+import * as editorRoute from "@/app/api/projects/[id]/editor/route";
+import * as files from "@/app/api/projects/[id]/files/[...path]/route";
+
+// a queued/active job, as the session guards see it (a real queue would start a browser pipeline)
+const busy = vi.hoisted(() => new Set<string>());
+vi.mock("@/core/jobs", async (orig) => {
+  const real = await orig<typeof import("@/core/jobs")>();
+  return { ...real, isQueuedOrActive: (id: string) => busy.has(id) || real.isQueuedOrActive(id) };
+});
+
+const created: string[] = [];
+afterAll(async () => {
+  for (const id of created) await rm(join(config.workspaceRoot, id), { recursive: true, force: true, maxRetries: 3 });
+});
+
+const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+async function seed(): Promise<string> {
+  const db = getDb();
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  created.push(id);
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(buildIR([capture])));
+  await mkdir(join(ws, "out"), { recursive: true });
+  await writeFile(join(ws, "out", "index.html"), "<p>emitted at revision 0</p>");
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase='capture'").run("pages/home/capture.json", id);
+  db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
+  db.prepare("UPDATE projects SET status='completed' WHERE id=?").run(id);
+  return id;
+}
+const textNodeId = async (id: string, text = "Top") => {
+  const doc = await projectDocuments(getDb()).loadDocument(id);
+  return doc.sections.flatMap((s) => [s.root, ...s.root.children]).find((x) => x.text === text)!.id;
+};
+const rootId = async (id: string) => (await projectDocuments(getDb()).loadDocument(id)).sections[0]!.root.id;
+
+type Route = { POST: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response> };
+const post = (route: Route, id: string, body: unknown, headers: Record<string, string> = {}) => {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return route.POST(
+    new Request("http://127.0.0.1", { method: "POST", body: text, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(text)), ...headers } }),
+    { params: Promise.resolve({ id }) },
+  );
+};
+const getFile = (id: string, ...path: string[]) => files.GET(new Request("http://127.0.0.1"), { params: Promise.resolve({ id, path }) });
+const getEditor = (id: string) => editorRoute.GET(new Request("http://127.0.0.1"), { params: Promise.resolve({ id }) });
+const setText = (nodeId: string, text: string) => [{ op: "setText", id: nodeId, text }];
+
+test("two tabs at the same revision: one commits, the other gets 409 STALE_REVISION with the current revision", async () => {
+  const id = await seed();
+  const t = await textNodeId(id);
+  const ok = await post(commandsRoute, id, { baseRevision: 0, commands: setText(t, "first tab") });
+  expect([ok.status, await ok.json()]).toEqual([200, { revision: 1, createdIds: [], canUndo: true, canRedo: false }]);
+  const stale = await post(commandsRoute, id, { baseRevision: 0, commands: setText(t, "second tab secret-text") });
+  expect(stale.status).toBe(409);
+  const body = await stale.text();
+  expect(JSON.parse(body)).toMatchObject({ code: "STALE_REVISION", revision: 1 });
+  expect(body).not.toContain("secret-text");
+  expect((await projectDocuments(getDb()).loadDocument(id)).revision).toBe(1);
+
+  // sent together: exactly one is committed, the other is a 409 (stale, or busy while the first holds the project)
+  const both = await Promise.all(["a", "b"].map((x) => post(commandsRoute, id, { baseRevision: 1, commands: setText(t, x) })));
+  expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(2);
+});
+
+test("only client command ops are accepted; bodies are validated and capped before parsing, never echoed", async () => {
+  const id = await seed();
+  const t = await textNodeId(id);
+  const bad = async (body: unknown, status = 400) => {
+    const res = await post(commandsRoute, id, body);
+    const text = await res.text();
+    expect(res.status).toBe(status);
+    expect(text).not.toContain("leak-me");
+    return JSON.parse(text) as { code: string };
+  };
+  await bad({ baseRevision: 0, commands: [{ op: "restoreProps", id: t, props: { tag: "leak-me" } }] });
+  await bad({ baseRevision: 0, commands: [{ op: "restoreNode", parentId: t, index: 0, node: { id: "leak-me" } }] });
+  await bad({ baseRevision: 0, commands: [{ op: "replaceSubtree", id: t }] });
+  await bad({ baseRevision: 0, commands: [{ op: "setText", id: t, text: "x", "leak-me": 1 }] });
+  await bad({ baseRevision: 0, commands: [] });
+  await bad({ baseRevision: 0, commands: Array.from({ length: 51 }, () => ({ op: "setText", id: t, text: "x" })) });
+  await bad({ baseRevision: -1, commands: setText(t, "x") });
+  await bad('{"baseRevision":0,"commands":[leak-me');
+  expect((await bad({ baseRevision: 0, commands: setText(t, "leak-me".repeat(200_000)) }, 413)).code).toBe("PAYLOAD_TOO_LARGE");
+  // the core still validates values: an unsafe CSS declaration is IR_PATCH_INVALID -> 400
+  expect((await bad({ baseRevision: 0, commands: [{ op: "setStyle", id: t, target: "base", changes: { color: "url(javascript:leak-me)" } }] })).code).toBe("IR_PATCH_INVALID");
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(0);
+});
+
+test("the Origin/Host/JSON guards cover the new routes", async () => {
+  const id = await seed();
+  const body = { baseRevision: 0 };
+  expect((await post(undoRoute, id, body, { origin: "http://evil.test" })).status).toBe(403);
+  expect((await post(commandsRoute, id, body, { "content-type": "text/plain" })).status).toBe(403);
+  expect((await post(redoRoute, id, body, { host: "evil.test" })).status).toBe(403);
+});
+
+test("Undo/Redo: server history with revision CAS; nothing to undo/redo is 409; a queued job blocks them", async () => {
+  const id = await seed();
+  const t = await textNodeId(id);
+  expect(await (await post(undoRoute, id, { baseRevision: 0 })).json()).toMatchObject({ code: "NOTHING_TO_UNDO" });
+  const r = await rootId(id);
+  const made = (await (await post(commandsRoute, id, { baseRevision: 0, commands: [{ op: "createNode", parentId: r, index: 0, draft: { tag: "p" } }] })).json()) as { createdIds: string[] };
+  expect(made.createdIds).toHaveLength(1);
+
+  const undone = await post(undoRoute, id, { baseRevision: 1 });
+  expect([undone.status, await undone.json()]).toEqual([200, { revision: 2, createdIds: [], canUndo: false, canRedo: true }]);
+  const stale = await post(redoRoute, id, { baseRevision: 1 });
+  expect([stale.status, await stale.json()]).toEqual([409, expect.objectContaining({ code: "STALE_REVISION", revision: 2 })]);
+  const redone = await post(redoRoute, id, { baseRevision: 2 });
+  expect([redone.status, await redone.json()]).toEqual([200, { revision: 3, createdIds: made.createdIds, canUndo: true, canRedo: false }]);
+  const none = await post(redoRoute, id, { baseRevision: 3 });
+  expect([none.status, (await none.json()).code]).toEqual([409, "NOTHING_TO_REDO"]);
+  expect(await projectDocuments(getDb()).historyState(id)).toEqual({ revision: 3, canUndo: true, canRedo: false }); // GET editor over a v2 ir.json: Task 9
+
+  busy.add(id);
+  try {
+    expect((await post(undoRoute, id, { baseRevision: 3 })).status).toBe(409);
+    expect((await post(commandsRoute, id, { baseRevision: 3, commands: setText(t, "x") })).status).toBe(409);
+  } finally {
+    busy.delete(id);
+  }
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(3);
+});
+
+test("GET editor adopts the document and reports revision + history flags", async () => {
+  const id = await seed();
+  const res = await getEditor(id);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ revision: 0, canUndo: false, canRedo: false, pages: expect.any(Array) });
+});
+
+test("output gate: a failed materialization never serves out/; the next read repairs from the snapshot", async () => {
+  const id = await seed();
+  const ws = join(config.workspaceRoot, id);
+  const r = await rootId(id); // adopts revision 0
+  await rename(join(ws, "pages.json"), join(ws, "pages.hidden")); // the materializer can't read its inputs
+
+  const failed = await post(commandsRoute, id, { baseRevision: 0, commands: [{ op: "createNode", parentId: r, index: 0, draft: { tag: "p", children: [{ tag: "#text", text: "Added" }] } }] });
+  const body = (await failed.json()) as { code: string; revision: number; createdIds: string[] };
+  expect([failed.status, body.code, body.revision, body.createdIds.length]).toEqual([500, "DOCUMENT_MATERIALIZE_FAILED", 1, 1]);
+
+  const gated = await getFile(id, "out", "index.html");
+  expect(gated.status).toBe(503);
+  const text = await gated.text();
+  expect(text).not.toContain("emitted at revision 0");
+  expect(JSON.parse(text)).toMatchObject({ code: "DOCUMENT_MATERIALIZE_FAILED" });
+  expect(gated.headers.get("content-security-policy")).toContain("sandbox");
+  expect(gated.headers.get("retry-after")).toBeTruthy();
+  expect((await getFile(id, "pages", "home", "capture.json")).status).toBe(404); // non-out paths: unchanged rules
+
+  await rename(join(ws, "pages.hidden"), join(ws, "pages.json"));
+  const repaired = await getFile(id, "out", "index.html");
+  expect(repaired.status).toBe(200);
+  expect(await repaired.text()).toContain("Added");
+  expect((JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2).revision).toBe(1);
+});

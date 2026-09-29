@@ -75,12 +75,12 @@ test("Undo/Redo survive a reopened db; Redo reuses the created IDs; a new edit a
   await store.undoDocument("p", 5);
   expect(textOf(await store.loadDocument("p"))).toBe("old");
   expect(stateOf(db, "p")).toMatchObject({ revision: 6, cursor: 0 });
-  expect(await codeOf(store.undoDocument("p", 6))).toBe("IR_PATCH_INVALID"); // nothing left to undo
+  expect(await codeOf(store.undoDocument("p", 6))).toBe("NOTHING_TO_UNDO");
 
   const edit = await store.commitCommands("p", 6, setText("other"), "user");
   expect(edit).toMatchObject({ revision: 7, canUndo: true, canRedo: false });
   expect(historyRows(db, "p")).toBe(1);
-  expect(await codeOf(store.redoDocument("p", 7))).toBe("IR_PATCH_INVALID");
+  expect(await codeOf(store.redoDocument("p", 7))).toBe("NOTHING_TO_REDO");
   db.close();
 });
 
@@ -111,8 +111,9 @@ test("a materializer exception keeps the commit, leaves materialized_revision be
   const { db, store, written, ctl } = setup();
   await store.ensureMaterialized("p"); // no document yet: nothing to do
   ctl.fail = true;
-  const e = await store.commitCommands("p", 0, setText("new"), "user").catch((x: unknown) => x);
+  const e = await store.commitCommands("p", 0, [{ op: "createNode", parentId: "r", index: 0, draft: { tag: "p" } }], "user").catch((x: unknown) => x);
   expect([(e as AppError).code, (e as AppError).context?.revision]).toEqual(["DOCUMENT_MATERIALIZE_FAILED", 1]);
+  expect((e as AppError).context?.createdIds).toEqual([(await store.loadDocument("p")).sections[0]!.root.children[0]!.id]); // the client still learns its new IDs
   expect(stateOf(db, "p")).toEqual({ revision: 1, cursor: 1, materialized_revision: 0 });
   expect(await codeOf(store.ensureMaterialized("p"))).toBe("DOCUMENT_MATERIALIZE_FAILED");
   ctl.fail = false;
@@ -150,6 +151,24 @@ test("a queued/active job blocks commit, Undo and Redo with PROJECT_BUSY; an uni
   expect(await codeOf(store.undoDocument("p", 1))).toBe("PROJECT_BUSY");
   expect(await codeOf(store.redoDocument("p", 1))).toBe("PROJECT_BUSY");
   expect(stateOf(db, "p")).toMatchObject({ revision: 1, cursor: 1 });
+});
+
+test("busy: a job queued while the first read loads is not adopted over; a job's out/ is never repaired", async () => {
+  let busy = false;
+  const { db, store } = setup(":memory:", { isBusy: () => busy, loadInitial: async () => ((busy = true), fixture()) });
+  expect(await codeOf(store.commitCommands("p", 0, setText("x"), "user"))).toBe("PROJECT_BUSY");
+  expect(stateOf(db, "p")).toBeUndefined();
+  busy = false;
+  const other = setup(":memory:", { isBusy: () => busy });
+  other.ctl.fail = true;
+  await other.store.commitCommands("p", 0, setText("x"), "user").catch(() => {});
+  busy = true;
+  await other.store.ensureMaterialized("p"); // the job owns out/: served as is, no repair and no error
+  expect(other.written).toEqual([]);
+  busy = false;
+  other.ctl.fail = false;
+  await other.store.ensureMaterialized("p");
+  expect(other.written).toEqual([1]);
 });
 
 test("the first idle read adopts revision 0 once; later reads never reload or change IDs", async () => {

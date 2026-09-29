@@ -23,7 +23,15 @@ const STATUS: Partial<Record<Code, number>> = {
   CAPTCHA_REQUIRED: 409,
   LOGIN_FAILED: 409,
   IR_PATCH_INVALID: 400,
+  IR_VERSION_UNSUPPORTED: 409,
+  PROJECT_BUSY: 409,
+  STALE_REVISION: 409,
+  NOTHING_TO_UNDO: 409,
+  NOTHING_TO_REDO: 409,
+  DOCUMENT_MATERIALIZE_FAILED: 500, // the step is committed: the client keeps its revision/createdIds, the next read repairs
 };
+// Context the client needs to recover (reload at `revision`, keep `createdIds`); nothing else of the context leaves.
+const CLIENT_CONTEXT = ["revision", "createdIds"] as const;
 
 // Messages come from our own code (never from request bodies), so they carry no secrets.
 export function errorResponse(e: unknown): Response {
@@ -32,7 +40,8 @@ export function errorResponse(e: unknown): Response {
   if (e instanceof SyntaxError || e instanceof RangeError) return Response.json({ code: "VALIDATION", message: e.message }, { status: 400 });
   if (e instanceof AppError) {
     const status = STATUS[e.code] ?? (e.code.startsWith("AI_") ? 502 : 500);
-    return Response.json({ code: e.code, message: e.message }, { status });
+    const extra = Object.fromEntries(CLIENT_CONTEXT.filter((k) => e.context?.[k] !== undefined).map((k) => [k, e.context![k]]));
+    return Response.json({ code: e.code, message: e.message, ...extra }, { status });
   }
   console.error("api: unexpected error", e); // server-side only; core error messages carry no secrets
   return Response.json({ code: "INTERNAL", message: "internal error" }, { status: 500 });
@@ -87,6 +96,36 @@ export async function authUrl(db: DatabaseSync, project: Pick<ProjectRow, "id" |
   if (task.phase !== "capture") return task.key;
   const pages = JSON.parse(await readFile(join(workspaceOf(project.id), "pages.json"), "utf8")) as { pageId: string; url: string }[];
   return pages.find((p) => p.pageId === task.key)?.url ?? project.url;
+}
+
+export const MAX_JSON_BYTES = 1_000_000;
+
+// A capped JSON body validated by `schema`: the size is refused while streaming (never buffered past the cap), and
+// errors name only the failing field path (schema key + command index), never the sent values or keys.
+export async function jsonBody<T>(req: Request, schema: z.ZodType<T>, max = MAX_JSON_BYTES): Promise<T> {
+  const tooLarge = new ApiError(413, "PAYLOAD_TOO_LARGE", `request body over ${max} bytes`);
+  if (Number(req.headers.get("content-length") ?? 0) > max) throw tooLarge;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = req.body?.getReader();
+  for (let r = await reader?.read(); r && !r.done; r = await reader!.read()) {
+    size += r.value.byteLength;
+    if (size > max) {
+      await reader!.cancel();
+      throw tooLarge;
+    }
+    chunks.push(r.value);
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new ApiError(400, "VALIDATION", "request body is not valid JSON");
+  }
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const at = parsed.error.issues[0]!.path.slice(0, 2).filter((p, i) => i === 0 || typeof p === "number");
+  throw new ApiError(400, "VALIDATION", `invalid request body${at.length ? ` at ${at.join(".")}` : ""}`);
 }
 
 // JSON body that may be omitted entirely (e.g. resume without new credentials).

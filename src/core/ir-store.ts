@@ -40,7 +40,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
   const assertIdle = (id: string) => {
     if (hooks.isBusy?.(id)) throw new AppError(Codes.PROJECT_BUSY, "a job is queued or running for this project", { projectId: id });
   };
-  const nothing = (what: string): never => { throw new AppError(Codes.IR_PATCH_INVALID, `nothing to ${what}`); };
+  const nothing = (code: "NOTHING_TO_UNDO" | "NOTHING_TO_REDO"): never => { throw new AppError(Codes[code], "the history has no step in that direction"); };
 
   // The first idle read adopts the job's checkpoint at its revision (0) with an empty history; its existing output is
   // that revision's, so nothing is re-emitted. INSERT OR IGNORE keeps two concurrent first reads idempotent.
@@ -48,6 +48,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
     const found = stateOf(id);
     if (found) return found;
     const ir = await hooks.loadInitial(id);
+    assertIdle(id); // a job may have been queued during the await: it owns ir.json now
     db.prepare("INSERT OR IGNORE INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,?,?,0,?)")
       .run(id, JSON.stringify(ir), ir.revision, ir.revision);
     return stateOf(id)!;
@@ -61,9 +62,9 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       // a newer step committed meanwhile: its own (queued) materialization marks it
       db.prepare("UPDATE document_state SET materialized_revision=? WHERE project_id=? AND revision=?").run(s.revision, id, s.revision);
     });
-  const materializeOrThrow = (id: string) =>
+  const materializeOrThrow = (id: string, context: Record<string, unknown> = {}) =>
     materializeLatest(id).catch((e: unknown) => {
-      const err = new AppError(Codes.DOCUMENT_MATERIALIZE_FAILED, "document saved but its output could not be written; it is repaired on the next read", { revision: stateOf(id)?.revision });
+      const err = new AppError(Codes.DOCUMENT_MATERIALIZE_FAILED, "document saved but its output could not be written; it is repaired on the next read", { revision: stateOf(id)?.revision, ...context });
       throw Object.assign(err, { cause: e });
     });
 
@@ -85,7 +86,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       if (source === "user") hooks.onUserEdit?.(id);
       return { revision, createdIds: out.createdIds, ...flags(id, out.cursor) };
     }, true);
-    await materializeOrThrow(id);
+    await materializeOrThrow(id, { revision: result.revision, createdIds: result.createdIds }); // the client keeps the step's result
     return result;
   }
 
@@ -111,17 +112,20 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       }),
     undoDocument: (id: string, baseRevision: number) =>
       change(id, baseRevision, "user", (ir, cursor) => {
-        const row = stepAt(id, cursor) ?? nothing("undo");
+        const row = stepAt(id, cursor) ?? nothing("NOTHING_TO_UNDO");
         const done = applyCommands(ir, JSON.parse(row.inverse_json) as HistoryCommand[]);
         return { ir: done.ir, createdIds: done.createdIds, cursor: cursor - 1 };
       }),
     redoDocument: (id: string, baseRevision: number) =>
       change(id, baseRevision, "user", (ir, cursor) => {
-        const row = stepAt(id, cursor + 1) ?? nothing("redo");
+        const row = stepAt(id, cursor + 1) ?? nothing("NOTHING_TO_REDO");
         const done = applyCommands(ir, JSON.parse(row.forward_json) as HistoryCommand[]);
         return { ir: done.ir, createdIds: done.createdIds, cursor: cursor + 1 };
       }),
-    ensureMaterialized: (id: string): Promise<void> => materializeOrThrow(id),
+    // A queued/active job owns out/ (it re-emits it): no repair then, the output is served as the job left it.
+    ensureMaterialized: async (id: string): Promise<void> => {
+      if (!hooks.isBusy?.(id)) await materializeOrThrow(id);
+    },
   };
 }
 export type DocumentStore = ReturnType<typeof documentStore>;

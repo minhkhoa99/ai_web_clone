@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { projectDocuments } from "@/core/jobs";
 import { MIME } from "@/core/serve";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, workspaceOf } from "@/app/_server/http";
@@ -31,6 +32,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const rel = relative(ws, abs).split(sep).join("/");
     const notFound = new ApiError(404, "NOT_FOUND", "file not found");
     if (!abs.startsWith(ws + sep) || !ALLOWED.test(rel)) throw notFound;
+    // out/ is the document's materialization: repaired from the SQLite snapshot first, never served half-written
+    if (rel.startsWith("out/")) await projectDocuments(getDb()).ensureMaterialized(id).catch((e: unknown) => {
+      console.error("files: out/ repair failed", e); // server-side only; the client gets a retryable 503, no partial bytes
+      throw new ApiError(503, "DOCUMENT_MATERIALIZE_FAILED", "Chưa khôi phục được bản xuất — thử lại sau ít phút.");
+    });
     // host: handle() already refused a non-loopback Host; the page loads js/runtime.js from this same origin
     if (PAGE.test(rel)) csp = pageCsp(`http://${req.headers.get("host") ?? new URL(req.url).host}/api/projects/${encodeURIComponent(id)}/files/out/js/runtime.js`);
     const info = await stat(abs).catch(() => null);
@@ -46,6 +52,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       },
     });
   });
+  if (res.status === 503) res.headers.set("retry-after", "5");
   res.headers.set("x-content-type-options", "nosniff");
   res.headers.set("content-security-policy", csp);
   return res;
