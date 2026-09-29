@@ -3,6 +3,7 @@ import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
 import type { LegacyIR } from "./ir-legacy";
 import { toV2, type IRV2, type NodeType } from "./ir-v2";
+import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
 
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const invalid = (message: string): never => { throw new AppError(Codes.IR_PATCH_INVALID, message); };
@@ -10,6 +11,14 @@ const cssomValid = (value: unknown): boolean => object(value) && Array.isArray(v
 const nodeTypes = new Set<NodeType>(["container", "text", "image", "link", "button", "input", "media", "svg", "component-root"]);
 const strings = (value: unknown): boolean => object(value) && Object.values(value).every((entry) => typeof entry === "string");
 const declarations = (value: unknown): boolean => object(value) && Object.values(value).every(strings);
+// Whole documents are bounded by the capture ceiling (nodes per page: shell + its sections; component mains share
+// one budget) and a stack-safety depth. The 500/20 limits are per edited subtree (ir-command), not per tree.
+type Budget = Map<string, number>;
+function spend(budget: Budget, key: string, depth: number): void {
+  const count = (budget.get(key) ?? 0) + 1;
+  budget.set(key, count);
+  if (count > MAX_CAPTURE_NODES || depth > MAX_TREE_DEPTH) invalid(`IR page limit exceeded (${MAX_CAPTURE_NODES} nodes, ${MAX_TREE_DEPTH} levels)`);
+}
 
 export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   if (!object(input)) return invalid("IR must be an object");
@@ -17,8 +26,8 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     if (!Number.isSafeInteger(input.revision) || !Array.isArray(input.pages) || !Array.isArray(input.sections) ||
         !Array.isArray(input.layouts) || !Array.isArray(input.components) || !Array.isArray(input.fidelity) ||
         !object(input.tokens) || !cssomValid(input.cssom) || !Array.isArray(input.interactions)) return invalid("invalid v2 IR structure");
-    const seen = new Set<string>();
-    const visitV2 = (node: unknown, depth: number, count: { value: number }): void => {
+    const seen = new Set<string>(), budget: Budget = new Map();
+    const visitV2 = (node: unknown, depth: number, key: string): void => {
       if (!object(node) || typeof node.id !== "string" || !node.id || typeof node.tag !== "string" ||
           !nodeTypes.has(node.type as NodeType) || !strings(node.attrs) || !object(node.styles) ||
           !strings(node.styles.base) || !declarations(node.styles.bp) || !declarations(node.styles.state) ||
@@ -28,22 +37,22 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
           (node.text !== undefined && typeof node.text !== "string") ||
           (node.hidden !== undefined && typeof node.hidden !== "boolean") ||
           (node.behavior !== undefined && typeof node.behavior !== "string")) return invalid("invalid v2 IR node");
-      if (++count.value > 500 || depth > 20) return invalid("IR subtree limit exceeded");
+      spend(budget, key, depth);
       if (seen.has(node.id)) return invalid(`duplicate node id: ${node.id}`);
       seen.add(node.id);
-      for (const child of node.children) visitV2(child, depth + 1, count);
+      for (const child of node.children) visitV2(child, depth + 1, key);
     };
     for (const page of input.pages) {
       if (!object(page) || typeof page.id !== "string" || !Array.isArray(page.sectionIds)) return invalid("invalid v2 page");
-      visitV2(page.shell, 1, { value: 0 });
+      visitV2(page.shell, 1, `page:${page.id}`);
     }
     for (const section of input.sections) {
       if (!object(section) || typeof section.id !== "string" || typeof section.pageId !== "string") return invalid("invalid v2 section");
-      visitV2(section.root, 1, { value: 0 });
+      visitV2(section.root, 1, `page:${section.pageId}`);
     }
     for (const component of input.components) {
       if (!object(component) || typeof component.id !== "string" || !Array.isArray(component.instanceIds)) return invalid("invalid v2 component");
-      visitV2(component.root, 1, { value: 0 });
+      visitV2(component.root, 1, "components");
     }
     return input as IRV2;
   }
@@ -60,11 +69,11 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     const style = typeof name === "string" ? classes[name] : undefined;
     return object(style) && object(style.base);
   };
-  const seen = new Set<string>();
-  const visit = (node: unknown, depth: number, count: { value: number }): void => {
+  const seen = new Set<string>(), budget: Budget = new Map();
+  const visit = (node: unknown, depth: number, key: string): void => {
     if (!object(node) || typeof node.id !== "string" || !node.id || typeof node.tag !== "string" ||
         !object(node.attrs) || !Array.isArray(node.cls) || !Array.isArray(node.children)) return invalid("invalid IR node");
-    if (++count.value > 500 || depth > 20) return invalid("IR subtree limit exceeded");
+    spend(budget, key, depth);
     if (seen.has(node.id)) return invalid(`duplicate node id: ${node.id}`);
     seen.add(node.id);
     for (const name of node.cls) if (!classExists(name)) return invalid(`missing class: ${String(name)}`);
@@ -72,15 +81,15 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
       if (!object(node.states)) return invalid("invalid node states");
       for (const name of Object.values(node.states)) if (name !== undefined && !classExists(name)) return invalid(`missing class: ${String(name)}`);
     }
-    for (const child of node.children) visit(child, depth + 1, count);
+    for (const child of node.children) visit(child, depth + 1, key);
   };
   for (const page of input.pages) {
     if (!object(page) || typeof page.id !== "string" || !Array.isArray(page.sectionIds)) return invalid("invalid page");
-    visit(page.shell, 1, { value: 0 });
+    visit(page.shell, 1, `page:${page.id}`);
   }
   for (const section of input.sections) {
     if (!object(section) || typeof section.id !== "string" || typeof section.pageId !== "string") return invalid("invalid section");
-    visit(section.root, 1, { value: 0 });
+    visit(section.root, 1, `page:${section.pageId}`);
   }
   return promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
 }

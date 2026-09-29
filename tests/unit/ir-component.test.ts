@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { promoteLegacyComponents, resolveComponents, resetOverride, detachComponent } from "@/core/ir-component";
 import { migrateIR } from "@/core/ir-migrate";
+import { MAX_CAPTURE_NODES } from "@/core/limit";
 import { toV2, type IRNodeV2 } from "@/core/ir-v2";
 import type { LegacyIR, LegacyIRNode } from "@/core/ir-legacy";
 
@@ -98,7 +99,10 @@ test("cycles, invalid override paths, and expansion beyond limits are rejected",
   expect(() => resolveComponents(cyclic)).toThrow(/cycle/);
   const bad = promoted(); cards(bad)[0]!.component!.overrides = ["__proto__.polluted"];
   expect(() => resolveComponents(bad)).toThrow(/invalid component override/);
-  const large = promoted(); large.components[0]!.root.children = Array.from({ length: 500 }, (_, i) => ({ ...structuredClone(main), id: `source${i}`, children: [], component: undefined }));
+  // each instance expands to half the per-page ceiling: the second one crosses it
+  const large = promoted(); large.components[0]!.root.children = Array.from({ length: MAX_CAPTURE_NODES / 2 }, (_, i) => ({ ...structuredClone(main), id: `source${i}`, children: [], component: undefined }));
+  const clear = (n: IRNodeV2): void => { if (n.component) n.component.overrides = []; n.children.forEach(clear); };
+  cards(large).forEach(clear);
   expect(() => resolveComponents(large)).toThrow(/limit/);
 });
 

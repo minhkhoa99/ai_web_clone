@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileExists, writeFileAtomic } from "./fsx";
 import { AppError, Codes } from "./errors";
-import { mapLimit } from "./limit";
+import { MAX_CAPTURE_NODES as MAX_NODES, mapLimit } from "./limit";
 import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage, fontsReadyInPage } from "./capture-eval";
 import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
@@ -33,7 +33,6 @@ export type CaptureNode = {
   children: CaptureNode[];
 };
 
-const MAX_NODES = 20_000;
 export const FONTS_READY_MS = 10_000;
 
 // One page.evaluate walks the whole tree; styles are diffed against per-tag defaults.

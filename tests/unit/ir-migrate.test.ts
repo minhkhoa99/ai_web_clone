@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { buildIR } from "@/core/ir";
 import { migrateIR } from "@/core/ir-migrate";
 import { AppError, Codes } from "@/core/errors";
+import { MAX_CAPTURE_NODES } from "@/core/limit";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 
 const node = (tag: string, children: CaptureNode[] = []): CaptureNode => ({ tag, attrs: {}, bbox: [1, 2, 30, 40], style: {}, children });
@@ -53,20 +54,28 @@ test("tag mismatch omits box and reports partial capture fidelity", () => {
   expect(migrated.fidelity.some((x) => x.nodeId === root.id && x.breakpoint === 1440 && x.status === "partial")).toBe(true);
 });
 
-test("subtree limits reject deep and oversized legacy input", () => {
+// Loader bounds are the capture ceiling per page (MAX_CAPTURE_NODES) and a 1 000-level stack guard; the 500/20
+// limits belong to edited subtrees (ir-command), so real captured sections above them still load.
+const chain = (prefix: string, levels: number, leaf: (id: string) => object) => {
+  let n = leaf(`${prefix}-${levels}`) as { id: string; children: object[] };
+  for (let i = levels - 1; i >= 0; i--) n = { ...(leaf(`${prefix}-${i}`) as object), children: [n] } as typeof n;
+  return n;
+};
+test("real-size sections load (v1 and v2); pages over the capture ceiling or 1 000 levels are refused", () => {
+  const v1leaf = (id: string) => ({ id, tag: "div", attrs: {}, cls: [], children: [] });
   const legacy = buildIR([capture]);
-  const root = legacy.sections[0]!.root;
-  let deep = root;
-  for (let i = 0; i < 20; i++) {
-    const child = { ...deep, id: `deep-${i}`, children: [] };
-    deep.children = [child];
-    deep = child;
-  }
-  expect(() => migrateIR(legacy, [capture])).toThrowError(AppError);
+  legacy.sections[0]!.root.children = [chain("deep", 25, v1leaf) as never, ...Array.from({ length: 600 }, (_, i) => v1leaf(`wide-${i}`))];
+  const v2 = migrateIR(legacy, [capture]);
+  expect(v2.sections[0]!.root.children).toHaveLength(601);
+  expect(migrateIR(v2, [capture])).toBe(v2);
 
-  const wide = buildIR([capture]);
-  wide.sections[0]!.root.children = Array.from({ length: 500 }, (_, i) => ({ id: `wide-${i}`, tag: "div", attrs: {}, cls: [], children: [] }));
-  expect(() => migrateIR(wide, [capture])).toThrowError(AppError);
+  const v2leaf = (id: string) => ({ id, tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [] });
+  const tooWide = { ...v2, sections: [{ ...v2.sections[0]!, root: { ...v2.sections[0]!.root, children: Array.from({ length: MAX_CAPTURE_NODES }, (_, i) => v2leaf(`w${i}`)) } }] };
+  const tooDeep = { ...v2, sections: [{ ...v2.sections[0]!, root: { ...v2.sections[0]!.root, children: [chain("d", 1_000, v2leaf)] } }] };
+  for (const bad of [tooWide, tooDeep]) expect(() => migrateIR(bad, [])).toThrow(/page limit/);
+  const legacyWide = buildIR([capture]);
+  legacyWide.sections[0]!.root.children = Array.from({ length: MAX_CAPTURE_NODES }, (_, i) => v1leaf(`w${i}`));
+  expect(() => migrateIR(legacyWide, [capture])).toThrow(/page limit/);
 });
 
 test("malformed v2 is rejected with a coded error before reference return", () => {

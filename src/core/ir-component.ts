@@ -1,6 +1,7 @@
 import { AppError, Codes } from "./errors";
 import type { LegacyComponent } from "./ir-legacy";
 import type { IRNodeV2, IRV2 } from "./ir-v2";
+import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
 
 const fail = (message: string): never => { throw new AppError(Codes.IR_PATCH_INVALID, message); };
 const roots = (ir: IRV2) => [...ir.sections.map(s => s.root), ...ir.pages.map(p => p.shell)];
@@ -9,7 +10,7 @@ function indexTrees(trees: IRNodeV2[]): Map<string, IRNodeV2> {
   for (const root of trees) {
     let count = 0;
     const visit = (node: IRNodeV2, depth: number): void => {
-      if (++count > 500 || depth > 20) fail("IR subtree limit exceeded");
+      if (++count > MAX_CAPTURE_NODES || depth > MAX_TREE_DEPTH) fail("IR page limit exceeded");
       if (index.has(node.id)) fail(`duplicate or cyclic node: ${node.id}`);
       index.set(node.id, node);
       for (const child of node.children) visit(child, depth + 1);
@@ -97,7 +98,7 @@ export function resolveComponents(ir: IRV2): IRV2 {
     sources.set(component.id, indexTrees([component.root]));
   }
   const resolve = (node: IRNodeV2, active: Set<string>, depth: number, budget: { count: number }, counterparts?: Map<string, IRNodeV2>, instanceRoot?: string): IRNodeV2 => {
-    if (++budget.count > 500 || depth > 20) fail("IR subtree limit exceeded");
+    if (++budget.count > MAX_CAPTURE_NODES || depth > MAX_TREE_DEPTH) fail("IR page limit exceeded");
     const ref = node.component;
     if (ref?.role !== "instance") return { ...structuredClone({ ...node, children: [] }), children: node.children.map(n => resolve(n, active, depth + 1, budget)) };
     const source = sources.get(ref.id)?.get(ref.sourceId ?? "");
