@@ -13,6 +13,8 @@ import * as commandsRoute from "@/app/api/projects/[id]/editor/commands/route";
 import * as undoRoute from "@/app/api/projects/[id]/editor/undo/route";
 import * as redoRoute from "@/app/api/projects/[id]/editor/redo/route";
 import * as editorRoute from "@/app/api/projects/[id]/editor/route";
+import * as saveRoute from "@/app/api/projects/[id]/editor/save/route";
+import * as promoteRoute from "@/app/api/projects/[id]/editor/promote-layout/route";
 import * as files from "@/app/api/projects/[id]/files/[...path]/route";
 
 // a queued/active job, as the session guards see it (a real queue would start a browser pipeline)
@@ -67,6 +69,21 @@ const post = (route: Route, id: string, body: unknown, headers: Record<string, s
 };
 const getFile = (id: string, ...path: string[]) => files.GET(new Request("http://127.0.0.1"), { params: Promise.resolve({ id, path }) });
 const getEditor = (id: string) => editorRoute.GET(new Request("http://127.0.0.1"), { params: Promise.resolve({ id }) });
+type Comp = { type?: string; content?: string; attributes?: Record<string, string>; components?: Comp[] };
+type EditorData = { pageId: string; components: Comp[]; revision: number; canUndo: boolean; canRedo: boolean };
+const editorData = async (id: string) => {
+  const res = await getEditor(id);
+  expect(res.status).toBe(200);
+  return (await res.json()) as EditorData;
+};
+const findText = (comps: Comp[], text: string): Comp | undefined => {
+  for (const c of comps) {
+    if (c.type === "textnode" && c.content === text) return c;
+    const hit = findText(c.components ?? [], text);
+    if (hit) return hit;
+  }
+  return undefined;
+};
 const setText = (nodeId: string, text: string) => [{ op: "setText", id: nodeId, text }];
 
 test("two tabs at the same revision: one commits, the other gets 409 STALE_REVISION with the current revision", async () => {
@@ -194,4 +211,50 @@ test("output gate: a failed materialization never serves out/; the next read rep
   expect(repaired.status).toBe(200);
   expect(await repaired.text()).toContain("Added");
   expect((JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2).revision).toBe(1);
+});
+
+test("Lưu (legacy save URL) commits through the document store: GET editor works on the v2 document, Undo/Redo keep the history", async () => {
+  const id = await seed();
+  const ws = join(config.workspaceRoot, id);
+  const data = await editorData(id);
+  expect(data.revision).toBe(0);
+  findText(data.components, "Top")!.content = "Saved title";
+  const noBase = await post(saveRoute, id, { pageId: data.pageId, project: { components: data.components } });
+  expect(noBase.status).toBe(400); // baseRevision is required
+  const saved = await post(saveRoute, id, { baseRevision: 0, pageId: data.pageId, project: { components: data.components } });
+  expect([saved.status, await saved.json()]).toEqual([200, { revision: 1, createdIds: [], canUndo: true, canRedo: false, ops: 1, skipped: [] }]);
+  expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain("Saved title");
+
+  // ir.json is the v2 mirror now: GET editor builds the canvas from the document (was a 500)
+  const reloaded = await editorData(id);
+  expect(reloaded).toMatchObject({ revision: 1, canUndo: true, canRedo: false });
+  expect(findText(reloaded.components, "Saved title")).toBeDefined();
+  // a second tab still at revision 0: 409 with the current revision, nothing written
+  const stale = await post(saveRoute, id, { baseRevision: 0, pageId: data.pageId, project: { components: data.components } });
+  expect([stale.status, await stale.json()]).toEqual([409, expect.objectContaining({ code: "STALE_REVISION", revision: 1 })]);
+  // an unchanged canvas: no History step
+  const same = await post(saveRoute, id, { baseRevision: 1, pageId: reloaded.pageId, project: { components: reloaded.components } });
+  expect(await same.json()).toMatchObject({ revision: 1, ops: 0 });
+
+  expect((await post(undoRoute, id, { baseRevision: 1 })).status).toBe(200);
+  const undone = await editorData(id);
+  expect(undone).toMatchObject({ revision: 2, canUndo: false, canRedo: true });
+  expect(findText(undone.components, "Top")).toBeDefined();
+  expect(await readFile(join(ws, "out", "index.html"), "utf8")).not.toContain("Saved title");
+  expect((await post(redoRoute, id, { baseRevision: 2 })).status).toBe(200);
+  expect(findText((await editorData(id)).components, "Saved title")).toBeDefined();
+  // an invalid edit is refused as a whole: 400, the document untouched
+  const bad = await post(saveRoute, id, { baseRevision: 3, pageId: "nope", project: { components: [] } });
+  expect([bad.status, (await bad.json()).code]).toEqual([400, "IR_PATCH_INVALID"]);
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(3);
+});
+
+test("Gộp layout (legacy promote URL) is a promoteLayout command: baseRevision required, stale -> 409, invalid -> 400", async () => {
+  const id = await seed();
+  expect((await post(promoteRoute, id, { sectionIds: ["a", "b"] })).status).toBe(400);
+  const stale = await post(promoteRoute, id, { baseRevision: 5, sectionIds: ["a", "b"] });
+  expect([stale.status, await stale.json()]).toEqual([409, expect.objectContaining({ code: "STALE_REVISION", revision: 0 })]);
+  const invalid = await post(promoteRoute, id, { baseRevision: 0, sectionIds: ["a", "b"] });
+  expect([invalid.status, (await invalid.json()).code]).toEqual([400, "IR_PATCH_INVALID"]);
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(0);
 });

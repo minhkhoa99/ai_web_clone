@@ -284,7 +284,7 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   await context.close();
 });
 
-test("editor: edit one heading in the canvas, save -> exactly one patch op, out/index.html has the new text", async () => {
+test("editor: edit one heading in the canvas, save -> exactly one command, out/index.html has the new text; server Undo/Redo; a stale tab is told to reload", async () => {
   const base = app!.base;
   // Taller viewport: the fixed shell header/sidebar leave less room below the fold at the Playwright default
   // (1280x720), which raced a canvas resize against the dblclick and missed the rich-text edit.
@@ -314,6 +314,37 @@ test("editor: edit one heading in the canvas, save -> exactly one patch op, out/
   const preview = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { stale: boolean; scores: unknown[] };
   expect(preview.stale).toBe(true);
   expect(preview.scores.length).toBeGreaterThan(0);
+
+  // Hoàn tác / Làm lại: the server History (not GrapesJS' UndoManager); the editor reloads from the document
+  const outHtml = async () => (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
+  const status = page.getByRole("status");
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
+  expect(await outHtml()).toContain("Build faster sites");
+  await expect.poll(() => page.getByRole("button", { name: "Làm lại" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  await page.getByRole("button", { name: "Làm lại" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã làm lại — điểm QA cần chạy lại");
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
+  expect(await outHtml()).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
+
+  // another tab commits first: this tab's Lưu gets 409 and asks for a reload, nothing is overwritten
+  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true); // reloaded
+  const { revision } = (await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number };
+  const irId = (await heading.getAttribute("data-ir-id"))!;
+  const other = await fetch(`${base}/api/projects/${projectId}/editor/commands`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ baseRevision: revision, commands: [{ op: "setAttribute", id: irId, name: "title", value: "other tab" }] }),
+  });
+  expect(other.status).toBe(200);
+  await heading.dblclick();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Lost update");
+  await page.getByRole("button", { name: "Lưu" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe(`Dự án đã thay đổi ở nơi khác (revision ${revision + 1}). Tải lại để tiếp tục.`);
+  expect(await outHtml()).not.toContain("Lost update");
+  expect(await outHtml()).toContain('title="other tab"');
   await page.close();
 });
 
@@ -360,8 +391,10 @@ test("editor API: recovery (spec §3, ghi đè R69) — failed/interrupted/pause
   const base = app!.base;
   const post = (path: string, body: unknown) =>
     fetch(`${base}/api/projects/${projectId}/editor/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  expect((await post("save", { pageId: "nope", project: { components: [] } })).status).toBe(400);
-  expect((await post("promote-layout", { sectionIds: ["x"] })).status).toBe(400);
+  const { revision } = (await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number };
+  expect((await post("save", { baseRevision: revision, pageId: "nope", project: { components: [] } })).status).toBe(400);
+  expect((await post("promote-layout", { baseRevision: revision, sectionIds: ["x"] })).status).toBe(400);
+  expect((await post("save", { pageId: "nope", project: { components: [] } })).status).toBe(400); // no baseRevision
   try {
     // running: not a recoverable status regardless of the clone
     db!.prepare("UPDATE projects SET status='running' WHERE id=?").run(projectId);
@@ -398,13 +431,16 @@ test("recovery (fix round 1 review): editor save on a non-completed project clos
   db!.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(randomUUID(), projectId, fixKey);
   db!.prepare("UPDATE projects SET status='failed' WHERE id=?").run(projectId);
   try {
-    const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { pageId: string; components: unknown[] };
+    type Comp = { type?: string; content?: string; components?: Comp[] };
+    const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { pageId: string; components: Comp[]; revision: number };
+    const firstText = (cs: Comp[]): Comp | undefined => cs.map((c) => (c.type === "textnode" && c.content?.trim() ? c : firstText(c.components ?? []))).find(Boolean);
+    firstText(data.components)!.content = "Sửa tay";
     const save = await fetch(`${base}/api/projects/${projectId}/editor/save`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pageId: data.pageId, project: { components: data.components } }),
+      body: JSON.stringify({ baseRevision: data.revision, pageId: data.pageId, project: { components: data.components } }),
     });
-    expect(save.status).toBe(200);
+    expect([save.status, ((await save.json()) as { ops: number }).ops]).toEqual([200, 1]);
     const fixTask = db!.prepare("SELECT status,error_code,error_msg FROM tasks WHERE project_id=? AND phase='fix' AND key=?").get(projectId, fixKey) as {
       status: string;
       error_code: string | null;

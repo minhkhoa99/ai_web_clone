@@ -30,9 +30,12 @@ test("api(): a known code reads as its hint (+ the server message); an unknown c
   failWith(409, { code: "PROJECT_BUSY", message: "Đang chạy, thử lại sau 15 s." });
   await expect(api("/x")).rejects.toThrow(`${ERROR_HINTS.PROJECT_BUSY} (Đang chạy, thử lại sau 15 s.)`);
   failWith(429, { code: "QUEUE_FULL", message: "" });
-  await expect(api("/x")).rejects.toThrow(new Error(ERROR_HINTS.QUEUE_FULL));
+  await expect(api("/x")).rejects.toMatchObject({ message: ERROR_HINTS.QUEUE_FULL, code: "QUEUE_FULL" });
   failWith(400, { code: "VALIDATION", message: "url: bad" });
-  await expect(api("/x")).rejects.toThrow(new Error("VALIDATION: url: bad"));
+  await expect(api("/x")).rejects.toMatchObject({ message: "VALIDATION: url: bad" });
   failWith(409, {});
-  await expect(api("/x")).rejects.toThrow(new Error("409: Conflict"));
+  await expect(api("/x")).rejects.toMatchObject({ message: "409: Conflict" });
+  // a stale edit: the error keeps the current revision, for the editor's reload prompt
+  failWith(409, { code: "STALE_REVISION", message: "document is at revision 7, not 6", revision: 7 });
+  await expect(api("/x")).rejects.toMatchObject({ code: "STALE_REVISION", revision: 7 });
 });

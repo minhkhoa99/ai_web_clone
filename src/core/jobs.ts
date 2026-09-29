@@ -282,10 +282,11 @@ async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSour
   return { db, projectId, ws, pages: JSON.parse(await readFile(join(ws, "pages.json"), "utf8")) as PageRef[] };
 }
 
-export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ ir: IR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
+// The editor's document (SQLite snapshot once adopted, else ir.json migrated) and its display view (compileV2).
+export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ doc: IRV2; ir: IR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
   const src = await editSource(db, projectId);
-  const [ir, emit] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR), emitOpts(src)]);
-  return { ir, emit };
+  const [doc, emit] = await Promise.all([projectDocuments(db).loadDocument(projectId), emitOpts(src)]);
+  return { doc, ir: compileV2(doc), emit };
 }
 
 // Recovery (hardening spec §3 review): a resume's fix phase loads ir.json and overwrites it (+ out/, qa.json)

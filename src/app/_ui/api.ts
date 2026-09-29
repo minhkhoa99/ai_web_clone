@@ -9,9 +9,10 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
     ...(hasBody ? { headers: { "content-type": "application/json" }, body: JSON.stringify(opts.body) } : {}),
   });
   if (res.ok) return (await res.json()) as T;
-  const err = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
+  const err = (await res.json().catch(() => ({}))) as { code?: string; message?: string; revision?: number };
   const hint = hintFor(err.code);
-  throw new Error(hint ? `${hint}${err.message ? ` (${err.message})` : ""}` : `${err.code ?? res.status}: ${err.message ?? res.statusText}`);
+  const message = hint ? `${hint}${err.message ? ` (${err.message})` : ""}` : `${err.code ?? res.status}: ${err.message ?? res.statusText}`;
+  throw Object.assign(new Error(message), { code: err.code, revision: err.revision }); // revision: a 409 names the current one
 }
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

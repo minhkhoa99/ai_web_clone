@@ -15,6 +15,10 @@ import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 
 const DEVICES = ["1440", "768", "375"] as const;
 type Device = (typeof DEVICES)[number];
+// A style edit at a device targets that breakpoint: the emitter's media (1440 = base; 768 = ≤1439.98px; 375 = ≤767.98px).
+const WIDTH_MEDIA: Record<Device, string> = { "1440": "", "768": "1439.98px", "375": "767.98px" };
+type EditorData = GrapesProject & { revision: number; canUndo: boolean; canRedo: boolean };
+type Saved = { revision: number; ops?: number; skipped?: string[] };
 const DEFAULT_EFFECT_MS = 600;
 
 // GrapesJS panel buttons render Font Awesome classNames with no FA loaded (correctly — no icon CDN);
@@ -27,12 +31,14 @@ const GJS_VIEWS_BUTTONS: { id: string; icon: IconName; title: string; active?: b
   { id: "open-tm", icon: "settings", title: "Thuộc tính" },
 ];
 
-// GrapesJS over one page of the IR (spec §10). Save sends the editor's JSON to the adapter, which patches the IR and
-// re-emits out/; layout sections are shared, so editing one on any page edits it everywhere.
+// GrapesJS over one page of the document (spec §10, E1 §2-3). Lưu sends the editor's JSON with the revision it loaded;
+// the server diffs it into editor commands (one History step) and re-emits out/. Hoàn tác / Làm lại are the server's
+// History (shared by every tab), not GrapesJS' UndoManager. After each change the editor reloads from the server.
+// Layout sections are shared, so editing one on any page edits it everywhere.
 export function EditorView({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
   const [pageId, setPageId] = useState(initialPage); // "" = the API's default (first page)
   const [version, setVersion] = useState(0); // bumped after a save / merge: reload the IR into a fresh editor
-  const [project, setProject] = useState<GrapesProject | null>(null);
+  const [project, setProject] = useState<EditorData | null>(null);
   const [device, setDevice] = useState<Device>(DEVICES[0]);
   const [picked, setPicked] = useState<string[]>([]); // click order: the first becomes the layout
   const [effect, setEffect] = useState("sp1-fade-in");
@@ -48,7 +54,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
     let cancelled = false;
     (async () => {
       const [data, { default: grapesjs }] = await Promise.all([
-        api<GrapesProject>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`),
+        api<EditorData>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`),
         import("grapesjs"),
       ]);
       if (cancelled || !holder.current) return;
@@ -58,9 +64,9 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
         height: "72vh",
         storageManager: false, // the IR on the server is the only store
         protectedCss: data.styles,
-        selectorManager: { componentFirst: true }, // style edits target the component, not a shared class
-        // widthMedia "": a style edit applies at every breakpoint (the IR patch sets the base style)
-        deviceManager: { devices: DEVICES.map((w) => ({ id: w, name: `${w}px`, width: `${w}px`, widthMedia: "" })) },
+        // style edits target the component, not a shared class; only the states the IR has
+        selectorManager: { componentFirst: true, states: [{ name: "hover" }, { name: "focus" }, { name: "active" }] },
+        deviceManager: { devices: DEVICES.map((w) => ({ id: w, name: `${w}px`, width: `${w}px`, widthMedia: WIDTH_MEDIA[w] })) },
         blockManager: {
           blocks: data.sections.map((s) => ({ id: s.id, label: s.name, category: pathOf.get(s.pageId) ?? s.pageId, content: s.component })),
         },
@@ -92,7 +98,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
       });
       editor.setComponents(data.components);
       editor.getWrapper()?.addClass(data.bodyClasses);
-      editor.UndoManager.clear(); // loading the page is not an undoable edit
+      editor.UndoManager.clear(); // loading the page is not an edit: from here on hasUndo() = unsaved changes
       editor.setDevice(DEVICES[0]);
       editorRef.current = editor;
       setDevice(DEVICES[0]);
@@ -109,14 +115,19 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
     };
   }, [id, pageId, version, initialPage]);
 
+  // One server change, then one reload from the server document. A 409 naming a revision: another tab (or job) changed
+  // the project: never overwrite, ask for a reload.
   const run = async (label: string, fn: () => Promise<string>) => {
     setBusy(true);
     setMsg(label);
     try {
       setMsg(await fn());
+      setSaved(true);
       setVersion((v) => v + 1);
     } catch (e) {
-      setMsg(errorText(e));
+      const { code, revision } = e as { code?: string; revision?: number };
+      const moved = typeof revision === "number" && (code === "STALE_REVISION" || code === "PROJECT_BUSY");
+      setMsg(moved ? `Dự án đã thay đổi ở nơi khác (revision ${revision}). Tải lại để tiếp tục.` : errorText(e));
     } finally {
       setBusy(false);
     }
@@ -129,18 +140,26 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
       // a text still being edited is only synced into the model when rich-text editing ends
       const view = editor.getEditing()?.getView() as { disableEditing?: () => Promise<void> } | undefined;
       await view?.disableEditing?.();
-      const body = { pageId: project.pageId, project: { components: editor.getComponents(), styles: editor.Css.getAll() } };
-      const res = await api<{ ops: number }>(`/api/projects/${id}/editor/save`, { body });
-      setSaved(true);
-      return `Đã lưu: ${res.ops} thay đổi — điểm QA cần chạy lại`;
+      const body = { baseRevision: project.revision, pageId: project.pageId, project: { components: editor.getComponents(), styles: editor.Css.getAll() } };
+      const res = await api<Saved>(`/api/projects/${id}/editor/save`, { body });
+      const skipped = res.skipped?.length ? ` · ${res.skipped.length} kiểu không lưu được (trạng thái theo breakpoint chưa hỗ trợ)` : "";
+      return `Đã lưu: ${res.ops ?? 0} thay đổi — điểm QA cần chạy lại${skipped}`;
     });
 
   const mergeLayout = () =>
     run("Đang gộp…", async () => {
-      await api(`/api/projects/${id}/editor/promote-layout`, { body: { sectionIds: picked } });
+      await api<Saved>(`/api/projects/${id}/editor/promote-layout`, { body: { baseRevision: project?.revision, sectionIds: picked } });
       setPicked([]);
-      setSaved(true);
       return "Đã gộp thành layout chung";
+    });
+
+  const history = (op: "undo" | "redo") =>
+    run(op === "undo" ? "Đang hoàn tác…" : "Đang làm lại…", async () => {
+      if (!project) return "Editor chưa sẵn sàng.";
+      // the reload would drop edits not saved yet
+      if (editorRef.current?.UndoManager.hasUndo()) throw new Error("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại.");
+      await api<Saved>(`/api/projects/${id}/editor/${op}`, { body: { baseRevision: project.revision } });
+      return `${op === "undo" ? "Đã hoàn tác" : "Đã làm lại"} — điểm QA cần chạy lại`;
     });
 
   const applyEffect = () => {
@@ -175,8 +194,8 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
           }}
           options={DEVICES.map((w) => ({ value: w, label: w }))}
         />
-        <IconButton icon="undo" label="Hoàn tác" onClick={() => editorRef.current?.UndoManager.undo()} />
-        <IconButton icon="redo" label="Làm lại" onClick={() => editorRef.current?.UndoManager.redo()} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => void history("undo")} disabled={busy || !project?.canUndo} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => void history("redo")} disabled={busy || !project?.canRedo} />
         <Button variant="primary" icon="save" onClick={() => void save()} disabled={busy || !project}>
           Lưu
         </Button>

@@ -39,6 +39,11 @@ const MEDIA_375 = "@media (max-width: 767.98px)";
 const ASSET_REF = /assets\/[0-9a-f]{64}\.[a-z0-9]{1,8}/g;
 const WRITE_CONCURRENCY = 8;
 const RUNTIME_SRC = fileURLToPath(new URL("./runtime.js", import.meta.url));
+// The editor's effect presets: a node whose animation names one gets its @keyframes in the output (compileV2).
+export const EFFECT_PRESETS: Record<string, string> = {
+  "sp1-fade-in": "@keyframes sp1-fade-in{from{opacity:0}to{opacity:1}}",
+  "sp1-slide-up": "@keyframes sp1-slide-up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}",
+};
 
 type Ctx = {
   opts: RenderOpts;
@@ -330,7 +335,12 @@ export function compileV2(input: IRV2): IR {
   const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
   const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(n.styles), children: n.children.map(styled) });
   const stateRoots: StyledNode[] = [];
+  const presets = new Set<string>();
   const collect = (n: IRNodeV2): void => {
+    for (const decl of [n.styles.base, ...Object.values(n.styles.bp), ...Object.values(n.styles.state), ...Object.values(n.styles.pseudo)]) {
+      const animation = `${decl?.animation ?? ""} ${decl?.["animation-name"] ?? ""}`;
+      for (const [name, css] of Object.entries(EFFECT_PRESETS)) if (animation.includes(name)) presets.add(css);
+    }
     for (const state of STATES) {
       const decl = n.styles.state[state];
       if (decl) stateRoots.push({ id: stateKey(n.id, state), tag: "div", attrs: {}, style: { base: decl }, children: [] });
@@ -357,7 +367,7 @@ export function compileV2(input: IRV2): IR {
     components: [],
     classes,
     tokens: ir.tokens,
-    cssom: ir.cssom,
+    cssom: presets.size ? { ...ir.cssom, keyframes: [...new Set([...ir.cssom.keyframes, ...presets])] } : ir.cssom,
     interactions: ir.interactions,
   };
 }
