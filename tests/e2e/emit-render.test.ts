@@ -8,7 +8,8 @@ import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { capturePage, type CaptureNode, type PageCapture } from "@/core/capture";
 import { buildIR } from "@/core/ir";
-import { emitHtml } from "@/core/emit-html";
+import { emitHtml, renderSite, renderSiteV2 } from "@/core/emit-html";
+import { migrateIR } from "@/core/ir-migrate";
 
 const site1Dir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
 
@@ -142,4 +143,49 @@ test("round trip: capture site1 -> buildIR -> emitHtml renders with no console e
       for (const [a, b] of [[x, clone.x], [y, clone.y], [w, clone.width], [h, clone.height]] as const) expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
     }
   });
+});
+
+test("site1: v2 emit renders the same text, attributes and computed styles as v1 at 1440/768/375", async () => {
+  const workspaceDir = join(tmp, "ws-v2");
+  const url = `${await serve(site1Dir)}/index.html`;
+  const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
+  const cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
+  const v1 = buildIR([cap]);
+  const v2 = migrateIR(v1, [cap]);
+  const opts = { assetMap: cap.assets, pageUrls: { home: url } };
+  const [dirV1, dirV2] = [join(tmp, "site1-v1"), join(tmp, "site1-v2")];
+  await emitHtml(v1, { ...opts, outDir: dirV1, workspaceDir });
+  await emitHtml(v1, { ...opts, outDir: dirV2, workspaceDir });
+  const v2Files = renderSiteV2(v2, opts);
+  expect(Object.keys(v2Files).sort()).toEqual(Object.keys(renderSite(v1, opts)).sort());
+  for (const [rel, text] of Object.entries(v2Files)) await writeFile(join(dirV2, rel), text);
+  const [baseV1, baseV2] = [await serve(dirV1), await serve(dirV2)];
+
+  // Per element: own text, attributes (order-free, class names excluded) and every computed style property.
+  const snapshot = (page: Page) =>
+    page.$$eval("[data-ir-id]", (els) =>
+      els.map((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          id: el.getAttribute("data-ir-id"),
+          text: [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""),
+          attrs: [...el.attributes].filter((a) => a.name !== "class").map((a) => `${a.name}=${a.value}`).sort(),
+          style: [...cs].map((prop) => `${prop}:${cs.getPropertyValue(prop)}`),
+        };
+      }),
+    );
+  for (const width of [1440, 768, 375]) {
+    const shots = [];
+    for (const base of [baseV1, baseV2]) {
+      shots.push(
+        await withPage(handle, async (page) => {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await loadCollectingErrors(page, `${base}/index.html`)).toEqual([]);
+          return snapshot(page);
+        }),
+      );
+    }
+    expect(shots[0]!.length).toBeGreaterThan(10);
+    expect(shots[1]).toEqual(shots[0]);
+  }
 });

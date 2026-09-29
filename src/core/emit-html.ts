@@ -2,10 +2,12 @@
 import { copyFile, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { categoryOf, type Decl } from "./dedupe";
+import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
 import type { IR, IRNode, Page, Section } from "./ir";
+import { resolveComponents } from "./ir-component";
+import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
 import { normalizeUrl, pathSlug } from "./url";
 
@@ -319,6 +321,62 @@ export function emitSection(ir: IR, sectionId: string, opts: RenderOpts): string
   renderNode(section.root, opts.pageUrls[section.pageId], makeCtx(ir, opts, pageFileNames(ir.pages)), out);
   return out.join("");
 }
+
+// --- IR v2 ------------------------------------------------------------------------
+
+const styleSetOf = ({ base, bp, pseudo }: NodeStyles): StyleSet => ({
+  base,
+  ...(pseudo.before && { before: pseudo.before }),
+  ...(pseudo.after && { after: pseudo.after }),
+  media: { ...(bp[768] && { "768": bp[768] }), ...(bp[375] && { "375": bp[375] }) },
+});
+
+// NUL-separated: never equals a real node id.
+const stateKey = (id: string, state: string) => `${id}\u0000${state}`;
+
+// IR v2 -> transient v1 view for the renderer. Class names are derived here (same dedupe, same traversal order
+// as buildIR: sections, shells, then state styles) and never written back into the v2 document.
+function compileV2(input: IRV2): IR {
+  const ir = resolveComponents(input);
+  const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
+  const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(n.styles), children: n.children.map(styled) });
+  const stateRoots: StyledNode[] = [];
+  const collect = (n: IRNodeV2): void => {
+    for (const state of STATES) {
+      const decl = n.styles.state[state];
+      if (decl) stateRoots.push({ id: stateKey(n.id, state), tag: "div", attrs: {}, style: { base: decl }, children: [] });
+    }
+    n.children.forEach(collect);
+  };
+  roots.forEach(collect);
+  const { classMap, classes } = dedupeStyles([...roots.map(styled), ...stateRoots]);
+  const toV1 = (n: IRNodeV2): IRNode => {
+    const out: IRNode = { id: n.id, tag: n.tag, attrs: n.attrs, cls: classMap.get(n.id) ?? [], children: n.children.map(toV1) };
+    if (n.text !== undefined) out.text = n.text;
+    if (n.hidden !== undefined) out.hidden = n.hidden;
+    if (n.behavior !== undefined) out.behavior = n.behavior;
+    for (const state of STATES) {
+      const name = classMap.get(stateKey(n.id, state))?.[0];
+      if (name) out.states = { ...out.states, [state]: name };
+    }
+    return out;
+  };
+  return {
+    pages: ir.pages.map((p) => ({ ...p, shell: toV1(p.shell) })),
+    sections: ir.sections.map((s) => ({ ...s, root: toV1(s.root) })),
+    layouts: ir.layouts,
+    components: [],
+    classes,
+    tokens: ir.tokens,
+    cssom: ir.cssom,
+    interactions: ir.interactions,
+  };
+}
+
+export const renderSiteV2 = (ir: IRV2, opts: RenderOpts): Record<string, string> => renderSite(compileV2(ir), opts);
+export const renderStylesheetV2 = (ir: IRV2, opts: RenderOpts): string => renderStylesheet(compileV2(ir), opts);
+// Same compile step as renderSiteV2, so QA re-emit never drifts from the site output.
+export const emitSectionV2 = (ir: IRV2, sectionId: string, opts: RenderOpts): string => emitSection(compileV2(ir), sectionId, opts);
 
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).
 export async function emitHtml(ir: IR, opts: EmitOpts): Promise<void> {
