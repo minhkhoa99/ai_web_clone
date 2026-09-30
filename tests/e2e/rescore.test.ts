@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "@/core/config";
 import { saveProvider } from "@/core/gateway";
-import { createProject, enqueue, isQueuedOrActive, runProject, saveEdited, startProject, subscribe, type JobDeps, type QaFile, type StampedEvent } from "@/core/jobs";
+import { createProject, enqueue, isQueuedOrActive, projectDocuments, runProject, startProject, subscribe, type JobDeps, type QaFile, type StampedEvent } from "@/core/jobs";
 import { serveDir } from "@/core/serve";
 import { getDb } from "@/app/_server/db";
 import * as preview from "@/app/api/projects/[id]/preview/route";
@@ -58,8 +58,12 @@ const markEmitDone = (x: string) => getDb().prepare("INSERT INTO tasks(id,projec
 
 test("completed + stale: 202, running -> completed; qa.json rewritten without stale; no fix task, no token, only qa:rescore ran", async () => {
   const db = getDb();
-  await saveEdited(db, id, (ir) => ir); // an editor save marks qa.json stale
   const qaPath = join(config.workspaceRoot, id, "qa.json");
+  const firstScores = (JSON.parse(await readFile(qaPath, "utf8")) as QaFile).scores;
+  // an editor step (a title attribute: nothing rendered changes) through the document store marks qa.json stale
+  const store = projectDocuments(db);
+  const doc = await store.loadDocument(id);
+  const { revision } = await store.commitCommands(id, doc.revision, [{ op: "setAttribute", id: doc.sections[0]!.root.id, name: "title", value: "edited" }], "user");
   expect((JSON.parse(await readFile(qaPath, "utf8")) as QaFile).stale).toBe(true);
   const fixCount = () => (db.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND phase='fix'").get(id) as { n: number }).n;
   const tokens = () => (db.prepare("SELECT tokens_used t FROM projects WHERE id=?").get(id) as { t: number }).t;
@@ -77,6 +81,12 @@ test("completed + stale: 202, running -> completed; qa.json rewritten without st
   const qa = JSON.parse(await readFile(qaPath, "utf8")) as QaFile;
   expect(qa.stale).toBeUndefined();
   expect(qa.scores.length).toBeGreaterThan(0);
+  // the v2 pipeline's output re-emitted from the document scores exactly like the first run's: no score moved
+  const key = (x: QaFile["scores"][number]) => `${x.pageId}/${x.sectionId}@${x.bp}`;
+  expect(qa.scores.map(key).sort()).toEqual(firstScores.map(key).sort());
+  const first = new Map(firstScores.map((x) => [key(x), x.score]));
+  for (const x of qa.scores) expect(Math.abs(x.score - first.get(key(x))!)).toBeLessThanOrEqual(0.001);
+  expect((await store.historyState(id)).revision).toBe(revision); // scoring is not a document change
   expect(fixCount()).toBe(fixesBefore);
   expect(tokens()).toBe(tokensBefore);
   expect(aiRequests).toBe(aiRequestsBefore); // P11: zero requests reached the (real, mock) provider server

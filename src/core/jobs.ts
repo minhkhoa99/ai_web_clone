@@ -17,9 +17,10 @@ import { AppError, Codes } from "./errors";
 import { workspaceOf, writeJsonAtomic } from "./fsx";
 import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
+import type { LegacyIR } from "./ir-legacy";
 import { migrateIR } from "./ir-migrate";
 import { documentStore } from "./ir-store";
-import type { FidelityItem, IRV2 } from "./ir-v2";
+import type { FidelityItem } from "./ir-v2";
 import { refreshFidelity } from "./fidelity";
 import { mapLimit } from "./limit";
 import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
@@ -256,13 +257,21 @@ async function loadCaptures(run: EmitSource): Promise<PageCapture[]> {
   return run.captures;
 }
 
-// The pipeline's v1 view: ir.json is v1 until the fix phase (or an editor step) writes the v2 document.
+// The job's document through the central loader (E1 §6): the SQLite snapshot once the editor adopted it, else ir.json
+// through migrateIR (a v1 checkpoint migrated in memory; the job's next checkpoint writes it as v2). Never adopts.
 async function loadIr(run: Run): Promise<IR> {
-  if (!run.ir) {
-    const raw = JSON.parse(await readFile(join(run.ws, "ir.json"), "utf8")) as IR | IRV2;
-    run.ir = "version" in raw && raw.version === 2 ? compileV2(raw) : (raw as IR);
-  }
+  run.ir ??= await projectDocuments(run.db).readDocument(run.projectId);
   return run.ir;
+}
+
+// A job's IR checkpoint. Adopted: through the store (commitJob: new revision, History reset, ir.json/out/graph
+// materialized) so the editor never shows a stale snapshot nor overwrites the job's result. Otherwise ir.json
+// (tmp -> rename). true = out/ and the graph already match `ir`.
+async function checkpointIr(run: Run, ir: IR): Promise<boolean> {
+  const revision = await projectDocuments(run.db).commitJob(run.projectId, ir.revision, ir);
+  run.ir = revision === null ? ir : { ...ir, revision };
+  if (revision === null) await writeJsonAtomic(join(run.ws, "ir.json"), ir);
+  return revision !== null;
 }
 
 async function emitOpts(run: EmitSource): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
@@ -288,7 +297,7 @@ async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSour
 }
 
 // The editor's document (SQLite snapshot once adopted, else ir.json migrated) and its display view (compileV2).
-export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ doc: IRV2; ir: IR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
+export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ doc: IR; ir: LegacyIR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
   const src = await editSource(db, projectId);
   const [doc, emit] = await Promise.all([projectDocuments(db).loadDocument(projectId), emitOpts(src)]);
   return { doc, ir: compileV2(doc), emit };
@@ -320,39 +329,28 @@ async function markQaStale(ws: string): Promise<void> {
   await writeJsonAtomic(join(ws, "qa.json"), { scores: qa.scores, stale: true } satisfies QaFile);
 }
 
-// ir.json (tmp -> rename), then out/ and the graph re-emitted from the edited IR, qa.json stale. Used by both the
-// editor save and promote-layout routes.
-export async function saveEdited(
-  db: DatabaseSync,
-  projectId: string,
-  edit: (ir: IR, emit: Pick<RenderOpts, "assetMap" | "pageUrls">) => IR,
-): Promise<void> {
-  const src = await editSource(db, projectId);
-  const [before, emit] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IR), emitOpts(src)]);
-  const ir = edit(before, emit);
-  await writeJsonAtomic(join(src.ws, "ir.json"), ir);
-  await emitOut(src, ir);
-  await markQaStale(src.ws);
-  closeOutstandingFixes(db, projectId);
-}
-
 // The editor document (E1 §3): SQLite holds the IR v2 snapshot + History; these files are its materialization.
 // The first idle read migrates ir.json (v1 -> v2; the file becomes the v2 mirror on the first step). Every step
 // marks qa.json stale (first: a crash mid-way never leaves fresh-looking scores over a new out/), rewrites ir.json,
 // out/ and the graph. A user step closes the outstanding fix tasks in its transaction (the manual edit wins).
-async function materializeDocument(db: DatabaseSync, projectId: string, ir: IRV2): Promise<void> {
+async function materializeDocument(db: DatabaseSync, projectId: string, ir: IR): Promise<void> {
   const src = await editSource(db, projectId);
   await markQaStale(src.ws);
   await writeJsonAtomic(join(src.ws, "ir.json"), ir);
-  await emitOut(src, compileV2(ir)); // ponytail: the graph gets no Component nodes from a v2 doc until Task 13's graph.ts
+  await emitOut(src, ir);
 }
 
 export function projectDocuments(db: DatabaseSync) {
   return documentStore(db, (projectId, ir) => materializeDocument(db, projectId, ir), {
+    // v2 is only validated (no capture evidence needed); v1 is migrated, and the QA scored on its output goes stale
+    // until "Chạy lại QA" (E1 §6) — a job reading it rescores anyway.
     loadInitial: async (projectId) => {
       const src = await editSource(db, projectId);
-      const [raw, captures] = await Promise.all([readFile(join(src.ws, "ir.json"), "utf8"), loadCaptures(src)]);
-      return migrateIR(JSON.parse(raw), captures);
+      const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
+      if ((raw as { version?: unknown } | null)?.version === 2) return migrateIR(raw, []);
+      const ir = migrateIR(raw, await loadCaptures(src));
+      if (existsSync(join(src.ws, "qa.json"))) await markQaStale(src.ws);
+      return ir;
     },
     isBusy: isQueuedOrActive,
     onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
@@ -367,11 +365,9 @@ export function projectDocuments(db: DatabaseSync) {
 // anything since the last step (the preview reloads after "Chạy lại QA"); unchanged -> nothing written. Otherwise
 // (never opened in the editor, or a job running) ir.json, the job's checkpoint, is analyzed in memory and never
 // written. The preview does not adopt the document: that stays the editor's first read.
-export async function previewFidelity(db: DatabaseSync, projectId: string, raw: IR | IRV2): Promise<FidelityItem[]> {
-  const captures = await editSource(db, projectId).then(loadCaptures, (e: unknown) => {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return []; // no pages.json yet: no capture evidence
-    throw e;
-  });
+export async function previewFidelity(db: DatabaseSync, projectId: string, raw: LegacyIR | IR): Promise<FidelityItem[]> {
+  // no pages.json yet, or a missing/corrupt capture.json: no capture evidence (items are then only carried)
+  const captures = await editSource(db, projectId).then(loadCaptures).catch((): PageCapture[] => []);
   const stored = await projectDocuments(db).updateFidelity(projectId, null, (items, ir) => refreshFidelity(items, ir, captures));
   if (stored) return stored;
   try {
@@ -491,8 +487,7 @@ async function runIr(run: Run): Promise<boolean> {
     setStatus(run.db, run.projectId, "failed", "no page was captured");
     return false;
   }
-  run.ir = buildIR(captures);
-  await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
+  await checkpointIr(run, buildIR(captures));
   finishTask(run.db, run.projectId, t, "ir.json");
   return true;
 }
@@ -537,8 +532,7 @@ async function runNames(run: Run): Promise<boolean> {
     if (error === Codes.BUDGET_EXCEEDED) run.budgetHit = true;
     if (stops) stopAi(run, { code: error as AiStop["code"], message: errorMessage ?? error });
     else if (error) log(run, "warn", `naming ${t.key}: ${error}, fallback names kept`);
-    run.ir = applySectionNames(ir, names);
-    await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
+    await checkpointIr(run, applySectionNames(ir, names));
     finishTask(run.db, run.projectId, t, "ir.json", error, errorMessage);
   }
   return true;
@@ -562,6 +556,7 @@ async function runQa(run: Run): Promise<boolean> {
   const rescore = tasks.some((t) => t.key === "rescore"); // the key is in the db: also right after an interrupt + resume
   emit(run.projectId, { type: "phase", phase: "qa" });
   for (const t of tasks) startTask(run.db, run.projectId, t);
+  await projectDocuments(run.db).ensureMaterialized(run.projectId, true); // an adopted document's failed step: out/ repaired first
   const scores = await scoreAll(run, await loadIr(run));
   const minBy = new Map<string, number>();
   for (const s of scores) {
@@ -576,13 +571,12 @@ async function runQa(run: Run): Promise<boolean> {
   return true;
 }
 
-// The fixed v2 document -> ir.json, out/, graph, qa.json: done before the fix tasks' checkpoint. A pipeline
-// checkpoint, not a History step: no document_history row (syncing an adopted document_state is Task 13).
+// The fixed document (its Fidelity re-derived) -> ir.json, out/, graph, qa.json: done before the fix tasks'
+// checkpoint. A pipeline checkpoint, not a History step (checkpointIr).
 async function persistFixes(run: Run, ctx: FixCtx): Promise<void> {
-  await writeJsonAtomic(join(run.ws, "ir.json"), ctx.ir);
-  run.ir = compileV2(ctx.ir);
-  await emitOut(run, run.ir);
-  await scoreAll(run, run.ir);
+  const ir = { ...ctx.ir, fidelity: refreshFidelity(ctx.ir.fidelity ?? [], ctx.ir, ctx.captures) };
+  if (!(await checkpointIr(run, ir))) await emitOut(run, ir);
+  await scoreAll(run, run.ir!);
 }
 
 async function runFixes(run: Run): Promise<boolean> {
@@ -600,9 +594,7 @@ async function runFixes(run: Run): Promise<boolean> {
     return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1) };
   });
   const captures = await loadCaptures(run);
-  // The fix loop edits IR v2 through the command core. ir.json is read as-is (not the loadIr view): v1 is migrated
-  // here at the boundary (until Task 13's v2 pipeline); a v2 file (a resumed fix) keeps its components/fidelity.
-  const doc = migrateIR(JSON.parse(await readFile(join(run.ws, "ir.json"), "utf8")), captures);
+  const doc = await loadIr(run); // the fix loop edits the v2 document through the command core
   const ctx: FixCtx = {
     db: run.db,
     projectId: run.projectId,
@@ -617,7 +609,7 @@ async function runFixes(run: Run): Promise<boolean> {
     onRetry: retryLogger(run, "fix"),
   };
   // The graph from the persisted IR: after a crash mid-fix it may hold an accepted-but-unsaved patch.
-  writeGraph(run.db, run.projectId, compileV2(ctx.ir), ctx.emit.assetMap);
+  writeGraph(run.db, run.projectId, ctx.ir, ctx.emit.assetMap);
   let results: FixResult[];
   try {
     results = await run.deps.fixAll(ctx, targets);

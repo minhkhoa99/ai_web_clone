@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { mkdtempSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -8,10 +8,14 @@ import type { CaptureNode, PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
 import { openDb } from "@/core/db";
 import { AppError } from "@/core/errors";
-import { buildIR } from "@/core/ir";
+import { buildLegacyIR } from "@/core/ir";
 import { documentStore, type StoreHooks } from "@/core/ir-store";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
-import { createProject, enqueue, previewFidelity, projectDocuments } from "@/core/jobs";
+import type { BrowserHandle } from "@/core/browser";
+import { refreshFidelity } from "@/core/fidelity";
+import { applyCommands } from "@/core/ir-command";
+import { createProject, enqueue, previewFidelity, projectDocuments, runProject } from "@/core/jobs";
+import type { FixCtx, FixTarget } from "@/core/qa-fix";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
   const node: IRNodeV2 = { id, tag, type: tag === "#text" ? "text" : "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children, ...extra };
@@ -202,6 +206,9 @@ test("user commits and Undo/Redo run the manual-edit hook inside the commit; ai_
   expect(seen).toEqual(["p", "p", "p"]);
 });
 
+const fakeOpen = async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} });
+const captureOf = async (ws: string) => JSON.parse(await readFile(join(ws, "pages", "home", "capture.json"), "utf8")) as PageCapture;
+
 // A failed project with a v1 ir.json, one capture (site "home") and one pending fix task, as the pipeline leaves it.
 async function seedJobsProject(inventory?: PageCapture["inventory"]) {
   const db = openDb(":memory:");
@@ -218,7 +225,7 @@ async function seedJobsProject(inventory?: PageCapture["inventory"]) {
   } as PageCapture;
   await mkdir(join(ws, "pages", "home"), { recursive: true });
   await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
-  await writeFile(join(ws, "ir.json"), JSON.stringify(buildIR([capture])));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(buildLegacyIR([capture]))); // a pre-v2 checkpoint
   await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ score: 0.5 }] }));
   db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase='capture'").run("pages/home/capture.json", id);
   db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
@@ -232,6 +239,11 @@ test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror,
   const store = projectDocuments(db);
   const doc = await store.loadDocument(id);
   expect([doc.version, doc.revision]).toEqual([2, 0]);
+  // re-reading (a fresh store too) never re-migrates: same revision, same IDs; the QA of the v1 output is stale
+  const again = await projectDocuments(db).loadDocument(id);
+  expect(again.revision).toBe(doc.revision);
+  expect(again.sections[0]!.root.id).toBe(doc.sections[0]!.root.id);
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
   const text = doc.sections.flatMap((s) => [s.root, ...s.root.children]).find((x) => x.text === "Top")!;
   await store.commitCommands(id, 0, [{ op: "setText", id: text.id, text: "Changed" }], "user");
 
@@ -327,6 +339,108 @@ test("preview Fidelity: ir.json analyzed in memory without adopting; a stored v2
   expect((await store.loadDocument(id)).fidelity).toEqual(items);
   expect((await raw()).fidelity).toEqual(items); // ir.json mirrored
   expect([stateOf(db, id), historyRows(db, id)]).toEqual([{ revision: 0, cursor: 0, materialized_revision: 0 }, 0]);
-  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }] }); // pixel QA untouched
+  // adopting the v1 checkpoint marked the pixel QA stale (E1 §6); the Fidelity backfill leaves it alone
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
   expect(await previewFidelity(db, id, await raw())).toEqual(items); // idempotent
+});
+
+test("preview Fidelity: a missing or corrupt capture.json is no capture evidence, not an error", async () => {
+  const { db, id, ws } = await seedJobsProject();
+  const raw = JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2;
+  await writeFile(join(ws, "pages", "home", "capture.json"), "{");
+  expect(Array.isArray(await previewFidelity(db, id, raw))).toBe(true);
+  await rm(join(ws, "pages", "home", "capture.json"));
+  expect(Array.isArray(await previewFidelity(db, id, raw))).toBe(true);
+});
+
+// --- pipeline jobs over an adopted document (E1 §6: SQLite is the source of truth once adopted) ---
+
+test("commitJob: not adopted -> null; adopted -> the job IR at revision+1, History reset, materialized; a stale base is refused", async () => {
+  let busy = false;
+  const { db, store, written } = setup(":memory:", { isBusy: () => busy });
+  expect(await store.commitJob("p", 0, fixture())).toBeNull(); // ir.json stays the job checkpoint
+  expect(stateOf(db, "p")).toBeUndefined();
+  await store.commitCommands("p", 0, setText("edited"), "user");
+  const doc = await store.loadDocument("p");
+  const job = { ...doc, sections: doc.sections.map((x) => ({ ...x, name: "named-by-job" })) };
+  busy = true; // the job itself holds the project
+  expect(await codeOf(store.commitJob("p", 0, job))).toBe("STALE_REVISION");
+  expect(await store.commitJob("p", 1, job)).toBe(2);
+  expect(stateOf(db, "p")).toEqual({ revision: 2, cursor: 0, materialized_revision: 2 });
+  expect(historyRows(db, "p")).toBe(0);
+  busy = false;
+  const after = await store.loadDocument("p");
+  expect([after.revision, after.sections[0]!.name, textOf(after)]).toEqual([2, "named-by-job", "edited"]);
+  expect(await store.historyState("p")).toEqual({ revision: 2, canUndo: false, canRedo: false });
+  expect(await codeOf(store.commitCommands("p", 1, setText("from an open tab"), "user"))).toBe("STALE_REVISION");
+  expect(written).toEqual([1, 2]);
+});
+
+test("updateFidelity: a job queued while the mirror waits -> ir.json not written, the output marked behind and repaired later", async () => {
+  let busy = false;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const db = openDb(":memory:");
+  const written: number[] = [];
+  const mirrored: number[] = [];
+  const store = documentStore(db, async (_id, ir) => (await gate, void written.push(ir.revision)), {
+    loadInitial: async () => fixture(),
+    isBusy: () => busy,
+    mirror: async (_id, ir) => void mirrored.push(ir.revision),
+  });
+  await store.loadDocument("p");
+  const commit = store.commitCommands("p", 0, setText("a"), "user"); // its materialization waits on the gate
+  await expect.poll(() => stateOf(db, "p")?.revision).toBe(1);
+  const update = store.updateFidelity("p", 1, () => [styleItem]); // queued behind the materialization
+  busy = true;
+  release();
+  await commit;
+  expect(await update).toEqual([styleItem]);
+  expect(mirrored).toEqual([]);
+  expect(stateOf(db, "p")).toMatchObject({ revision: 1, materialized_revision: 0 });
+  busy = false;
+  await store.ensureMaterialized("p");
+  expect(written).toEqual([1, 1]);
+});
+
+test("a resumed fix over an adopted document: the fixed IR becomes the next revision (History reset, Fidelity re-derived), ir.json + out/ follow", async () => {
+  const { db, id, ws } = await seedJobsProject();
+  const store = projectDocuments(db);
+  const adopted = await store.loadDocument(id);
+  const top = adopted.sections.flatMap((x) => [x.root, ...x.root.children]).find((x) => x.text === "Top")!;
+  let seen: IRV2 | undefined;
+  const fixAll = async (ctx: FixCtx, targets: FixTarget[]) => {
+    seen = ctx.ir;
+    ctx.ir = { ...applyCommands(ctx.ir, [{ op: "setText", id: top.id, text: "Fixed" }]).ir, fidelity: [] };
+    return targets.map((t) => ({ ...t, finalScore: 1, scores: { 375: 1, 768: 1, 1440: 1 }, rounds: 1, patched: true, status: "pass" as const }));
+  };
+  await runProject(db, id, { deps: { openBrowser: fakeOpen, scoreSections: async () => [], fixAll } });
+  expect(seen).toEqual(adopted); // the fix loop started from the SQLite snapshot
+  expect(stateOf(db, id)).toEqual({ revision: 1, cursor: 0, materialized_revision: 1 });
+  expect(historyRows(db, id)).toBe(0);
+  const doc = await store.loadDocument(id);
+  expect(JSON.stringify(doc)).toContain('"Fixed"');
+  expect(doc.fidelity).toEqual(refreshFidelity([], doc, [await captureOf(ws)]));
+  expect(doc.fidelity.length).toBeGreaterThan(0);
+  expect(JSON.parse(await readFile(join(ws, "ir.json"), "utf8"))).toEqual(doc);
+  expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain("Fixed");
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [] }); // rescored after the fix
+  expect(await codeOf(store.commitCommands(id, 0, [{ op: "setText", id: top.id, text: "tab" }], "user"))).toBe("STALE_REVISION");
+  expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
+});
+
+test("a user edit before the resume wins: the fix tasks are closed, no fix runs, the edit stays", async () => {
+  const { db, id } = await seedJobsProject();
+  const store = projectDocuments(db);
+  const doc = await store.loadDocument(id);
+  const top = doc.sections.flatMap((x) => [x.root, ...x.root.children]).find((x) => x.text === "Top")!;
+  await store.commitCommands(id, 0, [{ op: "setText", id: top.id, text: "Mine" }], "user");
+  const fixAll = async (): Promise<never> => {
+    throw new Error("no fix may run over a manual edit");
+  };
+  await runProject(db, id, { deps: { openBrowser: fakeOpen, scoreSections: async () => [], fixAll } });
+  expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
+  const after = await store.loadDocument(id);
+  expect(after.revision).toBe(1);
+  expect(JSON.stringify(after)).toContain('"Mine"');
 });

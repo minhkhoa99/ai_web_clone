@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pageFileNames } from "@/core/emit-html";
 import { coverage } from "@/core/graph";
 import type { IR } from "@/core/ir";
-import type { IRV2 } from "@/core/ir-v2";
+import type { LegacyIR } from "@/core/ir-legacy";
 import { previewFidelity, type QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
@@ -53,7 +53,7 @@ export function GET(req: Request, { params }: IdCtx) {
       const i = t.key.indexOf(":");
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
-    const fidelity = ir ? await previewFidelity(db, id, ir as IR | IRV2) : [];
+    const fidelity = ir ? await previewFidelity(db, id, ir as LegacyIR | IR) : [];
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
     return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes, fidelity });
   });

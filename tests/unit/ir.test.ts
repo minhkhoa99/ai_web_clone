@@ -2,7 +2,9 @@ import { expect, test } from "vitest";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
 import { AppError } from "@/core/errors";
-import { applyPatch, buildIR, type IR, type IRNode } from "@/core/ir";
+import { buildIR, buildLegacyIR } from "@/core/ir";
+import type { LegacyIR as IR, LegacyIRNode as IRNode } from "@/core/ir-legacy";
+import { migrateIR } from "@/core/ir-migrate";
 
 type Opts = { style?: Record<string, string>; bbox?: [number, number, number, number]; pseudo?: CaptureNode["pseudo"]; hidden?: boolean };
 
@@ -59,7 +61,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 test("two pages with the same header -> one layout, header stored once, both pages reference it", () => {
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture("p1", "https://x.test/", doc([header(), el("section", {}, [el("h1", {}, [txt("Home")])])])),
     capture("p2", "https://x.test/about?a=1", doc([header(), el("article", {}, [el("p", {}, [txt("About")])])])),
   ]);
@@ -80,21 +82,10 @@ test("two pages with the same header -> one layout, header stored once, both pag
   expect(ir.cssom).toEqual({ keyframes: ["@keyframes a {}"], fontFace: [], vars: { "--x": "p1" } });
 });
 
-test("applyPatch setText changes the right node and never mutates the input", () => {
-  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header()]))]));
-  const before = JSON.stringify(ir);
-
-  const next = applyPatch(ir, [{ op: "setText", id: "p1:0.1.0.0.0", text: "Brand" }]);
-
-  expect(find(next, "p1:0.1.0.0.0")?.text).toBe("Brand");
-  expect(JSON.stringify(ir)).toBe(before);
-  expect(find(ir, "p1:0.1.0.0.0")?.text).toBe("Logo");
-});
-
 test("node ids are deterministic tree paths from <html>", () => {
   const caps = [capture("p1", "https://x.test/", doc([header(), el("div", {}, [txt("x")])]))];
-  const a = buildIR(caps);
-  expect(a).toEqual(buildIR(caps));
+  const a = buildLegacyIR(caps);
+  expect(a).toEqual(buildLegacyIR(caps));
   expect(a.sections[0]!.root.id).toBe("p1:0.1.0");
   expect(a.sections[0]!.root.children[0]!.id).toBe("p1:0.1.0.0");
   expect(a.sections[1]!.root.children[0]).toMatchObject({ id: "p1:0.1.1.0", tag: "#text", text: "x", cls: [] });
@@ -111,7 +102,7 @@ test("breakpoint diff -> media, absent prop -> revert, merge stops where child c
       ),
       el("footer"),
     ]);
-  const ir = buildIR([capture("p1", "https://x.test/", at("red", 1), { dom768: at(undefined, 1), dom375: at("red", 2) })]);
+  const ir = buildLegacyIR([capture("p1", "https://x.test/", at("red", 1), { dom768: at(undefined, 1), dom375: at("red", 2) })]);
 
   const root = ir.sections[0]!.root;
   expect(ir.classes[root.cls[0]!]).toEqual({
@@ -124,7 +115,7 @@ test("breakpoint diff -> media, absent prop -> revert, merge stops where child c
 });
 
 test("sections: landmarks, main children, blocks; single wrappers unwrapped; body text dropped", () => {
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture(
       "p1",
       "https://x.test/",
@@ -171,7 +162,7 @@ test("sections: a non-landmark wrapper holding main among siblings is descended;
         el("div", { id: "flat" }, [txt("z")], { bbox: [0, 0, 1440, 0] }),
       ]),
   );
-  const ir = buildIR([cap]);
+  const ir = buildLegacyIR([cap]);
 
   expect(ir.sections.map((s) => [s.role, s.root.tag, s.root.attrs.id ?? ""])).toEqual([
     ["header", "header", ""],
@@ -183,11 +174,11 @@ test("sections: a non-landmark wrapper holding main among siblings is descended;
   expect(body.children.map((c) => c.tag)).toEqual(["div", "next-route-announcer", "div", "div", "div"]);
   // Same capture -> same ids.
   const ids = (x: IR) => x.sections.map((s) => [s.id, s.root.id]);
-  expect(ids(buildIR([cap]))).toEqual(ids(ir));
+  expect(ids(buildLegacyIR([cap]))).toEqual(ids(ir));
 });
 
 test("sections: noise siblings don't block the single-wrapper unwrap (Next.js shape, no main)", () => {
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture(
       "p1",
       "https://x.test/",
@@ -206,7 +197,7 @@ test("sections: noise siblings don't block the single-wrapper unwrap (Next.js sh
 });
 
 test("sections: the one main-holding wrapper among several live candidates is descended", () => {
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture(
       "p1",
       "https://x.test/",
@@ -230,7 +221,7 @@ test("sections: the one main-holding wrapper among several live candidates is de
 });
 
 test("sections: a display:contents wrapper (0x0 bbox) is not noise, so its main is still reached", () => {
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture(
       "p1",
       "https://x.test/",
@@ -252,13 +243,13 @@ test("sections: a display:contents wrapper (0x0 bbox) is not noise, so its main 
 });
 
 test("sections: when every candidate is noise, the unfiltered list is kept", () => {
-  const ir = buildIR([capture("p1", "https://x.test/", doc([el("div", { id: "a" }, [txt("a")], { bbox: [0, 0, 0, 0] }), el("div", { id: "b" }, [txt("b")], { bbox: [0, 0, 0, 0] })]))]);
+  const ir = buildLegacyIR([capture("p1", "https://x.test/", doc([el("div", { id: "a" }, [txt("a")], { bbox: [0, 0, 0, 0] }), el("div", { id: "b" }, [txt("b")], { bbox: [0, 0, 0, 0] })]))]);
   expect(ir.sections.map((s) => s.root.attrs.id)).toEqual(["a", "b"]);
 });
 
 test("component: >=3 same-structure siblings with element descendants", () => {
   const item = (t: string) => el("li", { class: "i" }, [el("a", {}, [txt(t)])]);
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture(
       "p1",
       "https://x.test/",
@@ -279,7 +270,7 @@ test("interactions: hover -> state class, menu -> behavior id, failed -> unresol
     { id: "i4", kind: "modal", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > div:nth-of-type(1)", status: "skipped" },
     { id: "i5", kind: "menu", trigger: "#missing", status: "captured" },
   ];
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture("p1", "https://x.test/", doc([el("div", {}, [el("button", { id: "b1" }, [txt("go")])]), el("nav", {}), el("div", {})]), { interactions }),
   ]);
 
@@ -299,7 +290,7 @@ test("interactions: hover -> state class, menu -> behavior id, failed -> unresol
 
 test("canvas -> img with the dynamic asset, matched by document order", () => {
   const canvas = () => el("canvas", { "data-dynamic": "canvas" }, [txt("fallback")], { bbox: [0, 0, 300.4, 150.6] });
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture("p1", "https://x.test/", doc([el("div", {}, [canvas(), canvas()]), el("footer")]), { dynamic: [{ order: 1, asset: "assets/c.png" }] }),
   ]);
 
@@ -308,40 +299,9 @@ test("canvas -> img with the dynamic asset, matched by document order", () => {
   expect(second).toMatchObject({ tag: "img", attrs: { src: "assets/c.png", "data-dynamic": "canvas", width: "300", height: "151" }, children: [] });
 });
 
-test("applyPatch: setStyle, setAttr, setText on element, replaceSubtree, setBehavior", () => {
-  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header()]))]));
-  const next = applyPatch(ir, [
-    { op: "setStyle", id: "p1:0.1.0", style: { color: "green" } },
-    { op: "setAttr", id: "p1:0.1.0.0", attrs: { href: "/home", title: "t" } },
-    { op: "setText", id: "p1:0.1.0.0", text: "Home" },
-    { op: "setBehavior", id: "p1:0.1.0", behavior: "i9" },
-  ]);
-
-  const root = next.sections[0]!.root;
-  expect(next.classes[root.cls[0]!]).toEqual({ base: { color: "green" } });
-  expect(root.behavior).toBe("i9");
-  expect(root.children[0]).toMatchObject({ attrs: { href: "/home", title: "t" }, children: [{ id: "p1:0.1.0.0.0", tag: "#text", text: "Home" }] });
-
-  const node: IRNode = { id: "other", tag: "span", attrs: {}, cls: [], children: [] };
-  const replaced = applyPatch(next, [{ op: "replaceSubtree", id: "p1:0.1.0.0", node }]);
-  expect(replaced.sections[0]!.root.children[0]).toEqual({ ...node, id: "p1:0.1.0.0" });
-});
-
-test("applyPatch unknown id -> IR_PATCH_INVALID with context", () => {
-  const ir = buildIR([capture("p1", "https://x.test/", doc([header()]))]);
-  let caught: unknown;
-  try {
-    applyPatch(ir, [{ op: "setText", id: "nope", text: "x" }]);
-  } catch (err) {
-    caught = err;
-  }
-  expect(caught).toBeInstanceOf(AppError);
-  expect(caught).toMatchObject({ code: "IR_PATCH_INVALID", context: { op: "setText", id: "nope" } });
-});
-
 test("same structure but different content on two pages -> separate sections, no layout", () => {
   const block = (t: string) => el("section", {}, [el("h2", {}, [txt(t)])]);
-  const ir = buildIR([
+  const ir = buildLegacyIR([
     capture("p1", "https://x.test/", doc([header(), block("One")])),
     capture("p2", "https://x.test/b", doc([header(), block("Two")])),
   ]);
@@ -361,7 +321,7 @@ test("page shell: html > body > wrapper keeps styles, sections become placeholde
       style: { margin: "0px" },
     }),
   ]);
-  const ir = buildIR([capture("p1", "https://x.test/", dom), capture("p2", "https://x.test/2", doc([header(), el("footer")]))]);
+  const ir = buildLegacyIR([capture("p1", "https://x.test/", dom), capture("p2", "https://x.test/2", doc([header(), el("footer")]))]);
 
   const shell = ir.pages[0]!.shell;
   expect(shell.tag).toBe("html");
@@ -380,72 +340,33 @@ test("page shell: html > body > wrapper keeps styles, sections become placeholde
   expect(ir.pages[1]!.shell.children[0]!.children.map((c) => c.attrs["data-section"])).toEqual(["p1-s1", "p2-s2"]);
 });
 
-test("applyPatch setStyle merges into the existing class, keeping other props, media and pseudo", () => {
-  const styled = (size: string) =>
-    doc([el("div", {}, [txt("x")], { style: { color: "red", "font-size": size }, pseudo: { after: { content: '"!"' } } }), el("footer")]);
-  const ir = buildIR([capture("p1", "https://x.test/", styled("16px"), { dom768: styled("14px") })]);
-
-  const next = applyPatch(ir, [{ op: "setStyle", id: "p1:0.1.0", style: { color: "green" } }]);
-
-  expect(next.classes[next.sections[0]!.root.cls[0]!]).toEqual({
-    base: { color: "green", "font-size": "16px" },
-    after: { content: '"!"' },
-    media: { "768": { "font-size": "14px" } },
-  });
-  expect(ir.classes[ir.sections[0]!.root.cls[0]!]!.base.color).toBe("red");
-});
-
 test("nth-of-type trigger counts same-tag siblings only", () => {
   const interactions: Interaction[] = [
     { id: "i1", kind: "menu", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > div:nth-of-type(2)", status: "captured" },
   ];
-  const ir = buildIR([capture("p1", "https://x.test/", doc([el("p"), el("div"), el("p"), el("div")]), { interactions })]);
+  const ir = buildLegacyIR([capture("p1", "https://x.test/", doc([el("p"), el("div"), el("p"), el("div")]), { interactions })]);
 
   expect(find(ir, "p1:0.1.3")?.behavior).toBe("i1");
   expect(find(ir, "p1:0.1.2")?.behavior).toBeUndefined();
 });
 
-function patchError(ir: IR, op: Parameters<typeof applyPatch>[1][number]): unknown {
-  try {
-    applyPatch(ir, [op]);
-  } catch (err) {
-    return err;
-  }
-  return undefined;
-}
+// --- the public builder is IR v2 (E1 §1, §6) ------------------------------------------------
 
-test("applyPatch reaches page shell nodes (setStyle on body)", () => {
-  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header(), el("footer")]))]));
-  const next = applyPatch(ir, [{ op: "setStyle", id: "p1:0.1", style: { background: "black" } }]);
-
-  const body = next.pages[0]!.shell.children[0]!;
-  expect(body.id).toBe("p1:0.1");
-  expect(next.classes[body.cls[0]!]).toEqual({ base: { background: "black" } });
-  expect(ir.pages[0]!.shell.children[0]!.cls).toEqual([]);
-});
-
-test("replaceSubtree: input unchanged, old subtree ids reusable, duplicate ids rejected", () => {
-  const ir = deepFreeze(buildIR([capture("p1", "https://x.test/", doc([header(), el("footer", {}, [txt("f")])]))]));
-  const before = JSON.stringify(ir);
-  const node = (childId: string): IRNode => ({ id: "x", tag: "div", attrs: {}, cls: [], children: [{ id: childId, tag: "#text", attrs: {}, text: "hi", cls: [], children: [] }] });
-
-  const next = applyPatch(ir, [{ op: "replaceSubtree", id: "p1:0.1.0", node: node("p1:0.1.0.0") }]);
-  expect(next.sections[0]!.root).toMatchObject({ id: "p1:0.1.0", tag: "div", children: [{ id: "p1:0.1.0.0", text: "hi" }] });
-  expect(JSON.stringify(ir)).toBe(before);
-
-  for (const dup of ["p1:0.1.1.0", "p1:0.1"]) {
-    expect(patchError(ir, { op: "replaceSubtree", id: "p1:0.1.0", node: node(dup) })).toMatchObject({
-      code: "IR_PATCH_INVALID",
-      context: { op: "replaceSubtree", id: "p1:0.1.0" },
-    });
-  }
-});
-
-test("setStyle / setBehavior on a #text node -> IR_PATCH_INVALID", () => {
-  const ir = buildIR([capture("p1", "https://x.test/", doc([header()]))]);
-  expect(patchError(ir, { op: "setStyle", id: "p1:0.1.0.0.0", style: { color: "red" } })).toMatchObject({ code: "IR_PATCH_INVALID" });
-  expect(patchError(ir, { op: "setBehavior", id: "p1:0.1.0.0.0", behavior: "i1" })).toMatchObject({
-    code: "IR_PATCH_INVALID",
-    context: { op: "setBehavior", id: "p1:0.1.0.0.0" },
-  });
+test("buildIR returns IR v2: the legacy build migrated in memory, same section/layout/node ids, no classes", () => {
+  const caps = [
+    capture("p1", "https://x.test/", doc([header(), el("section", {}, [el("h1", {}, [txt("Home")])], { style: { color: "blue" } })]), { dom375: doc([header(), el("section", {}, [el("h1", {}, [txt("Home")])], { style: { color: "green" } })]) }),
+    capture("p2", "https://x.test/about", doc([header(), el("footer")])),
+  ];
+  const ir = buildIR(caps);
+  const legacy = buildLegacyIR(caps);
+  expect(ir).toEqual(migrateIR(legacy, caps));
+  expect([ir.version, ir.revision]).toEqual([2, 0]);
+  expect(ir).not.toHaveProperty("classes");
+  expect(JSON.stringify(ir)).not.toContain('"cls"');
+  expect(ir.sections.map((s) => [s.id, s.root.id])).toEqual(legacy.sections.map((s) => [s.id, s.root.id]));
+  expect(ir.layouts).toEqual(legacy.layouts);
+  const section = ir.sections.find((s) => s.root.tag === "section")!;
+  expect(section.root.styles).toMatchObject({ base: { color: "blue" }, bp: { 375: { color: "green" } } });
+  expect(buildIR(caps)).toEqual(ir); // deterministic
+  expect(migrateIR(JSON.parse(JSON.stringify(ir)), caps)).toEqual(ir); // re-reading v2 changes nothing
 });

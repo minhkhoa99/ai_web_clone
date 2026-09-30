@@ -7,9 +7,8 @@ import type { Page } from "playwright";
 import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { capturePage, type CaptureNode, type PageCapture } from "@/core/capture";
-import { buildIR } from "@/core/ir";
-import { emitHtml, renderSite, renderSiteV2 } from "@/core/emit-html";
-import { migrateIR } from "@/core/ir-migrate";
+import { buildIR, buildLegacyIR } from "@/core/ir";
+import { emitHtml, renderSite, renderView } from "@/core/emit-html";
 
 const site1Dir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
 
@@ -145,20 +144,21 @@ test("round trip: capture site1 -> buildIR -> emitHtml renders with no console e
   });
 });
 
+// The pre-migration pipeline wrote the class-based v1 build as is; the v2 pipeline (buildIR -> emitHtml) must render the same.
 test("site1: v2 emit renders the same text, attributes and computed styles as v1 at 1440/768/375", async () => {
   const workspaceDir = join(tmp, "ws-v2");
   const url = `${await serve(site1Dir)}/index.html`;
   const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
   const cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
-  const v1 = buildIR([cap]);
-  const v2 = migrateIR(v1, [cap]);
+  const v1 = buildLegacyIR([cap]);
+  const v2 = buildIR([cap]);
   const opts = { assetMap: cap.assets, pageUrls: { home: url } };
   const [dirV1, dirV2] = [join(tmp, "site1-v1"), join(tmp, "site1-v2")];
-  await emitHtml(v1, { ...opts, outDir: dirV1, workspaceDir });
-  await emitHtml(v1, { ...opts, outDir: dirV2, workspaceDir });
-  const v2Files = renderSiteV2(v2, opts);
-  expect(Object.keys(v2Files).sort()).toEqual(Object.keys(renderSite(v1, opts)).sort());
-  for (const [rel, text] of Object.entries(v2Files)) await writeFile(join(dirV2, rel), text);
+  await emitHtml(v2, { ...opts, outDir: dirV1, workspaceDir }); // runtime + assets; the pages and CSS replaced by v1's below
+  await emitHtml(v2, { ...opts, outDir: dirV2, workspaceDir });
+  const v1Files = renderView(v1, opts);
+  expect(Object.keys(renderSite(v2, opts)).sort()).toEqual(Object.keys(v1Files).sort());
+  for (const [rel, text] of Object.entries(v1Files)) await writeFile(join(dirV1, rel), text);
   const [baseV1, baseV2] = [await serve(dirV1), await serve(dirV2)];
 
   // Per element: own text, attributes (order-free, class names excluded) and every computed style property.

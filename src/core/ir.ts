@@ -1,8 +1,10 @@
-// Pure: PageCapture[] -> IR, and immutable patches over it. No fs/network/db/Date/random.
+// Pure: PageCapture[] -> IR v2 (E1 §1), and the section/layout reference helpers. No fs/network/db/Date/random.
 import type { PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
-import type { LegacyIR, LegacyIRNode, LegacySection, LegacyPage, LegacyLayout, LegacyComponent } from "./ir-legacy";
-import { dedupeStyles, extractTokens, structuralHash, type Decl, type StyleSet, type StyledNode } from "./dedupe";
+import type { LegacyIR, LegacyLayout, LegacySection } from "./ir-legacy";
+import { migrateIR } from "./ir-migrate";
+import type { IRNodeV2, IRV2 } from "./ir-v2";
+import { dedupeStyles, extractTokens, structuralHash, type StyledNode } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import {
   collectComponents,
@@ -20,21 +22,14 @@ import {
   type Walk,
 } from "./ir-build";
 
-// V1 remains public until the emitter and editor move to v2.
-export type IRNode = LegacyIRNode;
-export type Section = LegacySection;
-export type Page = LegacyPage;
+// The document is IR v2 everywhere (E1 §1); v1 (ir-legacy.ts) is only the builder's output and the migration input.
+export type IR = IRV2;
+export type IRNode = IRNodeV2;
+export type Section = IRV2["sections"][number];
+export type Page = IRV2["pages"][number];
 export type Layout = LegacyLayout;
-export type Component = LegacyComponent;
-export type IR = LegacyIR;
-export type PatchOp =
-  | { op: "setStyle"; id: string; style: Decl }
-  | { op: "setAttr"; id: string; attrs: Record<string, string> }
-  | { op: "setText"; id: string; text: string }
-  | { op: "replaceSubtree"; id: string; node: IRNode }
-  | { op: "setBehavior"; id: string; behavior: string };
 
-type DraftSection = Omit<Section, "root"> & { root: Draft; content: string };
+type DraftSection = Omit<LegacySection, "root"> & { root: Draft; content: string };
 
 const BEHAVIOR_KINDS = new Set<Interaction["kind"]>(["menu", "tab", "accordion", "modal", "carousel", "sticky"]);
 
@@ -43,7 +38,8 @@ function pagePath(url: string): string {
   return u.pathname + u.search;
 }
 
-export function buildIR(captures: PageCapture[]): IR {
+// The capture -> class-based v1 IR builder: kept only as buildIR's first step (and the migration tests' fixture).
+export function buildLegacyIR(captures: PageCapture[]): LegacyIR {
   const parsed = captures.map((capture) => {
     const dom = (bp: number) => capture.breakpoints.find((b) => b.bp === bp)?.dom;
     const walk: Walk = { pageId: capture.pageId, canvasAssets: new Map(capture.dynamic.map((d) => [d.order, d.asset])), canvasSeen: 0 };
@@ -71,7 +67,7 @@ export function buildIR(captures: PageCapture[]): IR {
       byKey.set(layoutKey(s), entry);
     }
   }
-  const layouts: Layout[] = [];
+  const layouts: LegacyLayout[] = [];
   for (const { first, pageIds } of byKey.values()) {
     if (pageIds.size < 2) continue;
     first.layoutId = `layout-${first.content}`;
@@ -150,121 +146,20 @@ export function buildIR(captures: PageCapture[]): IR {
   };
 }
 
-// Path-copying replace of the node with `id`; undefined when not in this subtree.
-function replaceNode(node: IRNode, id: string, edit: (n: IRNode) => IRNode): IRNode | undefined {
-  if (node.id === id) return edit(node);
-  for (let i = 0; i < node.children.length; i++) {
-    const child = replaceNode(node.children[i]!, id, edit);
-    if (!child) continue;
-    const children = node.children.slice();
-    children[i] = child;
-    return { ...node, children };
-  }
-  return undefined;
+// IR v2 with the class-based builder's output migrated in memory (E1 §6): same section/layout/node IDs as v1.
+export function buildIR(captures: PageCapture[]): IR {
+  return migrateIR(buildLegacyIR(captures), captures);
 }
 
-// Merges the patch into the node's current class base (media/pseudo kept) and dedupes the result.
-function styleClass(ir: IR, node: IRNode, style: Decl): { cls: string[]; classes: IR["classes"] } {
-  const current: StyleSet = ir.classes[node.cls[0] ?? ""] ?? { base: {} };
-  const merged: StyleSet = { ...current, base: { ...current.base, ...style } };
-  const { classMap, classes: added } = dedupeStyles([{ id: node.id, tag: "div", attrs: {}, style: merged, children: [] }]);
-  const cls = classMap.get(node.id) ?? [];
-  const name = cls[0];
-  if (!name || !ir.classes[name]) return { cls, classes: name ? { ...ir.classes, ...added } : ir.classes };
-  if (JSON.stringify(ir.classes[name]) !== JSON.stringify(added[name])) {
-    throw new AppError(Codes.IR_PATCH_INVALID, `class name collision: ${name}`, { op: "setStyle", id: node.id });
-  }
-  return { cls, classes: ir.classes };
-}
-
-function collectNodeIds(node: IRNode, out: Set<string>): Set<string> {
-  out.add(node.id);
-  for (const child of node.children) collectNodeIds(child, out);
-  return out;
-}
-
-// Every node the IR can patch lives under a section root or a page shell.
-const irRoots = (ir: IR) => [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
-
-function applyOp(ir: IR, op: PatchOp): IR {
-  const invalid = (message: string) => new AppError(Codes.IR_PATCH_INVALID, message, { op: op.op, id: op.id });
-  const requireElement = (n: IRNode) => {
-    if (n.tag === "#text") throw invalid(`${op.op} on a text node: ${op.id}`);
-  };
-  let classes = ir.classes;
-  let edit: (n: IRNode) => IRNode;
-  switch (op.op) {
-    case "setStyle":
-      edit = (n) => {
-        requireElement(n);
-        const styled = styleClass(ir, n, op.style);
-        classes = styled.classes;
-        return { ...n, cls: styled.cls };
-      };
-      break;
-    case "setAttr":
-      edit = (n) => ({ ...n, attrs: { ...n.attrs, ...op.attrs } });
-      break;
-    case "setText":
-      edit = (n) =>
-        n.tag === "#text"
-          ? { ...n, text: op.text }
-          : { ...n, children: [{ id: `${n.id}.0`, tag: "#text", attrs: {}, text: op.text, cls: [], children: [] }] };
-      break;
-    case "replaceSubtree":
-      edit = (n) => {
-        // New descendant ids must be unique: not used elsewhere in the IR (the replaced subtree's
-        // old ids are free to reuse) and not repeated inside the new subtree.
-        const own = collectNodeIds(n, new Set());
-        const taken = new Set<string>();
-        for (const root of irRoots(ir)) collectNodeIds(root, taken);
-        const seen = new Set([op.id]);
-        const check = (node: IRNode): void => {
-          for (const child of node.children) {
-            if (seen.has(child.id) || (taken.has(child.id) && !own.has(child.id))) throw invalid(`duplicate node id in replaceSubtree: ${child.id}`);
-            seen.add(child.id);
-            check(child);
-          }
-        };
-        check(op.node);
-        return { ...op.node, id: op.id };
-      };
-      break;
-    case "setBehavior":
-      edit = (n) => {
-        requireElement(n);
-        return { ...n, behavior: op.behavior };
-      };
-      break;
-  }
-
-  for (let i = 0; i < ir.sections.length; i++) {
-    const section = ir.sections[i]!;
-    const root = replaceNode(section.root, op.id, edit);
-    if (!root) continue;
-    const sections = ir.sections.slice();
-    sections[i] = { ...section, root };
-    return { ...ir, sections, classes };
-  }
-  for (let i = 0; i < ir.pages.length; i++) {
-    const page = ir.pages[i]!;
-    const shell = replaceNode(page.shell, op.id, edit);
-    if (!shell) continue;
-    const pages = ir.pages.slice();
-    pages[i] = { ...page, shell };
-    return { ...ir, pages, classes };
-  }
-  throw invalid(`patch target not found: ${op.id}`);
-}
-
-export function applyPatch(ir: IR, ops: PatchOp[]): IR {
-  return ops.reduce(applyOp, ir);
-}
+// The section/layout references IR v2 shares with the renderer's v1 view (compileV2), which the editor adapter also
+// edits: both helpers take either and return the same shape.
+type RefNode = { tag: string; attrs: Record<string, string>; text?: string; children: RefNode[] };
+type Refs = { pages: { id: string; sectionIds: string[]; shell: RefNode }[]; sections: { id: string; hash: string; root: RefNode; layoutId?: string }[]; layouts: LegacyLayout[] };
 
 // "Gộp thành layout" (spec §10): the first selected section becomes a shared layout (stored once, like
 // buildIR's layouts); every other selected section, one per page, is dropped and the placeholders that
 // showed it now show the layout.
-export function promoteLayout(ir: IR, sectionIds: string[]): IR {
+export function promoteLayout<T extends Refs>(ir: T, sectionIds: string[]): T {
   const invalid = (message: string) => new AppError(Codes.IR_PATCH_INVALID, message, { sectionIds });
   const byId = new Map(ir.sections.map((s) => [s.id, s]));
   const selected = sectionIds.map((id) => {
@@ -282,13 +177,13 @@ export function promoteLayout(ir: IR, sectionIds: string[]): IR {
       seen.add(page.id);
     }
   }
-  const [first, ...rest] = selected as [Section, ...Section[]];
+  const [first, ...rest] = selected as [Refs["sections"][number], ...Refs["sections"]];
   const dropped = new Set(rest.map((s) => s.id));
   const layoutId = `layout-${contentHash(first.root)}`;
   const layouts = ir.layouts.filter((l) => l.sectionId !== first.id && !dropped.has(l.sectionId));
   if (layouts.some((l) => l.id === layoutId)) throw invalid(`layout id already used: ${layoutId}`);
 
-  const repoint = (node: IRNode): IRNode =>
+  const repoint = (node: RefNode): RefNode =>
     node.tag === "#section" && dropped.has(node.attrs["data-section"] ?? "")
       ? { ...node, attrs: { ...node.attrs, "data-section": first.id } }
       : { ...node, children: node.children.map(repoint) };
@@ -299,14 +194,14 @@ export function promoteLayout(ir: IR, sectionIds: string[]): IR {
     pages,
     sections: ir.sections.filter((s) => !dropped.has(s.id)).map((s) => (s === first ? { ...s, layoutId } : s)),
     layouts: [...layouts, { id: layoutId, hash: first.hash, sectionId: first.id, pageIds }],
-  };
+  } as T; // repoint copies each node with only data-section changed: the node type is kept
 }
 
 // Pure. Section references follow the page shells after an editor save: a page's sectionIds are its placeholders
 // (shell order), a layout's pageIds the pages still showing it; a section no page shows is dropped with its layout.
-export function syncSections(ir: IR): IR {
+export function syncSections<T extends Refs>(ir: T): T {
   const known = new Set(ir.sections.map((s) => s.id));
-  const slots = (node: IRNode, out: Set<string>): Set<string> => {
+  const slots = (node: RefNode, out: Set<string>): Set<string> => {
     const id = node.attrs["data-section"] ?? "";
     if (node.tag === "#section" && known.has(id)) out.add(id);
     for (const child of node.children) slots(child, out);

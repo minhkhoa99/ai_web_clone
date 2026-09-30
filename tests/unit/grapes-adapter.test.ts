@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
 import { AppError } from "@/core/errors";
-import { compileV2, renderSiteV2 } from "@/core/emit-html";
+import { compileV2, renderSite } from "@/core/emit-html";
 import { styleTargetFidelity } from "@/core/fidelity";
 import { grapesToCommands, irIdsByElementId, irToGrapes, type GrapesComponent, type GrapesJson } from "@/core/grapes-adapter";
-import { promoteLayout, syncSections, type IR, type IRNode } from "@/core/ir";
+import { promoteLayout, syncSections } from "@/core/ir";
+import type { LegacyIR as IR, LegacyIRNode as IRNode } from "@/core/ir-legacy"; // the v1-shaped view / legacy fixtures
 import { applyCommands, prepareCommands, type EditorCommand } from "@/core/ir-command";
 import { promoteLegacyComponents, resolveComponents } from "@/core/ir-component";
 import { toV2, type IRNodeV2, type IRV2 } from "@/core/ir-v2";
@@ -355,9 +356,9 @@ test("effect preset -> setStyle animation; the emitted CSS carries the preset's 
   json.styles = [{ selectors: [{ name: "ifoot", type: 2 }], style: { animation: "sp1-slide-up 600ms ease-out both" } }];
   const commands = grapesToCommands(d, "p1", json, OPTS);
   expect(commands).toEqual([{ op: "setStyle", id: "f1", target: "base", changes: { animation: "sp1-slide-up 600ms ease-out both" } }]);
-  const css = renderSiteV2(apply(d, commands), OPTS)["css/styles.css"]!;
+  const css = renderSite(apply(d, commands), OPTS)["css/styles.css"]!;
   expect(css.match(/@keyframes sp1-slide-up\{/g)).toHaveLength(1);
-  expect(renderSiteV2(d, OPTS)["css/styles.css"]).not.toContain("sp1-slide-up");
+  expect(renderSite(d, OPTS)["css/styles.css"]).not.toContain("sp1-slide-up");
 });
 
 test("the Layers eye (display:none on the base rule) -> setHidden plus the display style", () => {
@@ -407,10 +408,10 @@ test("preset keyframes match the animation name exactly, not a substring", () =>
   const json = grapesJson(d);
   json.components[1]!.attributes.id = "ifoot";
   json.styles = [{ selectors: ["#ifoot"], style: { animation: "my-sp1-fade-in-x 1s", "animation-name": "sp1-fade-inner" } }];
-  const css = renderSiteV2(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]!;
+  const css = renderSite(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]!;
   expect(css).not.toContain("@keyframes sp1-fade-in");
   json.styles = [{ selectors: ["#ifoot"], style: { animation: "fast, sp1-fade-in 1s" } }];
-  expect(renderSiteV2(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]).toContain("@keyframes sp1-fade-in{");
+  expect(renderSite(apply(d, grapesToCommands(d, "p1", json, OPTS)), OPTS)["css/styles.css"]).toContain("@keyframes sp1-fade-in{");
 });
 
 // cards: three instances of one main; after promotion the main gains a child, which the instances show under

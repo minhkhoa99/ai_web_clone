@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
-import { applyPatch, buildIR, type IRNode } from "@/core/ir";
-import { emitSection, renderSite, type RenderOpts } from "@/core/emit-html";
+import { buildIR, buildLegacyIR, type IRNode } from "@/core/ir";
+import { compileV2, emitSection, renderSite, renderView, type RenderOpts } from "@/core/emit-html";
 
 type Opts = { style?: Record<string, string>; bbox?: [number, number, number, number] };
 
@@ -53,7 +53,7 @@ test("pages get data-ir-id, CSS gets .s- classes, shared layout stored once but 
   const files = renderSite(ir, noUrls);
 
   expect(Object.keys(files).sort()).toEqual(["about.html", "css/styles.css", "index.html"]);
-  const headerRoot = ir.sections.find((s) => s.role === "header")!.root;
+  const headerRoot = compileV2(ir).sections.find((s) => s.role === "header")!.root; // the derived class names
   for (const page of ["index.html", "about.html"]) {
     expect(files[page]).toContain(`<header class="${headerRoot.cls[0]}" data-ir-id="${headerRoot.id}">`);
     expect(files[page]!.match(/<header/g)).toHaveLength(1);
@@ -137,7 +137,7 @@ test("media: 768 under max-width 1439.98, 375 compensates 768-only props with ba
       dom375: at({ color: "red", "margin-top": "2px" }),
     }),
   ]);
-  const cls = ir.sections[0]!.root.cls[0]!;
+  const cls = compileV2(ir).sections[0]!.root.cls[0]!;
   const css = renderSite(ir, noUrls)["css/styles.css"]!;
 
   expect(css).toContain(`@media (max-width: 1439.98px){\n.${cls}{color:blue;padding-top:5px}\n}`);
@@ -151,10 +151,11 @@ test("hover state -> st- class on the node and a :hover rule from the state clas
       interactions: [{ id: "ix1", kind: "hover", trigger: "#cta", styleDelta: { color: "blue" }, status: "captured" }],
     }),
   ]);
-  const hover = ir.sections[0]!.root.states!.hover!;
+  const root = compileV2(ir).sections[0]!.root;
+  const hover = root.states!.hover!;
   const files = renderSite(ir, noUrls);
 
-  expect(files["index.html"]).toContain(`class="${ir.sections[0]!.root.cls[0]} st-${hover}"`);
+  expect(files["index.html"]).toContain(`class="${root.cls[0]} st-${hover}"`);
   expect(files["index.html"]).toContain('href="#go"');
   expect(files["css/styles.css"]).toContain(`.st-${hover}:hover{color:blue}`);
 });
@@ -252,7 +253,7 @@ test("page file names are flat, deterministic and collision-free; renders are by
 test("emitSection renders one section; unknown id throws", () => {
   const ir = buildIR([capture("p1", "https://x.test/", doc([header(), el("footer", {}, [txt("f")])]))]);
   const html = emitSection(ir, "p1-s2", noUrls);
-  expect(html).toBe(`<footer class="${ir.sections[1]!.root.cls[0] ?? ""}" data-ir-id="p1:0.1.1">f</footer>`.replace(' class=""', ""));
+  expect(html).toBe(`<footer class="${compileV2(ir).sections[1]!.root.cls[0] ?? ""}" data-ir-id="p1:0.1.1">f</footer>`.replace(' class=""', ""));
   expect(() => emitSection(ir, "nope", noUrls)).toThrow(/nope/);
 });
 
@@ -323,20 +324,16 @@ test("whitespace text between inline siblings is emitted as-is", () => {
   expect(renderSite(ir, { ...noUrls, stripIds: true })["index.html"]).toContain("<p><a>x</a> <a>y</a></p>");
 });
 
-test("unsafe tags from patched IR are skipped, unsafe attr names dropped, never written verbatim", () => {
+test("unsafe tags in a stored IR are skipped, unsafe attr names dropped, never written verbatim", () => {
   const ir = buildIR([capture("p1", "https://x.test/", doc([header()]))]);
   const root = ir.sections[0]!.root;
-  const node = (id: string, tag: string, attrs: Record<string, string> = {}): IRNode => ({ id, tag, attrs, cls: [], children: [] });
-  const patched = applyPatch(ir, [
-    {
-      op: "replaceSubtree",
-      id: root.id,
-      node: {
-        ...node(root.id, "header", { 'x"><b': "1", onmouseover: "alert(1)", title: "ok" }),
-        children: [node("n1", "script"), node("n2", "SCRIPT"), node("n3", 'img src=x onerror="alert(1)"'), node("n4", "p")],
-      },
-    },
-  ]);
+  // bypasses the command core's validation on purpose: the renderer's own defense in depth
+  const node = (id: string, tag: string, attrs: Record<string, string> = {}): IRNode => ({ id, tag, type: "container", attrs, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [] });
+  const patched = structuredClone(ir);
+  patched.sections[0]!.root = {
+    ...node(root.id, "header", { 'x"><b': "1", onmouseover: "alert(1)", title: "ok" }),
+    children: [node("n1", "script"), node("n2", "SCRIPT"), node("n3", 'img src=x onerror="alert(1)"'), node("n4", "p")],
+  };
   const html = emitSection(patched, ir.sections[0]!.id, noUrls);
   expect(html).toBe(`<header title="ok" data-ir-id="${root.id}"><p data-ir-id="n4"></p></header>`);
 });
@@ -361,4 +358,31 @@ test("iframe/frame/embed/object src never points at a local asset: the resolved 
   expect(html).not.toContain("assets/" + "a".repeat(64));
   expect(html.match(/src="https:\/\/x\.test\/doc\.html"/g)).toHaveLength(3);
   expect(html).toContain(`src="assets/${"b".repeat(64)}.png"`);
+});
+
+// E1 Task 13: the pipeline now builds v2 and emits through compileV2. Its output must equal what the pre-v2 pipeline
+// wrote (the class-based v1 build rendered as is) at 1440 and in both @media blocks (768, 375): same pages, same CSS,
+// same markup (attribute order inside a tag aside, see emit-v2.test).
+test("renderSite(buildIR) equals the pre-migration output (v1 build rendered as is) at 1440/768/375", () => {
+  const at = (color: string, pad: string) =>
+    doc([header(), el("section", {}, [el("h1", {}, [txt("Home")], { style: { color } }), el("p", {}, [txt("x")], { style: { "padding-top": pad } })]), el("footer", {}, [txt("f")])]);
+  const caps = [
+    capture("p1", "https://x.test/", at("red", "4px"), {
+      dom768: at("blue", "4px"),
+      dom375: at("red", "2px"),
+      interactions: [{ id: "ix1", kind: "hover", trigger: "html:nth-of-type(1) > body:nth-of-type(1) > section:nth-of-type(1) > h1:nth-of-type(1)", styleDelta: { color: "green" }, status: "captured" }],
+    }),
+    capture("p2", "https://x.test/about", doc([header(), el("article", {}, [el("p", {}, [txt("About")])]), el("footer", {}, [txt("f")])])),
+  ];
+  const sortAttrs = (html: string) => html.replace(/<([a-z][\w-]*)((?: [^\s"'<>/=]+="[^"]*")*)>/gi, (_m, tag: string, attrs: string) =>
+    `<${tag}${(attrs.match(/ [^\s"'<>/=]+="[^"]*"/g) ?? []).sort().join("")}>`);
+  const before = renderView(buildLegacyIR(caps), noUrls);
+  const after = renderSite(buildIR(caps), noUrls);
+  expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+  const css = after["css/styles.css"]!;
+  expect(css).toBe(before["css/styles.css"]);
+  expect(css).toContain("@media (max-width: 1439.98px)");
+  expect(css).toContain("@media (max-width: 767.98px)");
+  expect(css).toMatch(/:hover\{color:green\}/);
+  for (const file of ["index.html", "about.html"]) expect(sortAttrs(after[file]!)).toBe(sortAttrs(before[file]!));
 });

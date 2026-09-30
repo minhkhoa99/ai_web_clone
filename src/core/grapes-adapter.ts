@@ -5,9 +5,9 @@
 // into E1 editor commands (moves keep IDs, display values mapped back to the raw IR ones), committed through the
 // document store like every other edit. GrapesJS is a transitional adapter: E3 emits commands directly.
 import type { Decl } from "./dedupe";
-import { attrRewriter, compileV2, EFFECT_PRESETS, pageFileNames, renderStylesheet, type RenderOpts } from "./emit-html";
+import { attrRewriter, compileV2, EFFECT_PRESETS, pageFileNames, renderViewStylesheet, type RenderOpts } from "./emit-html";
 import { AppError, Codes } from "./errors";
-import type { IR, IRNode } from "./ir";
+import type { LegacyIR as IR, LegacyIRNode as IRNode } from "./ir-legacy"; // the compiled display view
 import type { EditorCommand, NodeDraft, StyleTarget } from "./ir-command";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
@@ -57,7 +57,7 @@ const TYPE_TAGS: Record<string, string> = {
   row: "tr",
   cell: "td",
 };
-// renderStylesheet writes asset urls relative to out/css/; the canvas stylesheet sits beside the page in out/
+// renderViewStylesheet writes asset urls relative to out/css/; the canvas stylesheet sits beside the page in out/
 const CSS_ASSET = /\.\.\/(assets\/[0-9a-f]{64}\.[a-z0-9]{1,8})/g;
 // The editor's devices (editor-view widthMedia) write these media: the emitter's 768 / 375 breakpoints.
 const MEDIA_TARGETS: Record<string, 768 | 375> = { "(max-width:1439.98px)": 768, "(max-width:767.98px)": 375 };
@@ -114,7 +114,7 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
     pageId,
     pageFile: pageFileNames(ir.pages).get(pageId)!,
     components: body.children.map((c) => toComponent(c, false, opts.pageUrls[pageId])).filter((c) => c !== null),
-    styles: [renderStylesheet(ir, opts).replace(CSS_ASSET, "$1"), ...Object.values(EFFECT_PRESETS)].join("\n"),
+    styles: [renderViewStylesheet(ir, opts).replace(CSS_ASSET, "$1"), ...Object.values(EFFECT_PRESETS)].join("\n"),
     bodyClasses: body.cls,
     pages: ir.pages.map((p) => ({ id: p.id, path: p.path })),
     sections: ir.sections.map((s) => ({

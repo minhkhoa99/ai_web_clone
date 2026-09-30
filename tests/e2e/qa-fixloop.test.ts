@@ -10,7 +10,6 @@ import { serveDir } from "@/core/serve";
 import { capturePage, type PageCapture } from "@/core/capture";
 import { buildIR } from "@/core/ir";
 import { applyCommands, type EditorCommand } from "@/core/ir-command";
-import { migrateIR } from "@/core/ir-migrate";
 import type { IRV2 } from "@/core/ir-v2";
 import { compileV2 } from "@/core/emit-html";
 import { openDb } from "@/core/db";
@@ -65,7 +64,7 @@ beforeAll(async () => {
   url = `${server.url}/index.html`;
   const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
   cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
-  ir = migrateIR(buildIR([cap]), [cap]);
+  ir = buildIR([cap]);
   const bySection = (pred: (s: Section) => boolean) => ir.sections.find(pred)!;
   hero = bySection((s) => JSON.stringify(s.root).includes("Build faster sites"));
   header = bySection((s) => s.root.tag === "header");
@@ -73,7 +72,7 @@ beforeAll(async () => {
   footer = bySection((s) => s.root.tag === "footer");
   broken = applyCommands(ir, [hero, header, features].map((s) => ({ op: "setStyle" as const, id: s.root.id, target: "base" as const, changes: RED }))).ir;
   db = openDb(":memory:");
-  writeGraph(db, "p1", compileV2(broken), cap.assets);
+  writeGraph(db, "p1", broken, cap.assets);
 });
 
 afterAll(async () => {
@@ -84,7 +83,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   generateMock.mockReset();
-  writeGraph(db, "p1", compileV2(broken), cap.assets); // accepted candidates rewrite the graph
+  writeGraph(db, "p1", broken, cap.assets); // accepted candidates rewrite the graph
 });
 
 test("a patch restoring the background passes the gate in one round; inspector evidence precedes the AI call", async () => {

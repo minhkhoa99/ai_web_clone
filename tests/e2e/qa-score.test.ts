@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { capturePage, type PageCapture } from "@/core/capture";
-import { applyPatch, buildIR } from "@/core/ir";
+import { buildIR } from "@/core/ir";
+import { applyCommands } from "@/core/ir-command";
 import { emitHtml } from "@/core/emit-html";
 import { scoreSections, type SectionScore } from "@/core/qa";
 
@@ -49,7 +50,7 @@ test("site1: every section x bp is scored with files on disk; a recolored sectio
   }
 
   const hero = ir.sections.find((s) => JSON.stringify(s.root).includes("Build faster sites"))!;
-  const patched = applyPatch(ir, [{ op: "setStyle", id: hero.root.id, style: { "background-color": "rgb(255, 0, 0)" } }]);
+  const patched = applyCommands(ir, [{ op: "setStyle", id: hero.root.id, target: "base", changes: { "background-color": "rgb(255, 0, 0)" } }]).ir;
   await emitHtml(patched, emitOpts);
   const after = new Map((await scoreSections(handle, { workspaceDir, outDir, ir: patched, captures: [cap] })).map((s) => [key(s), s.score]));
 
@@ -85,7 +86,7 @@ test("a section whose clone box has zero height: no clone PNG written, clonePath
   const ir = buildIR([cap]);
   const hero = ir.sections.find((s) => JSON.stringify(s.root).includes("Build faster sites"))!;
   const flat = { height: "0px", "min-height": "0px", "padding-top": "0px", "padding-bottom": "0px", "border-width": "0px", overflow: "hidden" };
-  const squashed = applyPatch(ir, [{ op: "setStyle", id: hero.root.id, style: flat }]);
+  const squashed = applyCommands(ir, [{ op: "setStyle", id: hero.root.id, target: "base", changes: flat }]).ir;
   await emitHtml(squashed, { outDir, workspaceDir, assetMap: cap.assets, pageUrls: { home: url } });
 
   const [row] = await scoreSections(handle, { workspaceDir, outDir, ir: squashed, captures: [cap], bps: [1440], sectionIds: [hero.id] });

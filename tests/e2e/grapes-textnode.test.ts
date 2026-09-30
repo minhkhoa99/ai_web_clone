@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { createRequire } from "node:module";
 import { chromium, type Browser } from "playwright";
 import { irToGrapes } from "@/core/grapes-adapter";
-import type { IR, IRNode } from "@/core/ir";
+import type { LegacyIR as IR, LegacyIRNode as IRNode } from "@/core/ir-legacy"; // irToGrapes takes the compiled view
 
 const grapesBundle = createRequire(import.meta.url).resolve("grapesjs/dist/grapes.min.js");
 const EVIL = '<img src=x onerror="window.top.__pwned = 1">';

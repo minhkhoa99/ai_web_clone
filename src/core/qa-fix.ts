@@ -12,13 +12,12 @@ import { PNG } from "pngjs";
 import { z } from "zod";
 import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
 import type { CaptureNode, PageCapture } from "./capture";
-import { compileV2, emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
+import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
 import { writeFileAtomic } from "./fsx";
 import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
-import type { IR } from "./ir";
 import { applyCommands, COMMAND_LIMITS, prepareCommands, type EditorCommand, type NodeDraft, type NormalizedCommand } from "./ir-command";
 import type { IRV2 } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -117,14 +116,6 @@ export function parseCommands(text: string, allowed: Set<string>): EditorCommand
   return parsed.data.commands;
 }
 
-// The renderer's v1 view of a document, compiled once per IR object (scoring, inspection and the graph share it).
-const views = new WeakMap<IRV2, IR>();
-function viewOf(ir: IRV2): IR {
-  let view = views.get(ir);
-  if (!view) views.set(ir, (view = compileV2(ir)));
-  return view;
-}
-
 type Tree = { id: string; children: Tree[] };
 function collectIds(node: Tree, out: Set<string>): Set<string> {
   out.add(node.id);
@@ -185,9 +176,8 @@ type Scored = { scores: Record<Bp, number>; min: number; worst: SectionScore; fi
 // (scoring the next candidate overwrites them on disk).
 async function scoreIr(ctx: FixCtx, doc: IRV2, t: FixTarget, outDir: string): Promise<Scored> {
   const { workspaceDir } = ctx;
-  const ir = viewOf(doc);
-  await emitHtml(ir, { ...ctx.emit, outDir, workspaceDir });
-  const rows = await scoreSections(ctx.handle, { workspaceDir, outDir, ir, captures: ctx.captures, pageIds: [t.pageId], sectionIds: [t.sectionId] });
+  await emitHtml(doc, { ...ctx.emit, outDir, workspaceDir });
+  const rows = await scoreSections(ctx.handle, { workspaceDir, outDir, ir: doc, captures: ctx.captures, pageIds: [t.pageId], sectionIds: [t.sectionId] });
   if (rows.length === 0) throw new Error(`qa-fix: section ${t.sectionId} is not scored on page ${t.pageId}`);
   const worst = rows.reduce((a, b) => (b.score < a.score ? b : a));
   const paths = rows.flatMap((r) => [r.origPath, r.clonePath, r.heatPath].filter((p): p is string => p !== null)); // <= 9
@@ -217,7 +207,7 @@ export function focusDiff(nodes: FocusNode[], maxChars = MAX_FOCUS_CHARS): Focus
 async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, rootId: string): Promise<{ a11y: string; focus: FocusNode[] }> {
   const { bp, heatPath } = best.worst;
   const capture = ctx.captures.find((c) => c.pageId === t.pageId);
-  const root = capture && sectionNodes(capture, viewOf(ctx.ir), t.pageId, bp).get(t.sectionId);
+  const root = capture && sectionNodes(capture, ctx.ir, t.pageId, bp).get(t.sectionId);
   const [a11y, boxes] = await Promise.all([snapshotA11y(page, selectorFor(rootId)).catch(errorText), evalWithTimeout(page, "Section node boxes", cloneBoxesInPage, rootId)]);
   const heat = heatPath ? best.files.get(heatPath) : undefined;
   const focus = heat ? topDiffNodes(PNG.sync.read(heat), boxes, FOCUS_NODES) : [];
@@ -255,7 +245,7 @@ TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then 
 // hardening spec §8): no images, CONTEXT and FOCUS_NODES at half their budgets.
 async function proposeCommands(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: string, reduced: boolean): Promise<EditorCommand[]> {
   const section = ctx.ir.sections.find((s) => s.id === t.sectionId);
-  const file = pageFileNames(viewOf(ctx.ir).pages).get(t.pageId);
+  const file = pageFileNames(ctx.ir.pages).get(t.pageId);
   if (!section || !file) throw new Error(`qa-fix: unknown section ${t.sectionId} / page ${t.pageId}`);
   const rootId = section.root.id;
   const server = await serveDir(bestDir);
@@ -385,9 +375,7 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         continue;
       }
       ctx.ir = merged;
-      // next round's contextForFix sees the accepted candidate. ponytail: the compiled view has no Component nodes
-      // (same as the editor's materialize) until Task 13's v2 graph.ts
-      writeGraph(ctx.db, ctx.projectId, viewOf(ctx.ir), ctx.emit.assetMap);
+      writeGraph(ctx.db, ctx.projectId, ctx.ir, ctx.emit.assetMap); // next round's contextForFix sees the accepted candidate
       await rm(bestDir, RM_OPTS);
       [bestDir, best, diskIsBest, patched] = [candidateDir, candidate, true, true];
       log("info", `${round}: nhận ứng viên (điểm ${pct(candidate.min)})`);

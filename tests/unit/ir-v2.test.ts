@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { CaptureNode, PageCapture } from "@/core/capture";
-import { buildIR } from "@/core/ir";
+import { buildLegacyIR } from "@/core/ir";
 import { toV2 } from "@/core/ir-v2";
 
 const node = (tag: string, children: CaptureNode[] = [], style: Record<string, string> = {}): CaptureNode => ({
@@ -19,7 +19,7 @@ const capture: PageCapture = {
 };
 
 test("converts class styles, responsive overrides, pseudo, parent and matching boxes", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   const root = legacy.sections[0]!.root;
   legacy.classes[root.cls[0]!]!.before = { content: '"x"' };
   legacy.classes[root.cls[0]!]!.after = { content: '"y"' };
@@ -37,13 +37,13 @@ test("converts class styles, responsive overrides, pseudo, parent and matching b
 });
 
 test("missing class fails instead of silently losing style", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   legacy.sections[0]!.root.cls = ["missing"];
   expect(() => toV2(legacy, [capture])).toThrow(/missing class: missing/);
 });
 
 test("resolves classes in order and omits a box when the captured tag differs", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   const root = legacy.sections[0]!.root;
   legacy.classes.override = { base: { color: "orange" }, media: { "768": { color: "purple" } } };
   root.cls.push("override");

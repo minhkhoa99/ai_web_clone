@@ -5,7 +5,9 @@ import type { DatabaseSync } from "node:sqlite";
 import type { StyleSet } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { tx } from "./db";
-import type { IR, IRNode, Layout, Section } from "./ir";
+import { compileV2 } from "./emit-html";
+import type { IR, Layout } from "./ir";
+import type { LegacyIR as View, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
 import type { Interaction } from "./interactions";
 
 // Bounded result sizes for the per-section context queries and for listing layouts — a query
@@ -47,19 +49,22 @@ function indexSubtree(root: IRNode): SectionIndex {
   return { classes, attrValues, behaviors, nodeIds };
 }
 
-function usedClasses(idx: SectionIndex, classes: IR["classes"]): Record<string, StyleSet> {
+function usedClasses(idx: SectionIndex, classes: View["classes"]): Record<string, StyleSet> {
   const out: Record<string, StyleSet> = {};
   for (const cls of idx.classes) if (classes[cls]) out[cls] = classes[cls];
   return out;
 }
 
 /**
- * Writes an IR into the graph store for `projectId`, one transaction: first deletes that
+ * Writes an IR v2 document into the graph store for `projectId`, one transaction: first deletes that
  * project's existing nodes/edges (idempotent rewrite), then inserts nodes for every
- * Page/Section/Layout/Component/Token/Asset/Interaction and the edges between them.
+ * Page/Section/Layout/Component/Token/Asset/Interaction and the edges between them. Pages and sections are stored
+ * as rendered (compileV2: components resolved, classes derived — what the fix loop's CONTEXT shows); a Component
+ * node is a main tree (its root id + instance root ids), linked INSTANCE_OF from each section showing an instance.
  * `assets` maps original asset URL -> relative output path (as captured, see PageCapture.assets).
  */
-export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: Record<string, string>): void {
+export function writeGraph(db: DatabaseSync, projectId: string, doc: IR, assets: Record<string, string>): void {
+  const ir = compileV2(doc);
   tx(db, () => {
     db.prepare("DELETE FROM edges WHERE project_id=?").run(projectId);
     db.prepare("DELETE FROM nodes WHERE project_id=?").run(projectId);
@@ -79,7 +84,8 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
       insertNode.run(section.id, projectId, "Section", section.id, JSON.stringify(stored));
     }
     for (const layout of ir.layouts) insertNode.run(layout.id, projectId, "Layout", layout.hash, JSON.stringify(layout));
-    for (const component of ir.components) insertNode.run(component.id, projectId, "Component", component.hash, JSON.stringify(component));
+    const components = doc.components.map((c) => ({ id: c.id, mainId: c.root.id, instanceIds: c.instanceIds }));
+    for (const component of components) insertNode.run(component.id, projectId, "Component", component.id, JSON.stringify(component));
     for (const [name, value] of Object.entries(ir.tokens)) insertNode.run(`token:${name}`, projectId, "Token", name, JSON.stringify(value));
     for (const [url, relPath] of Object.entries(assets)) insertNodeOnce.run(`asset:${relPath}`, projectId, "Asset", url, JSON.stringify({ url, relPath }));
     for (const interaction of interactions) insertNode.run(interaction.id, projectId, "Interaction", interaction.trigger, JSON.stringify(interaction));
@@ -92,7 +98,7 @@ export function writeGraph(db: DatabaseSync, projectId: string, ir: IR, assets: 
       const idx = sectionIndex.get(section.id)!;
       const declVals = [...idx.classes].flatMap((cls) => declValues(ir.classes[cls] ?? { base: {} }));
 
-      for (const component of ir.components) {
+      for (const component of components) {
         if (component.instanceIds.some((id) => idx.nodeIds.has(id))) insertEdge.run(projectId, section.id, component.id, "INSTANCE_OF");
       }
       for (const [name, value] of Object.entries(ir.tokens)) {

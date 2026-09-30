@@ -4,7 +4,9 @@ import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
 import { AppError } from "@/core/errors";
 import { openDb } from "@/core/db";
-import { buildIR, type IR, type IRNode } from "@/core/ir";
+import { compileV2 } from "@/core/emit-html";
+import { buildIR, type IR } from "@/core/ir";
+import type { LegacyIRNode as IRNode } from "@/core/ir-legacy"; // contextForFix returns the rendered (compiled) subtree
 import { coverage, contextForFix, sharedLayouts, writeGraph } from "@/core/graph";
 
 type Opts = { style?: Record<string, string>; bbox?: [number, number, number, number] };
@@ -102,7 +104,7 @@ test("contextForFix: returns the requested section's subtree, tokens and interac
   writeGraph(d, "proj1", ir, {});
   const ctx = contextForFix(d, "proj1", navSection.id, 100_000);
 
-  expect(ctx.subtree).toEqual(navSection.root);
+  expect(ctx.subtree).toEqual(compileV2(ir).sections.find((s) => s.id === navSection.id)!.root);
   expect(ctx.interactions).toEqual([interactions[0]]);
 
   const headerSection = ir.sections.find((s) => s.role === "header")!;
@@ -126,7 +128,7 @@ test("writeGraph: a hover-state class (not in node.cls) still counts for USES_TO
     ),
   ]);
   expect(ir.tokens["--color-1"]).toBe("red");
-  const buttonSection = ir.sections.find((s) => s.root.children.some((c) => c.tag === "button"))!;
+  const buttonSection = compileV2(ir).sections.find((s) => s.root.children.some((c) => c.tag === "button"))!;
   const buttonNode = buttonSection.root.children.find((c) => c.tag === "button")!;
   const hoverClass = buttonNode.states!.hover!;
 
@@ -189,6 +191,13 @@ test("writeGraph: edges for HAS_SECTION, USES_LAYOUT, INSTANCE_OF, USES_TOKEN, U
   const compSection = ir.sections.find((s) => s.root.children.some((c) => c.tag === "ul"))!;
   const instanceEdge = d.prepare("SELECT * FROM edges WHERE project_id=? AND type='INSTANCE_OF' AND src=? AND dst=?").get("proj1", compSection.id, component.id);
   expect(instanceEdge).toBeTruthy();
+  // the v2 main/instance model: one Component node per main tree, its root id and the instance roots on the pages
+  const stored = d.prepare("SELECT key,data_json FROM nodes WHERE project_id=? AND type='Component'").all("proj1") as { key: string; data_json: string }[];
+  expect(stored.map((r) => ({ key: r.key, ...JSON.parse(r.data_json) }))).toEqual(
+    ir.components.map((c) => ({ key: c.id, id: c.id, mainId: c.root.id, instanceIds: c.instanceIds })),
+  );
+  expect(component.root.component).toEqual({ id: component.id, role: "main" });
+  expect(component.instanceIds).toHaveLength(3);
 
   const navSection = ir.sections.find((s) => s.role === "nav")!;
   const triggerEdge = d.prepare("SELECT * FROM edges WHERE project_id=? AND type='TRIGGERS' AND src=? AND dst='i1'").get("proj1", navSection.id);
@@ -218,7 +227,7 @@ test("contextForFix: prunes deepest children to fit budgetChars but keeps the fo
   const section = ir.sections[0]!;
 
   const findLeaf = (n: IRNode): IRNode | undefined => (n.tag === "span" ? n : n.children.map(findLeaf).find(Boolean));
-  const leaf = findLeaf(section.root)!;
+  const leaf = findLeaf(compileV2(ir).sections[0]!.root)!;
 
   const d = db();
   writeGraph(d, "proj1", ir, {});

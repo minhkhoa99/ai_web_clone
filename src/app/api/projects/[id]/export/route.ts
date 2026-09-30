@@ -25,13 +25,13 @@ const RM_OPTS = { recursive: true, force: true, maxRetries: 3 };
 async function exportDir(id: string, strip: boolean | undefined): Promise<{ dir: string; cleanup(): Promise<void> }> {
   const ws = workspaceOf(id);
   if (!strip) return { dir: join(ws, "out"), cleanup: async () => {} };
-  const { ir, emit } = await loadEditable(getDb(), id).catch((e: unknown) => {
+  const { doc, emit } = await loadEditable(getDb(), id).catch((e: unknown) => {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new ApiError(409, "NO_IR", "the clone has no IR yet: nothing to re-emit");
     throw e;
   });
   const dir = join(ws, `export-${randomUUID()}`);
   const cleanup = () => rm(dir, RM_OPTS);
-  await emitHtml(ir, { ...emit, stripIds: true, outDir: dir, workspaceDir: ws }).catch(async (e: unknown) => {
+  await emitHtml(doc, { ...emit, stripIds: true, outDir: dir, workspaceDir: ws }).catch(async (e: unknown) => {
     await cleanup();
     throw e;
   });

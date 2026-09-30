@@ -31,8 +31,9 @@ afterAll(async () => {
 });
 
 const countNodes = (n: IRNode): number => 1 + n.children.reduce((a, c) => a + countNodes(c), 0);
+const irOf = async (projectId: string) => JSON.parse(await readFile(join(config.workspaceRoot, projectId, "ir.json"), "utf8")) as IR;
 async function irNodeCount(projectId: string): Promise<number> {
-  const ir = JSON.parse(await readFile(join(config.workspaceRoot, projectId, "ir.json"), "utf8")) as IR;
+  const ir = await irOf(projectId);
   return [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)].reduce((a, n) => a + countNodes(n), 0);
 }
 const task = (projectId: string, phase: string, key: string) =>
@@ -61,6 +62,11 @@ test("site3: killed during capture of page 2 -> recover + resume completes with 
   expect(JSON.stringify(events)).not.toMatch(/pass(word)?"/i);
   const refNodes = await irNodeCount(ref);
   expect(refNodes).toBeGreaterThan(0);
+  // the pipeline builds, names, emits and scores IR v2: ir.json is the v2 document (styles, no classes)
+  const refIr = await irOf(ref);
+  expect([refIr.version, refIr.revision]).toEqual([2, 0]);
+  expect(refIr).not.toHaveProperty("classes");
+  expect(Array.isArray(refIr.fidelity)).toBe(true);
 
   // Interrupted run: concurrency 1, capture of page 2 never returns (the process "dies" there).
   const id = createProject(db, { url: `${server.url}/index.html`, mode: "crawl", config: { delayMs: 0, concurrency: 1 } });
@@ -97,6 +103,10 @@ test("site3: killed during capture of page 2 -> recover + resume completes with 
   expect(await capturedAt(id, "index")).toBe(homeBefore.at);
   expect(task(id, "capture", "about")).toMatchObject({ status: "done", attempts: 2 });
   expect(await irNodeCount(id)).toBe(refNodes);
+  const resumed = await irOf(id);
+  expect(resumed.version).toBe(2);
+  expect(resumed.sections.map((x) => x.root.id)).toEqual(refIr.sections.map((x) => x.root.id));
+  expect(resumed.components.map((c) => c.id)).toEqual(refIr.components.map((c) => c.id));
   const open = db.prepare("SELECT COUNT(*) n FROM tasks WHERE project_id=? AND status<>'done'").get(id) as { n: number };
   expect(open.n).toBe(0);
 });
@@ -162,6 +172,9 @@ test("pause mid naming on the real persistent profile, then an immediate re-run 
   await rm(join(config.workspaceRoot, id, "profile", "Default"), { recursive: true, force: true });
   await runProject(db, id, { deps: offline });
   expect(statusOf(id)).toEqual({ status: "completed", progress: 100 });
+  const ir = await irOf(id); // naming resumed over the v2 checkpoint and kept it v2
+  expect(ir.version).toBe(2);
+  expect(ir).not.toHaveProperty("classes");
 });
 
 test("auto login with a wrong password: LOGIN_FAILED is recorded on the login task, resume without credentials never retries", { timeout: 240_000 }, async () => {

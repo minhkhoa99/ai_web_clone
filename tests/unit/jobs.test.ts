@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserHandle } from "@/core/browser";
 import type { CaptureNode, PageCapture } from "@/core/capture";
-import { buildIR } from "@/core/ir";
+import { buildIR, type IR } from "@/core/ir";
 import { PNG } from "pngjs";
 import { config } from "@/core/config";
 import { createProject, enqueue, pageIdsFor, pauseProject, pipelineUnfinished, recoverOnStartup, requeueRescore, runProject, startProject, subscribe, type JobEvent } from "@/core/jobs";
@@ -161,6 +161,12 @@ test("an unexpected throw mid-phase leaves that task failed (retryable), never r
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("failed");
 });
 
+// A valid v2 document with bare pages (no sections): the pipeline loads ir.json through the validating loader.
+const emptyDoc = (pageIds: string[]): IR => ({
+  ...buildIR([]),
+  pages: pageIds.map((p) => ({ id: p, path: `/${p}`, title: p, meta: {}, sectionIds: [], shell: { id: `${p}:0`, tag: "html", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [] } })),
+});
+
 test("name:<pageId> of a page whose capture was skipped finishes without an AI call", async () => {
   const db = openDb(":memory:");
   const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
@@ -171,7 +177,7 @@ test("name:<pageId> of a page whose capture was skipped finishes without an AI c
   for (const phase of ["ir", "emit", "qa"]) set.run("done", null, "x", id, phase, "all");
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
-  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", sectionIds: [] }], sections: [] }));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(emptyDoc(["home"])));
   await mkdir(join(ws, "pages", "home", "shots"), { recursive: true });
   await writeFile(join(ws, "pages", "home", "shots", "1440.png"), PNG.sync.write(new PNG({ width: 1440, height: 900 })));
   const calls: string[] = [];
@@ -257,6 +263,40 @@ const tasksIn = (db: ReturnType<typeof openDb>, id: string, phase: string) =>
   db.prepare("SELECT key,status,error_code,error_msg FROM tasks WHERE project_id=? AND phase=? ORDER BY rowid").all(id, phase) as { key: string; status: string; error_code: string | null; error_msg: string | null }[];
 const logsOf = (events: JobEvent[], prefix: string) => events.flatMap((e) => (e.type === "log" && e.level === "warn" && e.message.startsWith(prefix) ? [e.message] : []));
 
+test("naming over a v2 ir.json keeps it v2: components and Fidelity survive, the names land, no History", async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
+  const li = (t: string) => el("li", [el("a", [el("#text", [], t)])]);
+  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("ul", [li("a"), li("b"), li("c")])])])]);
+  const capture = {
+    url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  } as PageCapture;
+  const ir = buildIR([capture]);
+  expect(ir.components.length).toBeGreaterThan(0);
+  expect(ir.fidelity.length).toBeGreaterThan(0);
+  await mkdir(join(ws, "pages", "home"), { recursive: true });
+  await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(ir));
+  const set = db.prepare("UPDATE tasks SET status='done',attempts=1,output_path=? WHERE project_id=? AND phase=?");
+  set.run("pages/home/capture.json", id, "capture");
+  for (const phase of ["ir", "emit", "qa"]) set.run("x", id, phase);
+  const names = Object.fromEntries(ir.sections.map((x) => [x.id, { name: `named-${x.id}`, role: x.role }]));
+  await runProject(db, id, { deps: { openBrowser: fakeOpen, nameSections: async () => ({ names }) } });
+  const saved = JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IR;
+  expect(saved.version).toBe(2);
+  expect(saved.components).toEqual(ir.components);
+  expect(saved.fidelity).toEqual(ir.fidelity);
+  expect(saved.sections.map((x) => x.name)).toEqual(ir.sections.map((x) => `named-${x.id}`));
+  expect(saved).toEqual({ ...ir, sections: ir.sections.map((x) => ({ ...x, name: `named-${x.id}` })) });
+  expect(db.prepare("SELECT count(*) AS n FROM document_state WHERE project_id=?").get(id)).toEqual({ n: 0 }); // never adopted by a job
+});
+
 // One captured page (home) with a real IR, every phase but fix done, and a fix task per given section index.
 async function fixReady(fixSections: number[]) {
   const db = openDb(":memory:");
@@ -331,7 +371,7 @@ test("a transient AI error after a sibling section's patch was merged: the patch
     openBrowser: fakeOpen,
     scoreSections: async () => [],
     fixAll: async (ctx: FixCtx): Promise<never> => {
-      expect(ctx.ir.version).toBe(2); // the v1 ir.json is migrated at the fix-phase boundary
+      expect(ctx.ir.version).toBe(2); // the fix loop edits the v2 document
       ctx.ir = { ...ctx.ir, sections: ctx.ir.sections.map((s, i) => (i === 0 ? { ...s, name: "patched-by-sibling" } : s)) };
       throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
     },
@@ -353,7 +393,7 @@ async function namesReady(n: number) {
   const pageIds = pageIdsFor(urls);
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
-  await writeFile(join(ws, "ir.json"), JSON.stringify({ ...buildIR([]), pages: pageIds.map((p) => ({ id: p, path: `/${p}`, sectionIds: [], shell: { id: `${p}:0`, tag: "html", attrs: {}, cls: [], children: [] } })) }));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(emptyDoc(pageIds)));
   const set = db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase=?");
   for (const phase of ["capture", "ir", "emit", "qa"]) set.run(id, phase);
   db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','p0:s1','pending')").run(id);

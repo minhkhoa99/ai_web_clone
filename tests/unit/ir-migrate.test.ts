@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { buildIR } from "@/core/ir";
+import { buildLegacyIR } from "@/core/ir";
 import { migrateIR } from "@/core/ir-migrate";
 import { AppError, Codes } from "@/core/errors";
 import { MAX_CAPTURE_NODES } from "@/core/limit";
@@ -15,7 +15,7 @@ const capture: PageCapture = {
 };
 
 test("migration is pure and idempotent, preserving only captured boxes", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   const before = structuredClone(legacy);
   const migrated = migrateIR(legacy, [capture]);
   expect(legacy).toEqual(before);
@@ -27,7 +27,7 @@ test("migration is pure and idempotent, preserving only captured boxes", () => {
 });
 
 test("unsupported version and malformed v1 fail with coded errors without mutation", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   expect(() => migrateIR({ ...legacy, version: 3 }, [capture])).toThrowError(AppError);
   try { migrateIR({ ...legacy, version: 3 }, [capture]); } catch (error) { expect((error as AppError).code).toBe(Codes.IR_VERSION_UNSUPPORTED); }
   const cases = [
@@ -45,7 +45,7 @@ test("unsupported version and malformed v1 fail with coded errors without mutati
 });
 
 test("tag mismatch omits box and reports partial capture fidelity", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   const changed = structuredClone(capture);
   changed.breakpoints[0]!.dom.children[0]!.children[0]!.tag = "article";
   const migrated = migrateIR(legacy, [changed]);
@@ -63,7 +63,7 @@ const chain = (prefix: string, levels: number, leaf: (id: string) => object) => 
 };
 test("real-size sections load (v1 and v2); pages over the capture ceiling or 1 000 levels are refused", () => {
   const v1leaf = (id: string) => ({ id, tag: "div", attrs: {}, cls: [], children: [] });
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   legacy.sections[0]!.root.children = [chain("deep", 25, v1leaf) as never, ...Array.from({ length: 600 }, (_, i) => v1leaf(`wide-${i}`))];
   const v2 = migrateIR(legacy, [capture]);
   expect(v2.sections[0]!.root.children).toHaveLength(601);
@@ -73,13 +73,13 @@ test("real-size sections load (v1 and v2); pages over the capture ceiling or 1 0
   const tooWide = { ...v2, sections: [{ ...v2.sections[0]!, root: { ...v2.sections[0]!.root, children: Array.from({ length: MAX_CAPTURE_NODES }, (_, i) => v2leaf(`w${i}`)) } }] };
   const tooDeep = { ...v2, sections: [{ ...v2.sections[0]!, root: { ...v2.sections[0]!.root, children: [chain("d", 1_000, v2leaf)] } }] };
   for (const bad of [tooWide, tooDeep]) expect(() => migrateIR(bad, [])).toThrow(/page limit/);
-  const legacyWide = buildIR([capture]);
+  const legacyWide = buildLegacyIR([capture]);
   legacyWide.sections[0]!.root.children = Array.from({ length: MAX_CAPTURE_NODES }, (_, i) => v1leaf(`w${i}`));
   expect(() => migrateIR(legacyWide, [capture])).toThrow(/page limit/);
 });
 
 test("malformed v2 is rejected with a coded error before reference return", () => {
-  const valid = migrateIR(buildIR([capture]), [capture]);
+  const valid = migrateIR(buildLegacyIR([capture]), [capture]);
   for (const bad of [{ version: 2 }, { ...valid, sections: [{ ...valid.sections[0], root: { ...valid.sections[0]!.root, styles: null } }] }]) {
     try {
       migrateIR(bad, []);
@@ -92,7 +92,7 @@ test("malformed v2 is rejected with a coded error before reference return", () =
 });
 
 test("malformed legacy cssom is rejected with a coded error", () => {
-  const legacy = buildIR([capture]);
+  const legacy = buildLegacyIR([capture]);
   for (const cssom of [{}, { keyframes: [], fontFace: null, vars: {} }, { keyframes: [], fontFace: [], vars: null }]) {
     try {
       migrateIR({ ...legacy, cssom }, [capture]);
@@ -105,7 +105,7 @@ test("malformed legacy cssom is rejected with a coded error", () => {
 });
 
 test("v2 rejects unknown node types and non-string declaration or attribute values", () => {
-  const valid = migrateIR(buildIR([capture]), [capture]);
+  const valid = migrateIR(buildLegacyIR([capture]), [capture]);
   const root = valid.sections[0]!.root;
   for (const changed of [
     { type: "not-a-node-type" },
@@ -125,8 +125,8 @@ test("v2 rejects unknown node types and non-string declaration or attribute valu
 });
 
 test("a section whose page does not exist is refused (v1 and v2)", () => {
-  const legacy = buildIR([capture]);
-  const v2 = migrateIR(buildIR([capture]), [capture]);
+  const legacy = buildLegacyIR([capture]);
+  const v2 = migrateIR(buildLegacyIR([capture]), [capture]);
   legacy.sections[0]!.pageId = "nope";
   expect(() => migrateIR(legacy, [capture])).toThrow(/orphan section/);
   expect(() => migrateIR({ ...v2, sections: [{ ...v2.sections[0]!, pageId: "nope" }] }, [])).toThrow(/orphan section/);

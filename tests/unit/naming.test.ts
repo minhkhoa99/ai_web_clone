@@ -11,7 +11,7 @@ const generateMock = vi.mocked(generate);
 let nextId = 0;
 function node(tag: string, children: IRNode[] = [], extra: Partial<IRNode> = {}): IRNode {
   nextId += 1;
-  return { id: `n${nextId}`, tag, attrs: {}, cls: [], children, ...extra };
+  return { id: `n${nextId}`, tag, type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children, ...extra };
 }
 function txt(text: string): IRNode {
   return node("#text", [], { text });
@@ -22,11 +22,13 @@ function section(id: string, role: string, root: IRNode): Section {
 function makeIr(sections: Section[], sectionIds = sections.map((s) => s.id)): IR {
   const page: Page = { id: "p1", path: "/", title: "t", meta: {}, sectionIds, shell: node("html") };
   return {
+    version: 2,
+    revision: 0,
     pages: [page],
     sections,
     layouts: [],
     components: [],
-    classes: {},
+    fidelity: [],
     tokens: {},
     cssom: { keyframes: [], fontFace: [], vars: {} },
     interactions: [],

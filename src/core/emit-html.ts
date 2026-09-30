@@ -1,11 +1,12 @@
-// IR -> out/. renderSite/emitSection are pure (string in, string out); emitHtml is the thin writer.
+// IR v2 -> out/. renderSite/emitSection are pure (string in, string out); emitHtml is the thin writer. The renderer
+// itself works on the v1-shaped view compileV2 derives (classes from the node styles), never stored.
 import { copyFile, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
-import type { IR, IRNode, Page, Section } from "./ir";
+import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -154,7 +155,7 @@ function renderNode(node: IRNode, base: string | undefined, ctx: Ctx, out: strin
 }
 
 // "/" -> index, "/a/b" -> a-b, "/x.html" -> x; case-insensitive collisions get -2, -3 in page order.
-export function pageFileNames(pages: Page[]): Map<string, string> {
+export function pageFileNames(pages: { id: string; path: string }[]): Map<string, string> {
   const used = new Set<string>();
   const names = new Map<string, string>();
   for (const page of pages) {
@@ -182,7 +183,7 @@ function makeCtx(ir: IR, opts: RenderOpts, fileByPage: Map<string, string>): Ctx
   };
 }
 
-function renderPage(page: Page, ctx: Ctx): string {
+function renderPage(page: IR["pages"][number], ctx: Ctx): string {
   const base = ctx.opts.pageUrls[page.id];
   const head = [
     '<meta charset="utf-8">',
@@ -286,8 +287,9 @@ function renderCss(ir: IR, ctx: Ctx): string {
 
 // --- public API ----------------------------------------------------------------
 
-// Every text file of out/ except js/runtime.js: one .html per page + css/styles.css.
-export function renderSite(ir: IR, opts: RenderOpts): Record<string, string> {
+// Every text file of out/ except js/runtime.js (one .html per page + css/styles.css) from a compiled view. Also the
+// output of the pre-v2 pipeline for a v1 IR (the emit equivalence tests' reference).
+export function renderView(ir: IR, opts: RenderOpts): Record<string, string> {
   const fileByPage = pageFileNames(ir.pages);
   const ctx = makeCtx(ir, opts, fileByPage);
   const files: Record<string, string> = {};
@@ -297,23 +299,15 @@ export function renderSite(ir: IR, opts: RenderOpts): Record<string, string> {
 }
 
 // An attribute value as renderSite writes it (asset -> local path, page link -> local file), for the editor canvas.
+// `ir`: the compiled view.
 export function attrRewriter(ir: IR, opts: RenderOpts): (node: IRNode, name: string, value: string, base: string | undefined) => string {
   const ctx = makeCtx(ir, opts, pageFileNames(ir.pages));
   return (node, name, value, base) => rewriteAttr(node, name, value, base, ctx);
 }
 
-// css/styles.css on its own (the editor canvas stylesheet).
-export function renderStylesheet(ir: IR, opts: RenderOpts): string {
+// css/styles.css on its own from a compiled view (the editor canvas stylesheet).
+export function renderViewStylesheet(ir: IR, opts: RenderOpts): string {
   return renderCss(ir, makeCtx(ir, opts, pageFileNames(ir.pages)));
-}
-
-// HTML of one section (same renderer as the pages), for QA re-emit.
-export function emitSection(ir: IR, sectionId: string, opts: RenderOpts): string {
-  const section = ir.sections.find((s) => s.id === sectionId);
-  if (!section) throw new Error(`emit: unknown section ${sectionId}`);
-  const out: string[] = [];
-  renderNode(section.root, opts.pageUrls[section.pageId], makeCtx(ir, opts, pageFileNames(ir.pages)), out);
-  return out.join("");
 }
 
 // --- IR v2 ------------------------------------------------------------------------
@@ -372,13 +366,21 @@ export function compileV2(input: IRV2): IR {
   };
 }
 
-export const renderSiteV2 = (ir: IRV2, opts: RenderOpts): Record<string, string> => renderSite(compileV2(ir), opts);
-export const renderStylesheetV2 = (ir: IRV2, opts: RenderOpts): string => renderStylesheet(compileV2(ir), opts);
-// Same compile step as renderSiteV2, so QA re-emit never drifts from the site output.
-export const emitSectionV2 = (ir: IRV2, sectionId: string, opts: RenderOpts): string => emitSection(compileV2(ir), sectionId, opts);
+export const renderSite = (ir: IRV2, opts: RenderOpts): Record<string, string> => renderView(compileV2(ir), opts);
+export const renderStylesheet = (ir: IRV2, opts: RenderOpts): string => renderViewStylesheet(compileV2(ir), opts);
+
+// HTML of one section: the same compile + renderer as renderSite, so it never drifts from the site output.
+export function emitSection(doc: IRV2, sectionId: string, opts: RenderOpts): string {
+  const ir = compileV2(doc);
+  const section = ir.sections.find((s) => s.id === sectionId);
+  if (!section) throw new Error(`emit: unknown section ${sectionId}`);
+  const out: string[] = [];
+  renderNode(section.root, opts.pageUrls[section.pageId], makeCtx(ir, opts, pageFileNames(ir.pages)), out);
+  return out.join("");
+}
 
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).
-export async function emitHtml(ir: IR, opts: EmitOpts): Promise<void> {
+export async function emitHtml(ir: IRV2, opts: EmitOpts): Promise<void> {
   const files = renderSite(ir, opts);
   // outDir is wiped first so pages/assets from an earlier emit never survive a re-emit.
   // Refuse when outDir is (or contains) the workspace, which holds the captures and assets.

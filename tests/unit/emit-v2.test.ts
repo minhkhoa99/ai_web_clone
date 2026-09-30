@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 import type { CaptureNode, PageCapture } from "@/core/capture";
-import { buildIR } from "@/core/ir";
+import { buildLegacyIR } from "@/core/ir";
 import { migrateIR } from "@/core/ir-migrate";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
-import { emitSection, emitSectionV2, renderSite, renderSiteV2, renderStylesheet, renderStylesheetV2, type RenderOpts } from "@/core/emit-html";
+import { emitSection, pageFileNames, renderSite, renderStylesheet, renderView, renderViewStylesheet, type RenderOpts } from "@/core/emit-html";
 
 const el = (tag: string, attrs: Record<string, string> = {}, children: CaptureNode[] = [], style: Record<string, string> = {}): CaptureNode =>
   ({ tag, attrs, bbox: [0, 0, 100, 20], style, children });
@@ -41,29 +41,30 @@ const walk = (n: IRNodeV2, f: (n: IRNodeV2) => void): void => { f(n); n.children
 
 test("v2 output equals v1 output for the same capture (HTML, CSS at 1440/768/375, sections)", () => {
   const caps = captures();
-  const v1 = buildIR(caps);
+  const v1 = buildLegacyIR(caps);
   const v2 = migrateIR(v1, caps);
   expect(v2.components.length).toBeGreaterThan(0);
-  const files = renderSiteV2(v2, opts);
-  const v1Files = renderSite(v1, opts);
+  const files = renderSite(v2, opts);
+  const v1Files = renderView(v1, opts); // the pre-v2 pipeline's output
   expect(files["css/styles.css"]).toBe(v1Files["css/styles.css"]);
   expect(normalize(files)).toEqual(normalize(v1Files));
   expect(files["css/styles.css"]).toContain("@media (max-width: 1439.98px)");
   expect(files["css/styles.css"]).toContain("@media (max-width: 767.98px)");
   expect(files["index.html"]).toContain('data-behavior="toggle"');
   expect(files["index.html"]).toContain(`assets/${"a".repeat(64)}.png`);
-  expect(renderStylesheetV2(v2, opts)).toBe(renderStylesheet(v1, opts));
-  for (const s of v1.sections) expect(sortAttrs(emitSectionV2(v2, s.id, opts))).toBe(sortAttrs(emitSection(v1, s.id, opts)));
+  expect(renderStylesheet(v2, opts)).toBe(renderViewStylesheet(v1, opts));
+  const fileOf = pageFileNames(v1.pages);
+  for (const s of v1.sections) expect(sortAttrs(v1Files[fileOf.get(s.pageId)!]!)).toContain(sortAttrs(emitSection(v2, s.id, opts)));
 });
 
 test("emit never writes classes into IRV2; 768 override falls back to base at 375; state/pseudo rules", () => {
   const caps = captures();
-  const v2 = migrateIR(buildIR(caps), caps);
+  const v2 = migrateIR(buildLegacyIR(caps), caps);
   let target: IRNodeV2 | undefined;
   walk(v2.sections.find(s => s.pageId === "p2")!.root, n => { if (n.tag === "p") target = n; });
   target!.styles = { base: { color: "rgb(1, 2, 3)" }, bp: { 768: { color: "blue", margin: "4px" } }, state: { focus: { color: "pink" } }, pseudo: { after: { content: '"x"' } } };
   const before = JSON.stringify(v2);
-  const files = renderSiteV2(v2, opts);
+  const files = renderSite(v2, opts);
   expect(JSON.stringify(v2)).toBe(before);
   expect(before).not.toMatch(/"(cls|classes)"/);
   const css = files["css/styles.css"]!;
@@ -79,13 +80,13 @@ test("emit never writes classes into IRV2; 768 override falls back to base at 37
 
 test("instance overrides and main edits reach the output through resolveComponents", () => {
   const caps = captures();
-  const v2: IRV2 = migrateIR(buildIR(caps), caps);
+  const v2: IRV2 = migrateIR(buildLegacyIR(caps), caps);
   const component = v2.components[0]!;
   component.root.attrs.title = "main title";
-  const html = renderSiteV2(v2, opts)["index.html"]!;
+  const html = renderSite(v2, opts)["index.html"]!;
   const ids = component.instanceIds;
   // card1 overrode its title at capture time; the others follow the main.
   expect(html).toMatch(new RegExp(`title="main title" class="[^"]+" data-ir-id="${ids[0]}"`));
   expect(html).toContain(`title="card 1"`);
-  expect(emitSectionV2(v2, v2.sections.find(s => s.pageId === "p1" && s.role !== "header")!.id, opts)).toContain("main title");
+  expect(emitSection(v2, v2.sections.find(s => s.pageId === "p1" && s.role !== "header")!.id, opts)).toContain("main title");
 });

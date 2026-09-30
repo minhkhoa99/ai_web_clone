@@ -3,7 +3,7 @@
 // prepareCommands' server allocator, never from client/AI input.
 import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
-import { promoteLayout, syncSections, type IR } from "./ir";
+import { promoteLayout, syncSections } from "./ir";
 import { detachComponent, isOverridePath, overridingInstance, resetOverride } from "./ir-component";
 import { typeOf, type IRNodeV2, type IRV2, type NodeStyles, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
@@ -332,8 +332,6 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
 }
 
 // --- section references (shell edits) ---
-// syncSections only reads shells/sections/layouts, which IR v2 shares with v1.
-const sync = (ir: IRV2): IRV2 => syncSections(ir as unknown as IR) as unknown as IRV2;
 function refsBetween(before: IRV2, after: IRV2): Refs {
   const kept = new Set(after.sections.map((s) => s.id));
   return {
@@ -364,11 +362,10 @@ function pruneInstances(ir: IRV2): IRV2 {
   return { ...ir, components: ir.components.map((c) => ({ ...c, instanceIds: c.instanceIds.filter((id) => present.has(id)) })) };
 }
 
-// --- layout: shares ir.ts promoteLayout (still used by the v1 route) and restores what it repoints/drops ---
+// --- layout: shares ir.ts promoteLayout and restores what it repoints/drops ---
 function applyLayout(ir: IRV2, c: Extract<Edit, { op: "promoteLayout" }>, fail: Fail): Step {
   if (!Array.isArray(c.sectionIds) || c.sectionIds.some((id) => typeof id !== "string")) return fail("sectionIds must be a list of section IDs");
-  // promoteLayout only reads/writes shells, sections and layouts, which IR v2 shares with v1
-  const next = pruneInstances(guard(() => promoteLayout(ir as unknown as IR, c.sectionIds) as unknown as IRV2, fail));
+  const next = pruneInstances(guard(() => promoteLayout(ir, c.sectionIds), fail));
   const dropped = new Set(c.sectionIds.slice(1)), first = ir.sections.find((s) => s.id === c.sectionIds[0])!;
   const placeholders = ir.pages.flatMap((p) => preorder(p.shell))
     .filter((n) => n.tag === "#section" && dropped.has(n.attrs["data-section"] ?? ""))
@@ -433,7 +430,7 @@ function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
     case "restoreComponent": return restoreComponent(ir, c, fail);
     case "createNode": case "restoreNode": case "moveNode": case "deleteNode": case "duplicateNode": {
       const step = applyTree(ir, c, fail);
-      const shell = step.tree.kind === "pages" ? sync(step.ir) : step.ir;
+      const shell = step.tree.kind === "pages" ? syncSections(step.ir) : step.ir;
       const synced = c.op === "deleteNode" ? pruneInstances(shell) : shell;
       if (synced === step.ir) return step;
       return { ...step, ir: synced, inverse: { op: "restoreRefs", command: step.inverse as Plain, refs: refsBetween(ir, synced) } };
