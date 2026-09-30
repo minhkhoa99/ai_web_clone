@@ -11,7 +11,7 @@ import { AppError } from "@/core/errors";
 import { buildIR } from "@/core/ir";
 import { documentStore, type StoreHooks } from "@/core/ir-store";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
-import { createProject, enqueue, projectDocuments } from "@/core/jobs";
+import { createProject, enqueue, previewFidelity, projectDocuments } from "@/core/jobs";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
   const node: IRNodeV2 = { id, tag, type: tag === "#text" ? "text" : "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children, ...extra };
@@ -202,7 +202,8 @@ test("user commits and Undo/Redo run the manual-edit hook inside the commit; ai_
   expect(seen).toEqual(["p", "p", "p"]);
 });
 
-test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror, out/, stale QA and closes fix tasks", async () => {
+// A failed project with a v1 ir.json, one capture (site "home") and one pending fix task, as the pipeline leaves it.
+async function seedJobsProject(inventory?: PageCapture["inventory"]) {
   const db = openDb(":memory:");
   const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
   await enqueue(db, id, ["http://x.test/"]);
@@ -213,7 +214,7 @@ test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror,
     url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
     cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
     breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
-    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [], ...(inventory && { inventory }),
   } as PageCapture;
   await mkdir(join(ws, "pages", "home"), { recursive: true });
   await writeFile(join(ws, "pages", "home", "capture.json"), JSON.stringify(capture));
@@ -223,7 +224,11 @@ test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror,
   db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase<>'capture'").run(id);
   db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','home:s','pending')").run(id);
   db.prepare("UPDATE projects SET status='failed' WHERE id=?").run(id);
+  return { db, id, ws };
+}
 
+test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror, out/, stale QA and closes fix tasks", async () => {
+  const { db, id, ws } = await seedJobsProject();
   const store = projectDocuments(db);
   const doc = await store.loadDocument(id);
   expect([doc.version, doc.revision]).toEqual([2, 0]);
@@ -236,4 +241,92 @@ test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror,
   expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
   expect(db.prepare("SELECT status FROM tasks WHERE id='fx'").get()).toEqual({ status: "done" });
   expect(stateOf(db, id)).toMatchObject({ revision: 1, materialized_revision: 1 });
+});
+
+// --- Fidelity (E1 §5): derived data, never a History step ---
+const styleItem = { pageId: "pg", feature: "style-target", status: "unsupported" as const, nodeId: "t", sourceRef: "t", note: "Style :hover @media 768 không lưu" };
+const legacyCapture = { pageId: "pg", url: "http://x.test/", capturedAt: "", title: "", meta: {}, breakpoints: [], interactions: [], assets: {}, skippedAssets: [], dynamic: [] } as unknown as PageCapture;
+
+test("every commit/Undo/Redo re-derives Fidelity: a deleted node keeps its item by sourceRef; capture items follow the document", async () => {
+  const withItem = (): IRV2 => ({ ...fixture(), fidelity: [styleItem] });
+  const { db, store } = setup(":memory:", { loadInitial: async () => withItem(), captures: async () => [legacyCapture] });
+  await store.commitCommands("p", 0, [{ op: "deleteNode", id: "t" }], "user");
+  let doc = await store.loadDocument("p");
+  expect(doc.fidelity).toContainEqual({ pageId: "pg", feature: "style-target", status: "unsupported", sourceRef: "t", note: styleItem.note }); // nodeId dropped only
+  expect(doc.fidelity.map((x) => x.feature)).toContain("capture-inventory"); // analyzer item derived from the captures
+  expect(historyRows(db, "p")).toBe(1);
+  await store.undoDocument("p", 1);
+  doc = await store.loadDocument("p");
+  expect(doc.sections[0]!.root.children.map((c) => c.id)).toEqual(["t"]);
+  expect(doc.fidelity.filter((x) => x.feature === "style-target")).toHaveLength(1); // never restored or duplicated by Undo
+  expect(doc.fidelity.filter((x) => x.feature === "capture-inventory")).toHaveLength(1);
+});
+
+test("updateFidelity rewrites only ir.fidelity at the same revision: no History row, the CAS still accepts that revision, ir.json mirrored", async () => {
+  const mirrored: IRV2[] = [];
+  const { db, store, written } = setup(":memory:", { mirror: async (_id, ir) => void mirrored.push(ir) });
+  await store.commitCommands("p", 0, setText("a"), "user");
+  const items = await store.updateFidelity("p", 1, (cur) => [...cur, styleItem]);
+  expect(items).toEqual([styleItem]);
+  expect(stateOf(db, "p")).toEqual({ revision: 1, cursor: 1, materialized_revision: 1 });
+  expect(historyRows(db, "p")).toBe(1);
+  expect((await store.loadDocument("p")).fidelity).toEqual([styleItem]);
+  expect(mirrored.map((x) => [x.revision, x.fidelity])).toEqual([[1, [styleItem]]]);
+  expect(written).toEqual([1]); // no out/ re-emit, no stale QA: only the mirror
+  // unchanged -> no write; null revision = whatever is stored
+  expect(await store.updateFidelity("p", null, (cur) => cur)).toEqual([styleItem]);
+  expect(mirrored).toHaveLength(1);
+  // a tab at revision 1 still commits (the revision did not move), and Undo does not touch Fidelity
+  await store.commitCommands("p", 1, setText("b"), "user");
+  await store.undoDocument("p", 2);
+  expect((await store.loadDocument("p")).fidelity).toEqual([styleItem]);
+});
+
+test("updateFidelity: a stale revision, no stored document or a busy project writes nothing; a failed mirror is repaired on the next read", async () => {
+  let busy = false;
+  const { db, store, written, ctl } = setup(":memory:", { isBusy: () => busy });
+  expect(await store.updateFidelity("p", null, () => [styleItem])).toBeNull(); // not adopted: never adopts here
+  expect(stateOf(db, "p")).toBeUndefined();
+  await store.commitCommands("p", 0, setText("a"), "user");
+  expect(await store.updateFidelity("p", 0, () => [styleItem])).toBeNull();
+  busy = true;
+  expect(await store.updateFidelity("p", 1, () => [styleItem])).toBeNull();
+  busy = false;
+  expect((await store.loadDocument("p")).fidelity).toEqual([]);
+  ctl.fail = true; // no mirror hook: the materializer writes the document
+  expect(await codeOf(store.updateFidelity("p", 1, () => [styleItem]))).toBe("DOCUMENT_MATERIALIZE_FAILED");
+  expect((await store.loadDocument("p")).fidelity).toEqual([styleItem]); // SQLite holds it
+  ctl.fail = false;
+  await store.ensureMaterialized("p");
+  expect(written).toEqual([1, 1]);
+});
+
+test("updateFidelity caps the list at 2000 items", async () => {
+  const { store } = setup();
+  await store.loadDocument("p");
+  const many = Array.from({ length: 2100 }, (_, i) => ({ ...styleItem, nodeId: undefined, sourceRef: `r${i}` }));
+  const items = await store.updateFidelity("p", 0, () => many);
+  expect(items).toHaveLength(2000);
+  expect(items!.at(-1)!.feature).toBe("fidelity-overflow");
+});
+
+test("preview Fidelity: ir.json analyzed in memory without adopting; a stored v2 document without analyzer items is backfilled once in place", async () => {
+  const { db, id, ws } = await seedJobsProject({ scripts: 3, iframes: 0, canvases: 0, skippedNodes: 0 });
+  const raw = () => readFile(join(ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IRV2);
+  const v1 = await previewFidelity(db, id, await raw());
+  expect(v1.find((x) => x.feature === "script")).toMatchObject({ pageId: "home", status: "unsupported" });
+  expect(stateOf(db, id)).toBeUndefined(); // the preview never adopts the document
+
+  const store = projectDocuments(db);
+  const doc = await store.loadDocument(id);
+  // a document stored before the analyzer existed: only migration items
+  const old = { ...doc, fidelity: doc.fidelity.filter((x) => x.feature === "capture-box") };
+  db.prepare("UPDATE document_state SET ir_json=? WHERE project_id=?").run(JSON.stringify(old), id);
+  const items = await previewFidelity(db, id, await raw());
+  expect(items.filter((x) => x.feature === "script")).toHaveLength(1);
+  expect((await store.loadDocument(id)).fidelity).toEqual(items);
+  expect((await raw()).fidelity).toEqual(items); // ir.json mirrored
+  expect([stateOf(db, id), historyRows(db, id)]).toEqual([{ revision: 0, cursor: 0, materialized_revision: 0 }, 0]);
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }] }); // pixel QA untouched
+  expect(await previewFidelity(db, id, await raw())).toEqual(items); // idempotent
 });

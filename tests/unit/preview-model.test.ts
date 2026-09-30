@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { checklistLabel, fixText, meanScore, type Fix } from "@/app/p/[id]/preview/preview-model";
+import type { FidelityItem } from "@/core/ir-v2";
+import { checklistLabel, fidelityCounts, fidelityRows, filterFidelity, fixText, meanScore, nodeTarget, type Fix } from "@/app/p/[id]/preview/preview-model";
 
 const fix = (status: Fix["status"], errorCode: string | null = null, errorMsg: string | null = null): Fix => ({ pageId: "home", sectionId: "s", status, errorCode, errorMsg });
 
@@ -30,4 +31,51 @@ test("checklist labels are deterministic from kind + trigger (no AI), trigger cu
 test("D6: the overall match is the mean of the page × breakpoint section scores", () => {
   expect(meanScore([])).toBeNull();
   expect(meanScore([{ score: 1 }, { score: 0.9 }, { score: 0.986 }])).toBeCloseTo(0.962, 6);
+});
+
+// --- Fidelity report (E1 §5) ---
+
+const fi = (pageId: string, feature: string, status: FidelityItem["status"], extra: Partial<FidelityItem> = {}): FidelityItem => ({ pageId, feature, status, note: `${feature} note`, ...extra });
+const items: FidelityItem[] = [
+  fi("home", "carousel", "partial", { nodeId: "home:0.1", sourceRef: "home:0.1" }),
+  fi("home", "script", "unsupported", { note: "2 nguồn JS" }),
+  fi("home", "hover", "unsupported", { sourceRef: "home:0.2" }), // its clone node was deleted: no nodeId
+  fi("about", "sticky", "supported", { nodeId: "about:0.3" }),
+  fi("about", "script", "unsupported", { note: "5 nguồn JS" }),
+];
+
+test("Fidelity: one count per status", () => {
+  expect(fidelityCounts([{ pageId: "p", feature: "carousel", status: "partial", note: "runtime" }])).toEqual({ supported: 0, partial: 1, unsupported: 0 });
+  expect(fidelityCounts(items)).toEqual({ supported: 1, partial: 1, unsupported: 3 });
+  expect(fidelityCounts([])).toEqual({ supported: 0, partial: 0, unsupported: 0 });
+});
+
+test("Fidelity: filter by page and status; an item whose node is gone stays listed", () => {
+  expect(filterFidelity(items, "all", "all")).toEqual(items);
+  expect(filterFidelity(items, "home", "all").map((x) => x.feature)).toEqual(["carousel", "script", "hover"]);
+  expect(filterFidelity(items, "all", "unsupported").map((x) => `${x.pageId}/${x.feature}`)).toEqual(["home/script", "home/hover", "about/script"]);
+  expect(filterFidelity(items, "about", "partial")).toEqual([]);
+  expect(filterFidelity(items, "home", "unsupported")).toContainEqual(items[2]);
+});
+
+test("Fidelity rows: the per-page script items collapse into one row with the page count; the rest stay one row each", () => {
+  const rows = fidelityRows(items);
+  expect(rows.map((r) => [r.item.feature, r.pages])).toEqual([["carousel", 1], ["script", 2], ["hover", 1], ["sticky", 1]]);
+  expect(rows[1]!.item.note).toBe("JS không chạy trên 2 trang (xem từng trang để biết số nguồn)");
+  // one page: its script item is shown as is
+  expect(fidelityRows(filterFidelity(items, "home", "all"))[1]).toEqual({ item: items[1], pages: 1 });
+});
+
+test("Fidelity: a node link only for a node that exists in the loaded clone page (never a dead link)", () => {
+  const present = new Set(["home:0.1"]);
+  expect(nodeTarget(items[0]!, "home", present)).toBe("home:0.1");
+  expect(nodeTarget(items[0]!, "about", present)).toBeUndefined(); // another page is loaded
+  expect(nodeTarget(items[2]!, "home", present)).toBeUndefined(); // deleted node: sourceRef/note shown instead
+  expect(nodeTarget(items[3]!, "about", new Set())).toBeUndefined(); // node id known but not in the page DOM
+});
+
+test("Fidelity never changes the pixel score: an unsupported item leaves meanScore as is", () => {
+  expect(meanScore([{ score: 0.95 }])).toBe(0.95);
+  expect(fidelityCounts([fi("p", "script", "unsupported")]).unsupported).toBe(1);
+  expect(meanScore([{ score: 0.95 }])).toBe(0.95);
 });

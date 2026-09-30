@@ -642,6 +642,9 @@ select.full { width: 100%; min-height: 38px; }
 .section-row { width: 100%; display: flex; align-items: center; gap: var(--s-sm); padding: 8px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--c-text); font: var(--t-label-sm); cursor: pointer; text-align: left; }
 .section-row:hover { background: var(--c-surface); }
 .rail-box > .seg-tabs .seg-item { font: var(--t-label-sm); }
+/* three rail tabs sized to their labels (the rest shared out); a narrow rail (375) wraps a label, never clips its count */
+.rail-box > .seg-tabs.seg-full { grid-auto-columns: auto; }
+.rail-box > .seg-tabs .seg-item { white-space: normal; text-align: center; min-width: 0; }
 .section-row > .icon { color: var(--c-text-3); }
 .section-list li[data-marked] { border-color: var(--c-primary); background: var(--c-surface); }
 .section-list li.section-fail { border-color: color-mix(in srgb, var(--c-danger) 50%, transparent); background: color-mix(in srgb, var(--c-danger-strong) 20%, transparent); }
@@ -661,6 +664,19 @@ select.full { width: 100%; min-height: 38px; }
 .check-failed { background: color-mix(in srgb, var(--c-danger) 5%, transparent); color: var(--c-danger); }
 .check-failed .icon, .check-failed .check-status { color: var(--c-danger); }
 .check-skipped { color: var(--c-text-3); }
+/* Fidelity tab (E1 §5): counts, page + status filters, one card per item; wraps, never scrolls sideways at 375 */
+.fid-counts { flex-wrap: wrap; gap: 6px; }
+/* label | select, two aligned rows (the labels wrap their selects, so they stay the accessible names) */
+.fid-filters { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px var(--s-sm); padding: var(--s-sm) var(--s-md); border-bottom: 1px solid var(--c-border); }
+.fid-filters .inline-field { display: contents; }
+.fid-filters select { width: 100%; max-width: none; }
+.fid-row { display: grid; gap: 4px; padding: 8px; border: 1px solid color-mix(in srgb, var(--c-border) 70%, transparent); border-radius: var(--r-md); background: var(--c-surface-low); min-width: 0; }
+.fid-row .btn { justify-self: start; padding: 2px 6px; margin-left: -6px; color: var(--c-primary); }
+.fid-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-sm); min-width: 0; }
+.fid-feature { font: var(--t-label-sm); color: var(--c-text); }
+.fid-where { margin-left: auto; overflow-wrap: anywhere; }
+.fid-note { margin: 0; color: var(--c-text-2); overflow-wrap: anywhere; }
+.fid-ref { overflow-wrap: anywhere; }
 /* wide + tall enough: the screen fills the viewport below the shell (72px top + 16px bottom padding) and the
    compare area + rail take whatever the page header and the (possibly wrapped) toolbar leave — only they scroll */
 @media (min-width: 1100px) and (min-height: 640px) {

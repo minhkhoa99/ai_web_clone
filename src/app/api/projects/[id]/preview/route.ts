@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { pageFileNames } from "@/core/emit-html";
 import { coverage } from "@/core/graph";
 import type { IR } from "@/core/ir";
-import type { QaFile } from "@/core/jobs";
+import type { IRV2 } from "@/core/ir-v2";
+import { previewFidelity, type QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
@@ -23,7 +24,8 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
 }
 
 // Pages (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the
-// clone), QA scores (qa.json, `stale` after an editor save), interaction rows and per-page coverage — the preview screen's data.
+// clone), QA scores (qa.json, `stale` after an editor save), interaction rows, per-page coverage and the Fidelity
+// report (E1 §5, at most 2000 items; a separate measure: the pixel scores are untouched) — the preview screen's data.
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -51,7 +53,8 @@ export function GET(req: Request, { params }: IdCtx) {
       const i = t.key.indexOf(":");
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
+    const fidelity = ir ? await previewFidelity(db, id, ir as IR | IRV2) : [];
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
-    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes });
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes, fidelity });
   });
 }

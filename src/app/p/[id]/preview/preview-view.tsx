@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FidelityItem } from "@/core/ir-v2";
 import type { Bp, SectionScore } from "@/core/qa";
 import { api, errorText } from "@/app/_ui/api";
 import { Badge } from "@/app/_ui/Badge";
@@ -10,7 +11,19 @@ import { GridTable } from "@/app/_ui/GridTable";
 import { Icon } from "@/app/_ui/Icon";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { fmtPct } from "@/app/_ui/format";
-import { checklistLabel, fixText, meanScore, type Fix } from "./preview-model";
+import {
+  checklistLabel,
+  FIDELITY_LABEL,
+  FIDELITY_STATUSES,
+  fidelityCounts,
+  fidelityRows,
+  filterFidelity,
+  fixText,
+  meanScore,
+  nodeTarget,
+  type FidelityStatus,
+  type Fix,
+} from "./preview-model";
 
 type Data = {
   pages: { pageId: string; path: string; file?: string }[];
@@ -21,6 +34,7 @@ type Data = {
   interactions: { id: string; pageId: string; kind: string; trigger: string; status: string }[];
   coverage: { page: string; captured: number; failed: number; skipped: number }[];
   fixes: Fix[];
+  fidelity: FidelityItem[]; // E1 §5, <= 2000 items: its own report, never part of the pixel score
 };
 type Mode = "side" | "onion" | "swipe";
 type Box = { x: number; y: number; w: number; h: number };
@@ -39,11 +53,12 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
   const [mode, setMode] = useState<Mode>("side");
   const [slider, setSlider] = useState(50);
   const [heat, setHeat] = useState(false);
-  const [tab, setTab] = useState<"sections" | "checklist">("sections");
+  const [tab, setTab] = useState<"sections" | "checklist" | "fidelity">("sections");
   const [frameH, setFrameH] = useState(1000);
   const [origH, setOrigH] = useState(0); // the original shot's natural height (it is bp px wide)
   const [areaW, setAreaW] = useState(0);
   const [boxes, setBoxes] = useState<Record<string, Box>>({});
+  const [present, setPresent] = useState<ReadonlySet<string>>(new Set()); // Fidelity node ids the loaded clone page has
   const [marked, setMarked] = useState<string | null>(null);
   const [rescore, setRescore] = useState<Rescore>("idle");
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -110,16 +125,18 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
       next[s.id] = { x: r.left + win.scrollX, y: r.top + win.scrollY, w: r.width, h: r.height };
     }
     setBoxes(next);
+    const ids = (data?.fidelity ?? []).flatMap((x) => (x.pageId === pageId && x.nodeId ? [x.nodeId] : []));
+    setPresent(new Set(ids.filter((id) => doc.querySelector(`[data-ir-id="${CSS.escape(id)}"]`))));
   };
 
-  const scrollToSection = (sectionId: string) => {
-    const rootId = names.get(sectionId)?.rootId;
+  const scrollToNode = (irId: string | undefined) => {
     const doc = frameRef.current?.contentDocument;
-    const el = rootId && doc?.querySelector(`[data-ir-id="${CSS.escape(rootId)}"]`);
+    const el = irId && doc?.querySelector(`[data-ir-id="${CSS.escape(irId)}"]`);
     if (!el || !doc?.defaultView) return;
     const top = el.getBoundingClientRect().top + doc.defaultView.scrollY;
     scrollRef.current?.scrollTo({ top: top * scale, behavior: "smooth" });
   };
+  const scrollToSection = (sectionId: string) => scrollToNode(names.get(sectionId)?.rootId);
 
   const pick = (sectionId: string) => {
     setMarked(sectionId);
@@ -349,7 +366,7 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
             </Banner>
           )}
           <div className="panel rail-box">
-            <SegmentedControl<"sections" | "checklist">
+            <SegmentedControl<"sections" | "checklist" | "fidelity">
               data-ui="ui_qa_preview_rail_tabs"
               semantics="tabs"
               full
@@ -359,6 +376,7 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
               options={[
                 { value: "sections", label: `Section (${scores.length})` },
                 { value: "checklist", label: `Checklist độ phủ (${pageInteractions.length})` },
+                { value: "fidelity", label: `Fidelity (${data.fidelity.length})` },
               ]}
             />
             {tab === "sections" ? (
@@ -415,8 +433,10 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
                   </Button>
                 </div>
               </div>
-            ) : (
+            ) : tab === "checklist" ? (
               <Checklist data={data} rows={pageInteractions} />
+            ) : (
+              <Fidelity projectId={projectId} data={data} loadedPage={pageId} present={present} onGo={scrollToNode} />
             )}
           </div>
         </aside>
@@ -458,6 +478,94 @@ function Checklist({ data, rows }: { data: Data; rows: Data["interactions"] }) {
             </li>
           ))}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+const FIDELITY_TONE: Record<FidelityStatus, "success" | "warn" | "danger"> = { supported: "success", partial: "warn", unsupported: "danger" };
+
+// E1 §5: counts per status, filter by page + status, one row per item (the pages' script items as one row), a node
+// link only when the loaded clone page has that node, else its capture anchor. Export = the filtered items as JSON.
+function Fidelity({ projectId, data, loadedPage, present, onGo }: { projectId: string; data: Data; loadedPage: string; present: ReadonlySet<string>; onGo(irId: string): void }) {
+  const [page, setPage] = useState("all");
+  const [status, setStatus] = useState<FidelityStatus | "all">("all");
+  const byPage = filterFidelity(data.fidelity, page, "all");
+  const counts = fidelityCounts(byPage);
+  const shown = filterFidelity(byPage, "all", status);
+  const paths = new Map(data.pages.map((p) => [p.pageId, p.path]));
+  const exportJson = () => {
+    const body = JSON.stringify({ projectId, page, status, counts: fidelityCounts(shown), items: shown }, null, 2);
+    const href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+    Object.assign(document.createElement("a"), { href, download: `fidelity-${projectId}.json` }).click();
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  };
+  return (
+    <div className="rail-panel" role="tabpanel" data-ui="ui_qa_preview_fidelity_panel">
+      <div className="rail-summary fid-counts" data-ui="ui_qa_preview_fidelity_summary">
+        {FIDELITY_STATUSES.map((s) => (
+          <Badge key={s} tone={FIDELITY_TONE[s]}>
+            {counts[s]} {FIDELITY_LABEL[s].toLowerCase()}
+          </Badge>
+        ))}
+      </div>
+      <div className="fid-filters" data-ui="ui_qa_preview_fidelity_filters">
+        <label className="inline-field">
+          <span className="field-label">Trang</span>
+          <select value={page} onChange={(e) => setPage(e.target.value)}>
+            <option value="all">Tất cả trang</option>
+            {data.pages.map((p) => (
+              <option key={p.pageId} value={p.pageId}>
+                {p.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="inline-field">
+          <span className="field-label">Trạng thái</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value as FidelityStatus | "all")}>
+            <option value="all">Tất cả</option>
+            {FIDELITY_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {FIDELITY_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="rail-scroll">
+        {shown.length === 0 && <p className="text-3">Không có mục Fidelity nào.</p>}
+        <ul className="checklist" data-ui="ui_qa_preview_fidelity_list">
+          {fidelityRows(shown).map(({ item, pages }, i) => {
+            const target = nodeTarget(item, loadedPage, present);
+            const ref = item.sourceRef ?? item.nodeId;
+            return (
+              <li key={i} className="fid-row" data-status={item.status}>
+                <div className="fid-head">
+                  <Badge tone={FIDELITY_TONE[item.status]}>{FIDELITY_LABEL[item.status]}</Badge>
+                  <span className="mono fid-feature">{item.feature}</span>
+                  <span className="t-label-sm text-3 fid-where">
+                    {pages > 1 ? `${pages} trang` : (paths.get(item.pageId) ?? item.pageId)}
+                    {item.breakpoint ? ` · ${item.breakpoint}px` : ""}
+                  </span>
+                </div>
+                <p className="t-body-sm fid-note">{item.note}</p>
+                {target ? (
+                  <Button variant="ghost" icon="arrow_forward" aria-label={`Tới node ${item.feature}`} onClick={() => onGo(target)}>
+                    Tới node
+                  </Button>
+                ) : (
+                  ref && <span className="mono t-label-sm text-3 fid-ref">nguồn: {ref}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <div className="rail-foot">
+        <Button data-ui="ui_qa_preview_fidelity_export" icon="download" disabled={shown.length === 0} onClick={exportJson}>
+          Xuất JSON
+        </Button>
       </div>
     </div>
   );

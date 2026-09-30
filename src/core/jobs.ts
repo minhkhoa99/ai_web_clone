@@ -19,7 +19,8 @@ import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import { migrateIR } from "./ir-migrate";
 import { documentStore } from "./ir-store";
-import type { IRV2 } from "./ir-v2";
+import type { FidelityItem, IRV2 } from "./ir-v2";
+import { refreshFidelity } from "./fidelity";
 import { mapLimit } from "./limit";
 import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
@@ -355,7 +356,31 @@ export function projectDocuments(db: DatabaseSync) {
     },
     isBusy: isQueuedOrActive,
     onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
+    // ponytail: each step parses the capture.json files twice (here and in materialize); cache per project if steps get slow
+    captures: async (projectId) => loadCaptures(await editSource(db, projectId)),
+    mirror: async (projectId, ir) => writeJsonAtomic(join(workspaceOf(projectId), "ir.json"), ir),
   });
+}
+
+// The Preview & QA Fidelity report (E1 §5). An adopted document is the source of truth: re-derived against the
+// captures and stored in place when idle — this backfills documents stored before the analyzer existed and picks up
+// anything since the last step (the preview reloads after "Chạy lại QA"); unchanged -> nothing written. Otherwise
+// (never opened in the editor, or a job running) ir.json, the job's checkpoint, is analyzed in memory and never
+// written. The preview does not adopt the document: that stays the editor's first read.
+export async function previewFidelity(db: DatabaseSync, projectId: string, raw: IR | IRV2): Promise<FidelityItem[]> {
+  const captures = await editSource(db, projectId).then(loadCaptures, (e: unknown) => {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return []; // no pages.json yet: no capture evidence
+    throw e;
+  });
+  const stored = await projectDocuments(db).updateFidelity(projectId, null, (items, ir) => refreshFidelity(items, ir, captures));
+  if (stored) return stored;
+  try {
+    const doc = "version" in raw && raw.version === 2 ? raw : migrateIR(raw, captures);
+    return refreshFidelity(doc.fidelity ?? [], doc, captures);
+  } catch (e) {
+    // a v1 checkpoint the migration refuses (the editor refuses it too): said, not a broken preview
+    return [{ pageId: raw.pages[0]?.id ?? "", feature: "fidelity-unavailable", status: "partial", note: `Chưa suy được Fidelity từ ir.json (${codeOf(e) ?? "lỗi"})` }];
+  }
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).

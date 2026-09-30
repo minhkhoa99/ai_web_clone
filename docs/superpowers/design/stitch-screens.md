@@ -170,6 +170,11 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_qa_preview_next_diff` | `feat_qa_score` | scores | "Jump to next diff" | build |
 | `ui_qa_preview_coverage_checklist` | `feat_interaction_scan` | `interactions`, `coverage` | "COVERAGE CHECKLIST" | build |
 | `ui_qa_preview_skipped_item` | `feat_interaction_scan` | `status=skipped` | "— … skipped" | build |
+| `ui_qa_preview_fidelity_panel` | E1 §5 Fidelity (chưa có node `feat_*`) | `fidelity` trong `GET …/preview` (≤2000 mục) — tab thứ 3 "Fidelity (n)" của `ui_qa_preview_rail_tabs` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_qa_preview_fidelity_summary` | E1 §5 Fidelity | tổng theo status (Badge success/warn/danger: hỗ trợ / một phần / không hỗ trợ), theo bộ lọc trang; không gộp vào điểm pixel | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_qa_preview_fidelity_filters` | E1 §5 Fidelity | client — select Trang (Tất cả trang + từng trang) và Trạng thái | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_qa_preview_fidelity_list` | E1 §5 Fidelity | mỗi mục một thẻ (status, feature, trang, bp, note); mục `script` nhiều trang gộp 1 dòng "N trang"; "Tới node" chỉ khi trang clone đang tải có `data-ir-id` đó, không thì hiện `nguồn: sourceRef` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_qa_preview_fidelity_export` | E1 §5 Fidelity | client — "Xuất JSON" đúng dữ liệu đang lọc (`{ page, status, counts, items }`) | không có trong mockup, dùng token/component sẵn có | build |
 
 ## `/p/[id]/code` ↔ `screen_code_viewer` ↔ `code-viewer.png|html`
 

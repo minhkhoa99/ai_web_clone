@@ -10,6 +10,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { chromium, type Browser, type Page } from "playwright";
 import { serveDir } from "@/core/serve";
 import { fmtPct } from "@/app/_ui/format";
+import { fidelityCounts } from "@/app/p/[id]/preview/preview-model";
+import type { FidelityItem } from "@/core/ir-v2";
 import { offline } from "./offline-deps";
 import { startNextApp } from "./next-app";
 import { parityShot } from "./parity-shots";
@@ -194,6 +196,43 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   expect(await skipped.locator(".check-status").innerText()).toBe("bỏ qua");
   expect(await skipped.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(144, 143, 160)"); // --c-text-3
   await parityShot(page, "preview-checklist");
+
+  // Fidelity (E1 §5): its own tab, counts = the API's items, page/status filters, node links only for present nodes
+  const fidelity = ((await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { fidelity: FidelityItem[] }).fidelity;
+  expect(fidelity.length).toBeGreaterThan(0);
+  expect(fidelity.length).toBeLessThanOrEqual(2000);
+  expect(fidelity.find((x) => x.feature === "script")).toMatchObject({ status: "unsupported" }); // site1 has inline scripts: never supported
+  const counts = fidelityCounts(fidelity);
+  await page.getByRole("tablist", { name: "Bảng bên" }).getByRole("tab", { name: `Fidelity (${fidelity.length})` }).click();
+  await expectUi(page, ["ui_qa_preview_fidelity_panel", "ui_qa_preview_fidelity_summary", "ui_qa_preview_fidelity_filters", "ui_qa_preview_fidelity_list", "ui_qa_preview_fidelity_export"]);
+  expect(await page.locator('[data-ui="ui_qa_preview_fidelity_summary"] .badge').allInnerTexts()).toEqual([`${counts.supported} hỗ trợ`, `${counts.partial} một phần`, `${counts.unsupported} không hỗ trợ`]);
+  const rows = page.locator('[data-ui="ui_qa_preview_fidelity_list"] > li');
+  expect(await rows.count()).toBe(fidelity.length); // one page: no grouped rows
+  // the script item has no node: listed, no link
+  const scriptRow = rows.filter({ has: page.locator(".fid-feature", { hasText: /^script$/ }) });
+  expect(await scriptRow.count()).toBe(1);
+  expect(await scriptRow.getByRole("button").count()).toBe(0);
+  // every link targets a node the loaded clone page really has
+  const links = page.locator('[data-ui="ui_qa_preview_fidelity_list"]').getByRole("button", { name: /^Tới node / });
+  const anchored = fidelity.filter((x) => x.nodeId && x.pageId === pageId);
+  expect(await links.count()).toBeLessThanOrEqual(anchored.length);
+  if (anchored.length) expect(await links.count()).toBeGreaterThan(0);
+  const statusSelect = page.locator('[data-ui="ui_qa_preview_fidelity_filters"]').getByLabel("Trạng thái");
+  await statusSelect.selectOption("unsupported");
+  expect(await rows.count()).toBe(counts.unsupported);
+  expect(new Set(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-status"))))).toEqual(new Set(counts.unsupported ? ["unsupported"] : []));
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Xuất JSON" }).click()]);
+  const exported = JSON.parse(await readFile((await download.path())!, "utf8")) as { status: string; items: FidelityItem[] };
+  expect([exported.status, exported.items]).toEqual(["unsupported", fidelity.filter((x) => x.status === "unsupported")]);
+  await statusSelect.selectOption("all");
+  // the pixel score is a separate measure: unchanged by the Fidelity tab
+  expect(await page.locator('[data-ui="ui_qa_preview_match_score"]').innerText()).toBe(`${fmtPct(mean)} khớp`);
+  const parity = process.env.FIDELITY_SHOTS_DIR;
+  if (parity) await page.screenshot({ path: join(parity, "e1-fidelity-1440.png"), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "no sideways scroll at 375 (Fidelity tab)").toBe(true);
+  if (parity) await page.screenshot({ path: join(parity, "e1-fidelity-375.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await expectNoDrift(page);
   await expectIconButtonsLabelled(page);
   expect(foreign).toEqual([]);
@@ -446,16 +485,26 @@ test("recovery (fix round 1 review): editor save on a non-completed project clos
   db!.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(randomUUID(), projectId, fixKey);
   db!.prepare("UPDATE projects SET status='failed' WHERE id=?").run(projectId);
   try {
-    type Comp = { type?: string; content?: string; components?: Comp[] };
+    type Comp = { type?: string; content?: string; attributes?: Record<string, string>; components?: Comp[] };
     const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { pageId: string; components: Comp[]; revision: number };
     const firstText = (cs: Comp[]): Comp | undefined => cs.map((c) => (c.type === "textnode" && c.content?.trim() ? c : firstText(c.components ?? []))).find(Boolean);
     firstText(data.components)!.content = "Sửa tay";
+    // plus a style GrapesJS can hold but the IR cannot (hover at 375): skipped, recorded as Fidelity, not a History step
+    const styled = (cs: Comp[]): Comp | undefined => cs.map((c) => (c.attributes?.["data-ir-id"] && c.type !== "textnode" && c.components?.length ? c : styled(c.components ?? []))).find(Boolean);
+    const target = styled(data.components)!;
+    target.attributes!.id = "ifid";
+    const styles = [{ selectors: ["#ifid"], style: { color: "red" }, state: "hover", mediaText: "(max-width: 767.98px)", atRuleType: "media" }];
     const save = await fetch(`${base}/api/projects/${projectId}/editor/save`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseRevision: data.revision, pageId: data.pageId, project: { components: data.components } }),
+      body: JSON.stringify({ baseRevision: data.revision, pageId: data.pageId, project: { components: data.components, styles } }),
     });
-    expect([save.status, ((await save.json()) as { ops: number }).ops]).toEqual([200, 1]);
+    const saved = (await save.json()) as { ops: number; revision: number; skipped: string[] };
+    expect([save.status, saved.ops, saved.skipped.length]).toEqual([200, 1, 1]);
+    const lost = ((await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { fidelity: FidelityItem[] }).fidelity.filter((x) => x.feature === "style-target");
+    expect(lost).toEqual([expect.objectContaining({ pageId, status: "unsupported", sourceRef: target.attributes!["data-ir-id"] })]);
+    const after = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { revision: number };
+    expect(after.revision).toBe(saved.revision); // the Fidelity update moved no revision: an open tab still saves
     const fixTask = db!.prepare("SELECT status,error_code,error_msg FROM tasks WHERE project_id=? AND phase='fix' AND key=?").get(projectId, fixKey) as {
       status: string;
       error_code: string | null;

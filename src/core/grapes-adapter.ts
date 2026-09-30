@@ -162,6 +162,21 @@ function attrsOf(c: Comp): Record<string, string> {
 }
 const idOf = (c: Comp) => attrsOf(c)[ID];
 
+// Editor style rules name the GrapesJS element id (`#<attributes.id>`, cut to 40 chars in `skipped`): element id -> IR
+// id (data-ir-id), for the Fidelity items of unrepresentable rules. Walk the tree grapesToCommands already bounded.
+export function irIdsByElementId(components: unknown[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const stack = [...components];
+  while (stack.length) {
+    const c = stack.pop();
+    if (!isObject(c)) continue;
+    const attrs = attrsOf(c as Comp);
+    if (attrs.id && attrs[ID]) out.set(attrs.id.slice(0, 40), attrs[ID]);
+    if (Array.isArray((c as Comp).components)) stack.push(...((c as Comp).components as unknown[]));
+  }
+  return out;
+}
+
 // Component styles (selectorManager.componentFirst): `#<grapes id>` rules by target. A media the devices don't write,
 // another state, or a state at a breakpoint has no IR target: listed in `skipped`, never guessed. A cleared
 // property ("") is kept as a removal marker.

@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import { AppError } from "@/core/errors";
 import { compileV2, renderSiteV2 } from "@/core/emit-html";
-import { grapesToCommands, irToGrapes, type GrapesComponent, type GrapesJson } from "@/core/grapes-adapter";
+import { styleTargetFidelity } from "@/core/fidelity";
+import { grapesToCommands, irIdsByElementId, irToGrapes, type GrapesComponent, type GrapesJson } from "@/core/grapes-adapter";
 import { promoteLayout, syncSections, type IR, type IRNode } from "@/core/ir";
 import { applyCommands, prepareCommands, type EditorCommand } from "@/core/ir-command";
 import { promoteLegacyComponents, resolveComponents } from "@/core/ir-component";
@@ -334,6 +335,10 @@ test("component styles: base / 768 / 375 / hover targets from mediaText + state;
     { op: "setStyle", id: "h", target: "hover", changes: { color: "pink" } },
   ]);
   expect(skipped).toHaveLength(2);
+  // Save: the skipped rules name the GrapesJS element id; irIdsByElementId maps it to the IR node for Fidelity
+  const irIds = irIdsByElementId(json.components);
+  expect(irIds.get("iabc")).toBe("h");
+  expect(styleTargetFidelity("p1", skipped, (x) => irIds.get(x)).map((x) => [x.feature, x.status, x.nodeId])).toEqual([["style-target", "unsupported", "h"], ["style-target", "unsupported", "h"]]);
   const h = section(apply(d, commands), "p1-s1").children[0]!;
   expect(h.styles).toEqual({ base: { color: "red", "font-size": "40px" }, bp: { 768: { color: "blue" }, 375: { color: "green" } }, state: { hover: { color: "pink" } }, pseudo: {} });
 

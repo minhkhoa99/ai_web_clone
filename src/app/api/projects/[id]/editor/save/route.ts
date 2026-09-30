@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppError, Codes } from "@/core/errors";
-import { grapesToCommands } from "@/core/grapes-adapter";
+import { refreshFidelity, styleTargetFidelity } from "@/core/fidelity";
+import { grapesToCommands, irIdsByElementId } from "@/core/grapes-adapter";
 import { loadEditable } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { handle, jsonBody, requireProject, type IdCtx } from "@/app/_server/http";
@@ -19,7 +20,8 @@ const bodySchema = z.strictObject({
 
 // Lưu: the editor's JSON diffed against the document at baseRevision into editor commands (grapesToCommands), committed
 // as one History step (out/, graph re-emitted, qa.json stale). Stale -> 409 {revision}; a bad edit -> 400.
-// `skipped`: style rules with no IR target (a state at a breakpoint…), reported, never guessed.
+// `skipped`: style rules with no IR target (a state at a breakpoint…), reported, never guessed — and recorded as
+// Fidelity items (style-target, unsupported) in place at the resulting revision: not part of the History step.
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -33,8 +35,13 @@ export function POST(req: Request, { params }: IdCtx) {
       if (doc.revision !== baseRevision) throw new AppError(Codes.STALE_REVISION, `document is at revision ${doc.revision}, not ${baseRevision}`, { revision: doc.revision });
       const commands = grapesToCommands(doc, pageId, project, { ...emit, skipped });
       ops = commands.length;
-      if (ops === 0) return { createdIds: [], ...(await store.historyState(id)) }; // nothing changed: no History step
-      return store.commitCommands(id, baseRevision, commands, "user");
+      // nothing changed: no History step
+      const done = ops === 0 ? { createdIds: [], ...(await store.historyState(id)) } : await store.commitCommands(id, baseRevision, commands, "user");
+      const irIds = irIdsByElementId(project.components);
+      const lost = styleTargetFidelity(pageId, skipped, (elementId) => irIds.get(elementId));
+      // no captures: every item is kept, deduped against earlier saves, a node no longer in the document unlinked
+      if (lost.length) await store.updateFidelity(id, done.revision, (items, ir) => refreshFidelity([...items, ...lost], ir, []));
+      return done;
     });
     return Response.json({ ...result, ops, skipped });
   });

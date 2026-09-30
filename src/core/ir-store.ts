@@ -2,12 +2,16 @@
 // and an optimistic revision CAS. The step commits first (BEGIN IMMEDIATE, no file I/O inside); the injected
 // materializer then writes ir.json/out/graph/QA, and only after it succeeds does materialized_revision catch up.
 // A failed materialization leaves it behind: ensureMaterialized repairs from the snapshot before output is served.
+// Fidelity (E1 §5) is derived data, not an edit: every step re-derives it against the new document (refreshFidelity),
+// and updateFidelity rewrites it in place at the same revision — never a History step, never undone or redone.
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import type { PageCapture } from "./capture";
 import { tx } from "./db";
 import { AppError, Codes } from "./errors";
+import { capFidelity, refreshFidelity } from "./fidelity";
 import { applyCommands, prepareCommands, type EditorCommand, type HistoryCommand } from "./ir-command";
-import type { IRV2 } from "./ir-v2";
+import type { FidelityItem, IRV2 } from "./ir-v2";
 
 export const MAX_HISTORY_STEPS = 500;
 export type EditSource = "user" | "ai_editor";
@@ -17,6 +21,8 @@ export type StoreHooks = {
   loadInitial: (projectId: string) => Promise<IRV2>; // the job's checkpoint (ir.json, v1 migrated), adopted once
   isBusy?: (projectId: string) => boolean; // a queued/active job owns the project's files
   onUserEdit?: (projectId: string) => void; // runs inside the step's transaction
+  captures?: (projectId: string) => Promise<PageCapture[]>; // the capture evidence Fidelity is re-derived from
+  mirror?: (projectId: string, ir: IRV2) => Promise<void>; // writes the document file only (a Fidelity-only change); default: materialize
 };
 type State = { ir_json: string; revision: number; cursor: number; materialized_revision: number };
 type Change = { ir: IRV2; createdIds: string[]; cursor: number; step?: { forward: string; inverse: string } };
@@ -71,18 +77,22 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
   async function change(id: string, baseRevision: number, source: EditSource, apply: (ir: IRV2, cursor: number) => Change): Promise<EditResult> {
     assertIdle(id);
     await ensureState(id);
+    // unreadable captures never block an edit: items are then only carried (a dead node unlinked); the preview's
+    // next read re-derives them (jobs.previewFidelity)
+    const captures = (await hooks.captures?.(id).catch(() => undefined)) ?? [];
     const result = tx(db, () => {
       assertIdle(id); // re-checked after the await above
       const s = stateOf(id)!;
       if (s.revision !== baseRevision) throw new AppError(Codes.STALE_REVISION, `document is at revision ${s.revision}, not ${baseRevision}`, { revision: s.revision });
       const out = apply(JSON.parse(s.ir_json) as IRV2, s.cursor);
       const revision = s.revision + 1;
+      const fidelity = refreshFidelity(out.ir.fidelity ?? [], out.ir, captures);
       if (out.step) {
         db.prepare("DELETE FROM document_history WHERE project_id=? AND seq>?").run(id, s.cursor); // the Redo branch
         db.prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES(?,?,?,?,?)").run(id, out.cursor, out.step.forward, out.step.inverse, source);
         db.prepare("DELETE FROM document_history WHERE project_id=? AND seq<=?").run(id, out.cursor - MAX_HISTORY_STEPS);
       }
-      db.prepare("UPDATE document_state SET ir_json=?,revision=?,cursor=? WHERE project_id=?").run(JSON.stringify({ ...out.ir, revision }), revision, out.cursor, id);
+      db.prepare("UPDATE document_state SET ir_json=?,revision=?,cursor=? WHERE project_id=?").run(JSON.stringify({ ...out.ir, fidelity, revision }), revision, out.cursor, id);
       if (source === "user") hooks.onUserEdit?.(id);
       return { revision, createdIds: out.createdIds, ...flags(id, out.cursor) };
     }, true);
@@ -122,6 +132,31 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
         const done = applyCommands(ir, JSON.parse(row.forward_json) as HistoryCommand[]);
         return { ir: done.ir, createdIds: done.createdIds, cursor: cursor + 1 };
       }),
+    // Fidelity rewritten in place (capped) at `revision` (null: the stored one): no History row, the revision (and so every
+    // tab's CAS) unchanged, then only the document file is mirrored. Not adopted, a newer revision or a busy project
+    // (the job owns the files) -> null, nothing written. A failed mirror marks the output behind: the next read repairs it.
+    async updateFidelity(id: string, revision: number | null, update: (items: FidelityItem[], ir: IRV2) => FidelityItem[]): Promise<FidelityItem[] | null> {
+      const done = tx(db, () => {
+        const s = stateOf(id);
+        if (!s || (revision !== null && s.revision !== revision) || hooks.isBusy?.(id)) return null;
+        const ir = JSON.parse(s.ir_json) as IRV2;
+        const items = capFidelity(update(ir.fidelity ?? [], ir));
+        const changed = JSON.stringify(items) !== JSON.stringify(ir.fidelity ?? []);
+        if (changed) db.prepare("UPDATE document_state SET ir_json=? WHERE project_id=?").run(JSON.stringify({ ...ir, fidelity: items }), id);
+        return { items, changed };
+      }, true);
+      if (done?.changed) {
+        await serialized(id, async () => {
+          const s = stateOf(id);
+          if (!s || s.materialized_revision < s.revision) return; // a pending repair writes the whole document
+          await (hooks.mirror ?? materialize)(id, JSON.parse(s.ir_json) as IRV2).catch((e: unknown) => {
+            db.prepare("UPDATE document_state SET materialized_revision=? WHERE project_id=? AND revision=?").run(s.revision - 1, id, s.revision);
+            throw Object.assign(new AppError(Codes.DOCUMENT_MATERIALIZE_FAILED, "Fidelity saved but ir.json could not be written; it is repaired on the next read", { revision: s.revision }), { cause: e });
+          });
+        });
+      }
+      return done?.items ?? null;
+    },
     // A queued/active job owns out/ (it re-emits it): no repair then, the output is served as the job left it.
     ensureMaterialized: async (id: string): Promise<void> => {
       if (!hooks.isBusy?.(id)) await materializeOrThrow(id);
