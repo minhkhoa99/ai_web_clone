@@ -1,6 +1,7 @@
 import { promoteLegacyComponents } from "./ir-component";
 import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
+import { capFidelity } from "./fidelity";
 import type { LegacyIR } from "./ir-legacy";
 import { toV2, type IRV2, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
@@ -93,5 +94,7 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
     if (!input.pages.some((page) => object(page) && page.id === section.pageId)) return invalid(`orphan section: ${section.id}`);
     visit(section.root, 1, `page:${section.pageId}`);
   }
-  return promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
+  const ir = promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
+  ir.fidelity = capFidelity(ir.fidelity); // promotion adds per-page component items after toV2's cap
+  return ir;
 }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileExists, writeFileAtomic } from "./fsx";
 import { AppError, Codes } from "./errors";
 import { MAX_CAPTURE_NODES as MAX_NODES, mapLimit } from "./limit";
-import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage, fontsReadyInPage } from "./capture-eval";
+import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, readCssomVarsInPage, fontsReadyInPage, inventoryInPage } from "./capture-eval";
 import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
 import { scanInteractions, type Interaction } from "./interactions";
@@ -213,7 +213,11 @@ export type PageCapture = {
   assets: Record<string, string>;
   skippedAssets: DownloadResult["skipped"];
   dynamic: DynamicAsset[];
+  inventory?: CaptureInventory; // absent in captures written before E1 Task 11
 };
+
+// Counts only (see inventoryInPage): what the clone cannot reproduce, for Fidelity.
+export type CaptureInventory = { scripts: number; iframes: number; canvases: number; skippedNodes: number };
 
 export type PageCaptureMeta = {
   pageId: string;
@@ -286,6 +290,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
 
       const cssom = await readCssom(page);
       const breakpoints = await captureResponsive(page);
+      const inventory = await evalOrCrash(page, "Inventory", () => page.evaluate(inventoryInPage, MAX_NODES));
       const { dynamic, warnings: canvasWarnings } = await captureCanvases(page, workspaceDir);
       const interactions = await scanInteractions(page, { stateSelectors: cssom.stateSelectors });
       const { title, meta } = await readPageMeta(page);
@@ -307,6 +312,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
         assets: Object.fromEntries(assets),
         skippedAssets: skipped,
         dynamic,
+        inventory,
       };
       return await writeCaptureOutput(workspaceDir, pageId, data, breakpoints, skipped, bytes, canvasWarnings);
     } finally {

@@ -71,6 +71,8 @@ test("captures site1 and writes capture.json + shots for all 3 breakpoints", asy
   expect(Array.isArray(raw.interactions)).toBe(true);
   expect(typeof raw.assets).toBe("object");
   expect(Array.isArray(raw.skippedAssets)).toBe(true);
+  // Counts only: 1 <script> + 1 inline onclick, 2 iframes, 1 canvas; no script text is kept.
+  expect(raw.inventory).toEqual({ scripts: 2, iframes: 2, canvases: 1, skippedNodes: 0 });
   // Unused @font-face url() (never requested by the browser) is still downloaded.
   expect(raw.assets[`${site1.url}/unused-font.woff2`]).toMatch(/^assets\/[0-9a-f]+\.woff2$/);
 

@@ -1,6 +1,7 @@
 import type { CaptureNode, PageCapture } from "./capture";
 import type { Decl, StyleSet } from "./dedupe";
 import { AppError, Codes } from "./errors";
+import { buildFidelity, capFidelity } from "./fidelity";
 import type { LegacyIR, LegacyIRNode, LegacyPage, LegacySection } from "./ir-legacy";
 
 export type NodeStyles = {
@@ -132,5 +133,6 @@ export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
   };
   for (const page of result.pages) check(page.shell, page.id);
   for (const section of result.sections) check(section.root, section.pageId);
+  result.fidelity = capFidelity([...result.fidelity, ...buildFidelity(captures, result)]);
   return result;
 }

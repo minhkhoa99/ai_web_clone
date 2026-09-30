@@ -130,8 +130,9 @@ const NTH_STEP = /^([a-zA-Z][\w-]*):nth-of-type\((\d+)\)$/;
 // Matches only the selector forms interactions-eval generates: `#id` start and
 // `tag:nth-of-type(n)` steps from <html>. nth-of-type counts same-tag siblings only,
 // so tags the snapshot skips (script/style/...) never shift the count.
-export function findTrigger(html: Draft, byId: Map<string, Draft>, trigger: string): Draft | undefined {
-  let cur: Draft | undefined;
+type Tree<N> = { tag: string; attrs: Record<string, string>; children: N[] };
+export function findTrigger<N extends Tree<N>>(html: N, byId: Map<string, N>, trigger: string): N | undefined {
+  let cur: N | undefined;
   for (const [i, part] of trigger.split(" > ").entries()) {
     if (i === 0 && part.startsWith("#")) {
       cur = byId.get(unescapeCss(part.slice(1)));
@@ -146,7 +147,7 @@ export function findTrigger(html: Draft, byId: Map<string, Draft>, trigger: stri
   return cur;
 }
 
-export function indexById(node: Draft, out: Map<string, Draft>): Map<string, Draft> {
+export function indexById<N extends Tree<N>>(node: N, out: Map<string, N>): Map<string, N> {
   const id = node.attrs.id;
   if (id !== undefined && !out.has(id)) out.set(id, node);
   for (const child of node.children) indexById(child, out);

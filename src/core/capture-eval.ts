@@ -1,4 +1,4 @@
-import type { CaptureNode } from "./capture";
+import type { CaptureInventory, CaptureNode } from "./capture";
 
 export type SnapshotResult = { root: CaptureNode } | { limitExceeded: true };
 
@@ -360,4 +360,23 @@ export function readCssomVarsInPage(names: string[]): Record<string, string> {
 // answers must not hang capture or QA). false = the cap won.
 export function fontsReadyInPage(ms: number): Promise<boolean> {
   return Promise.race([document.fonts.ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+}
+
+// Runs inside the page: counts only (never script bodies, attribute values or form values) of what the snapshot
+// does not reproduce. scripts = <script> elements + elements with inline on* handlers (the snapshot strips them);
+// iframes = iframe/frame/object/embed; skippedNodes = template/noscript (dropped by the snapshot). The handler
+// scan stops after maxWalk elements (the snapshot refuses bigger DOMs anyway).
+export function inventoryInPage(maxWalk: number): CaptureInventory {
+  const count = (selector: string) => document.querySelectorAll(selector).length;
+  let handlers = 0;
+  const all = document.getElementsByTagName("*");
+  for (let i = 0; i < all.length && i < maxWalk; i++) {
+    if (all[i]!.getAttributeNames().some((name) => name.startsWith("on"))) handlers++;
+  }
+  return {
+    scripts: count("script") + handlers,
+    iframes: count("iframe, frame, object, embed"),
+    canvases: count("canvas"),
+    skippedNodes: count("template, noscript"),
+  };
 }
