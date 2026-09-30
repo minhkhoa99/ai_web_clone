@@ -35,13 +35,22 @@ export function POST(req: Request, { params }: IdCtx) {
       if (doc.revision !== baseRevision) throw new AppError(Codes.STALE_REVISION, `document is at revision ${doc.revision}, not ${baseRevision}`, { revision: doc.revision });
       const commands = grapesToCommands(doc, pageId, project, { ...emit, skipped });
       ops = commands.length;
-      // nothing changed: no History step
-      const done = ops === 0 ? { createdIds: [], ...(await store.historyState(id)) } : await store.commitCommands(id, baseRevision, commands, "user");
       const irIds = irIdsByElementId(project.components);
       const lost = styleTargetFidelity(pageId, skipped, (elementId) => irIds.get(elementId));
-      // no captures: every item is kept, deduped against earlier saves, a node no longer in the document unlinked
-      if (lost.length) await store.updateFidelity(id, done.revision, (items, ir) => refreshFidelity([...items, ...lost], ir, []));
-      return done;
+      let revision: number | undefined;
+      try {
+        // nothing changed: no History step
+        const done = ops === 0 ? { createdIds: [], ...(await store.historyState(id)) } : await store.commitCommands(id, baseRevision, commands, "user");
+        revision = done.revision;
+        return done;
+      } catch (e) {
+        // committed, output behind: the step's revision rides on the error (the next read repairs the output)
+        if (e instanceof AppError && e.code === Codes.DOCUMENT_MATERIALIZE_FAILED) revision = e.context?.revision as number | undefined;
+        throw e;
+      } finally {
+        // no captures: every item is kept, deduped against earlier saves, a node no longer in the document unlinked
+        if (lost.length && revision !== undefined) await store.updateFidelity(id, revision, (items, ir) => refreshFidelity([...items, ...lost], ir, []));
+      }
     });
     return Response.json({ ...result, ops, skipped });
   });

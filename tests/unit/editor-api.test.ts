@@ -251,6 +251,26 @@ test("Lưu (legacy save URL) commits through the document store: GET editor work
   expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(3);
 });
 
+test("Lưu whose materialization fails still records the skipped style targets as Fidelity at the committed revision", async () => {
+  const id = await seed();
+  const ws = join(config.workspaceRoot, id);
+  const data = await editorData(id);
+  const top = findText(data.components, "Top")!;
+  top.content = "Saved title";
+  const host = (function find(cs: Comp[]): Comp | undefined {
+    for (const c of cs) if (c.attributes?.["data-ir-id"] && c.components?.includes(top)) return c; else { const hit = find(c.components ?? []); if (hit) return hit; }
+    return undefined;
+  })(data.components)!;
+  host.attributes!.id = "ihost";
+  const styles = [{ selectors: ["#ihost"], style: { color: "red" }, state: "hover", mediaText: "(max-width: 767.98px)", atRuleType: "media" }];
+  await mkdir(join(ws, "qa.json", "x"), { recursive: true }); // the materializer can't mark QA stale
+  const saved = await post(saveRoute, id, { baseRevision: 0, pageId: data.pageId, project: { components: data.components, styles } });
+  expect([saved.status, ((await saved.json()) as { code: string }).code]).toEqual([500, "DOCUMENT_MATERIALIZE_FAILED"]);
+  const doc = await projectDocuments(getDb()).readDocument(id);
+  expect(doc.revision).toBe(1);
+  expect(doc.fidelity.filter((x) => x.feature === "style-target")).toEqual([expect.objectContaining({ status: "unsupported", nodeId: host.attributes!["data-ir-id"] })]);
+});
+
 test("Gộp layout (legacy promote URL) is a promoteLayout command: baseRevision required, stale -> 409, invalid -> 400", async () => {
   const id = await seed();
   expect((await post(promoteRoute, id, { sectionIds: ["a", "b"] })).status).toBe(400);
