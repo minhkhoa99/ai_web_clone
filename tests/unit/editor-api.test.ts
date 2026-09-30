@@ -205,6 +205,8 @@ test("output gate: a failed materialization never serves out/; the next read rep
   expect(gated.headers.get("content-security-policy")).toContain("sandbox");
   expect(gated.headers.get("retry-after")).toBeTruthy();
   expect((await getFile(id, "pages", "home", "capture.json")).status).toBe(404); // non-out paths: unchanged rules
+  const editor = await getEditor(id); // the editor reads behind the same gate: a retryable 503, not a 500
+  expect([editor.status, ((await editor.json()) as { code: string }).code]).toEqual([503, "DOCUMENT_MATERIALIZE_FAILED"]);
 
   await rename(join(ws, "pages.hidden"), join(ws, "pages.json"));
   const repaired = await getFile(id, "out", "index.html");

@@ -2,7 +2,7 @@ import { irToGrapes } from "@/core/grapes-adapter";
 import { loadEditable, projectDocuments } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, type IdCtx } from "@/app/_server/http";
-import { requireEditable } from "@/app/_server/session";
+import { ensureOutput, requireEditable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export function GET(req: Request, { params }: IdCtx) {
     const db = getDb();
     requireEditable(db, requireProject(db, id));
     const store = projectDocuments(db);
-    await store.ensureMaterialized(id);
+    await ensureOutput(db, id);
     const { doc, ir, emit } = await loadEditable(db, id).catch((e: unknown) => {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new ApiError(409, "NO_IR", "the clone has no IR yet: resume it first");
       throw e;
