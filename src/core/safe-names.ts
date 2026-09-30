@@ -18,7 +18,7 @@ export const attrsSchema = z.record(
 );
 
 // Browsers strip whitespace/control chars before reading the scheme ("java\tscript:" still runs).
-const isJavascriptUrl = (value: string) => value.replace(/[\u0000-\u0020]/g, "").toLowerCase().startsWith("javascript:");
+const isJavascriptUrl = (value: string) => value.replace(/[\u0000- ]/g, "").toLowerCase().startsWith("javascript:");
 const SVG_ANIMATION = new Set(["animate", "set"]);
 const ANIMATION_VALUES = new Set(["values", "to", "from", "by"]);
 
@@ -29,11 +29,21 @@ export function isScriptValue(tag: string, name: string, value: string): boolean
   return SVG_ANIMATION.has(tag.toLowerCase()) && ANIMATION_VALUES.has(name.toLowerCase()) && value.split(";").some(isJavascriptUrl);
 }
 
-// A CSS declaration that cannot break out of its rule.
+// A CSS declaration that cannot break out of its rule: no `{};<`, comment marker or line break (a line break ends a
+// CSS string), every quote closed and no dangling backslash (either would swallow what the emitter writes next).
 export const CSS_PROP = /^-?[a-z][a-z0-9-]*$/;
-const CSS_BREAKOUT = /[{};<]/;
+const CSS_BREAKOUT = /[{};<\n\r\f]|\/\*|\*\//;
+function closed(value: string): boolean {
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]!;
+    if (ch === "\\") { if (++i === value.length) return false; } // an escape takes the next character
+    else if (quote ? ch === quote : ch === '"' || ch === "'") quote = quote ? "" : ch;
+  }
+  return !quote;
+}
 export const isSafeCss = (prop: string, value: unknown): value is string =>
-  CSS_PROP.test(prop) && typeof value === "string" && value !== "" && !CSS_BREAKOUT.test(value);
+  CSS_PROP.test(prop) && typeof value === "string" && value !== "" && !CSS_BREAKOUT.test(value) && closed(value);
 
 // Attributes an editor command may write: attrsSchema, nothing the emitter drops (class/srcdoc/script URLs),
 // no inline style (styles are the source of truth) and no __proto__ key.
