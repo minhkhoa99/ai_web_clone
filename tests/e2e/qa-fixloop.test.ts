@@ -8,7 +8,11 @@ import { PNG } from "pngjs";
 import { openBrowser, type BrowserHandle } from "@/core/browser";
 import { serveDir } from "@/core/serve";
 import { capturePage, type PageCapture } from "@/core/capture";
-import { applyPatch, buildIR, type IR, type PatchOp, type Section } from "@/core/ir";
+import { buildIR } from "@/core/ir";
+import { applyCommands, type EditorCommand } from "@/core/ir-command";
+import { migrateIR } from "@/core/ir-migrate";
+import type { IRV2 } from "@/core/ir-v2";
+import { compileV2 } from "@/core/emit-html";
 import { openDb } from "@/core/db";
 import { contextForFix, writeGraph } from "@/core/graph";
 import { AppError } from "@/core/errors";
@@ -29,8 +33,9 @@ let handle: BrowserHandle;
 let tmp: string;
 let server: { url: string; close(): Promise<void> };
 let cap: PageCapture;
-let ir: IR;
-let broken: IR;
+type Section = IRV2["sections"][number];
+let ir: IRV2;
+let broken: IRV2;
 let db: DatabaseSync;
 let workspaceDir: string;
 let url: string;
@@ -39,10 +44,11 @@ let header: Section;
 let features: Section;
 let footer: Section;
 
-const restore = (s: Section): PatchOp => ({ op: "setStyle", id: s.root.id, style: { "background-color": ir.classes[s.root.cls[0]!]?.base["background-color"] ?? "rgba(0, 0, 0, 0)" } });
-const reply = (ops: PatchOp[]) => ({ text: JSON.stringify({ ops }), tokens: 10 });
+const restore = (s: Section): EditorCommand => ({ op: "setStyle", id: s.root.id, target: "base", changes: { "background-color": s.root.styles.base["background-color"] ?? null } });
+const reply = (commands: EditorCommand[]) => ({ text: JSON.stringify({ commands }), tokens: 10 });
 const newCtx = (): FixCtx => ({ db, projectId: "p1", handle, workspaceDir, ir: broken, captures: [cap], emit: { assetMap: cap.assets, pageUrls: { home: url } }, threshold: 0.95 });
-const bgOf = (x: IR, id: string) => x.classes[x.sections.find((s) => s.id === id)!.root.cls[0]!]?.base["background-color"];
+const bgOf = (x: IRV2, id: string) => x.sections.find((s) => s.id === id)!.root.styles.base["background-color"];
+const historyRows = () => (db.prepare("SELECT count(*) AS n FROM document_history").get() as { n: number }).n;
 const logsTo = (ctx: FixCtx): string[] => {
   const lines: string[] = [];
   ctx.log = (level, message) => lines.push(`${level} ${message}`);
@@ -59,15 +65,15 @@ beforeAll(async () => {
   url = `${server.url}/index.html`;
   const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
   cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
-  ir = buildIR([cap]);
+  ir = migrateIR(buildIR([cap]), [cap]);
   const bySection = (pred: (s: Section) => boolean) => ir.sections.find(pred)!;
   hero = bySection((s) => JSON.stringify(s.root).includes("Build faster sites"));
   header = bySection((s) => s.root.tag === "header");
   features = bySection((s) => JSON.stringify(s.root).includes("Rated top"));
   footer = bySection((s) => s.root.tag === "footer");
-  broken = applyPatch(ir, [hero, header, features].map((s) => ({ op: "setStyle", id: s.root.id, style: RED })));
+  broken = applyCommands(ir, [hero, header, features].map((s) => ({ op: "setStyle" as const, id: s.root.id, target: "base" as const, changes: RED }))).ir;
   db = openDb(":memory:");
-  writeGraph(db, "p1", broken, cap.assets);
+  writeGraph(db, "p1", compileV2(broken), cap.assets);
 });
 
 afterAll(async () => {
@@ -78,7 +84,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   generateMock.mockReset();
-  writeGraph(db, "p1", broken, cap.assets); // accepted patches rewrite the graph
+  writeGraph(db, "p1", compileV2(broken), cap.assets); // accepted candidates rewrite the graph
 });
 
 test("a patch restoring the background passes the gate in one round; inspector evidence precedes the AI call", async () => {
@@ -101,7 +107,7 @@ test("a patch restoring the background passes the gate in one round; inspector e
 });
 
 test("a harmful patch is reverted every round: score never drops, section ends red", async () => {
-  generateMock.mockResolvedValue(reply([{ op: "setStyle", id: hero.root.id, style: { display: "none" } }]));
+  generateMock.mockResolvedValue(reply([{ op: "setStyle", id: hero.root.id, target: "base", changes: { display: "none" } }]));
   const ctx = newCtx();
   const logs = logsTo(ctx);
   const res = await fixSection(ctx, hero.id, "home");
@@ -114,6 +120,7 @@ test("a harmful patch is reverted every round: score never drops, section ends r
   }
   expect(logs[6]).toMatch(new RegExp(`^warn ${at}: đỏ điểm ${pct} sau 3 vòng$`));
   expect(ctx.ir).toBe(broken);
+  expect(historyRows()).toBe(0); // a fix round is never an interactive History step
   expect(generateMock).toHaveBeenCalledTimes(3);
   for (let i = 0; i < 3; i++) expect(userText(i)).toContain("A11Y_SNAPSHOT");
   // No regression: the result is the unpatched score (well above the 0 of a hidden section).
@@ -127,7 +134,7 @@ test("an accepted patch is written to the graph: the next round's context shows 
   const ctx = { ...newCtx(), threshold: 1.01 }; // unreachable: round 1 is accepted, rounds 2-3 re-send it
   const res = await fixSection(ctx, hero.id, "home");
   expect(res).toMatchObject({ rounds: 3, patched: true, status: "red" });
-  const fixedCls = ctx.ir.sections.find((s) => s.id === hero.id)!.root.cls[0]!;
+  const fixedCls = compileV2(ctx.ir).sections.find((s) => s.id === hero.id)!.root.cls[0]!;
   const contextOf = (call: number) => userText(call).slice(userText(call).indexOf("CONTEXT "));
   expect(contextOf(0)).not.toContain(fixedCls);
   expect(contextOf(1)).toContain(fixedCls);
@@ -275,3 +282,72 @@ test("AI_TOO_LARGE spends that section's round; its next rounds go without image
   expect(logs).toContainEqual(`warn fix home:${hero.id} vòng 1: request quá lớn (AI_TOO_LARGE), vòng sau bỏ ảnh và giảm ngữ cảnh`);
   expect(logs.some((l) => l.includes("AI dừng"))).toBe(false);
 });
+
+test("create/move/delete commands inside the section land together with the fix; new ids come from the server", async () => {
+  const last = hero.root.children.at(-1)!;
+  const commands: EditorCommand[] = [
+    restore(hero),
+    { op: "createNode", parentId: hero.root.id, index: 0, draft: { tag: "span", attrs: { "data-k": "ai" } } },
+    { op: "moveNode", id: last.id, parentId: hero.root.id, index: hero.root.children.length }, // counted after lifting: back in place
+  ];
+  generateMock.mockResolvedValue(reply(commands));
+  const ctx = newCtx();
+  const res = await fixSection(ctx, hero.id, "home");
+  expect(res).toMatchObject({ rounds: 1, patched: true, status: "pass" });
+  const root = ctx.ir.sections.find((s) => s.id === hero.id)!.root;
+  const created = root.children[0]!;
+  expect(created).toMatchObject({ tag: "span", attrs: { "data-k": "ai" }, parentId: hero.root.id });
+  expect(allIds(broken).has(created.id)).toBe(false); // server-allocated, never the AI's
+  expect(root.children.slice(1).map((c) => c.id)).toEqual(hero.root.children.map((c) => c.id));
+  expect(historyRows()).toBe(0);
+
+  // delete: re-break the section, then a fix that also deletes the created node is accepted
+  const rebroken = applyCommands(ctx.ir, [{ op: "setStyle", id: hero.root.id, target: "base", changes: RED }]).ir;
+  generateMock.mockReset().mockResolvedValue(reply([restore(hero), { op: "deleteNode", id: created.id }]));
+  const again = { ...newCtx(), ir: rebroken };
+  expect(await fixSection(again, hero.id, "home")).toMatchObject({ rounds: 1, patched: true, status: "pass" });
+  expect(allIds(again.ir).has(created.id)).toBe(false);
+  expect(again.ir.sections.find((s) => s.id === hero.id)!.root.children.map((c) => c.id)).toEqual(hero.root.children.map((c) => c.id));
+});
+
+test("an empty commands array spends the round as 'no fix'; a command the core refuses spends it too", async () => {
+  generateMock
+    .mockResolvedValueOnce(reply([]))
+    .mockResolvedValueOnce(reply([{ op: "setAttribute", id: hero.root.id, name: "onclick", value: "x()" }]))
+    .mockResolvedValueOnce(reply([restore(hero)]));
+  const ctx = newCtx();
+  const logs = logsTo(ctx);
+  const res = await fixSection(ctx, hero.id, "home");
+  expect(res).toMatchObject({ rounds: 3, patched: true, status: "pass" });
+  const at = `fix home:${hero.id}`;
+  expect(logs).toContain(`info ${at} vòng 1: AI không đưa lệnh sửa nào`);
+  expect(logs).toContain(`warn ${at} vòng 2: lệnh bị IR từ chối`);
+});
+
+test("parallel sections: a created node keeps its server id when reapplied onto the sibling's accepted IR", async () => {
+  generateMock.mockImplementation(async (_db, opts) => {
+    const text = opts.messages.map((m) => m.content).join("\n");
+    const s = text.includes(`SECTION ${hero.id} `) ? hero : header;
+    return reply([restore(s), { op: "createNode", parentId: s.root.id, index: s.root.children.length, draft: { tag: "span" } }]);
+  });
+  const ctx = newCtx();
+  const all = await fixAll(ctx, [hero, header].map((s) => ({ sectionId: s.id, pageId: "home" })));
+  expect(all.map((r) => r.patched)).toEqual([true, true]);
+  const added = [hero, header].map((s) => ctx.ir.sections.find((x) => x.id === s.id)!.root.children.at(-1)!);
+  for (const n of added) expect(n.tag).toBe("span");
+  expect(new Set(added.map((n) => n.id)).size).toBe(2);
+  // both created ids are in the graph written from the merged IR (the same ids the candidates were scored with)
+  const graphIds = JSON.stringify(db.prepare("SELECT data_json FROM nodes WHERE project_id='p1' AND type='Section'").all());
+  for (const n of added) expect(graphIds).toContain(n.id);
+});
+
+function allIds(x: IRV2): Set<string> {
+  const out = new Set<string>();
+  const walk = (n: { id: string; children: { id: string; children: unknown[] }[] }): void => {
+    out.add(n.id);
+    n.children.forEach((c) => walk(c as never));
+  };
+  x.sections.forEach((s) => walk(s.root));
+  x.pages.forEach((p) => walk(p.shell));
+  return out;
+}

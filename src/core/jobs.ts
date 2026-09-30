@@ -255,8 +255,12 @@ async function loadCaptures(run: EmitSource): Promise<PageCapture[]> {
   return run.captures;
 }
 
+// The pipeline's v1 view: ir.json is v1 until the fix phase (or an editor step) writes the v2 document.
 async function loadIr(run: Run): Promise<IR> {
-  run.ir ??= JSON.parse(await readFile(join(run.ws, "ir.json"), "utf8")) as IR;
+  if (!run.ir) {
+    const raw = JSON.parse(await readFile(join(run.ws, "ir.json"), "utf8")) as IR | IRV2;
+    run.ir = "version" in raw && raw.version === 2 ? compileV2(raw) : (raw as IR);
+  }
   return run.ir;
 }
 
@@ -547,10 +551,11 @@ async function runQa(run: Run): Promise<boolean> {
   return true;
 }
 
-// The fixed IR -> ir.json, out/, graph, qa.json: done before the fix tasks' checkpoint.
+// The fixed v2 document -> ir.json, out/, graph, qa.json: done before the fix tasks' checkpoint. A pipeline
+// checkpoint, not a History step: no document_history row (syncing an adopted document_state is Task 13).
 async function persistFixes(run: Run, ctx: FixCtx): Promise<void> {
-  run.ir = ctx.ir;
-  await writeJsonAtomic(join(run.ws, "ir.json"), run.ir);
+  await writeJsonAtomic(join(run.ws, "ir.json"), ctx.ir);
+  run.ir = compileV2(ctx.ir);
   await emitOut(run, run.ir);
   await scoreAll(run, run.ir);
 }
@@ -569,13 +574,17 @@ async function runFixes(run: Run): Promise<boolean> {
     const i = t.key.indexOf(":");
     return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1) };
   });
+  const captures = await loadCaptures(run);
+  // The fix loop edits IR v2 through the command core. ir.json is read as-is (not the loadIr view): v1 is migrated
+  // here at the boundary (until Task 13's v2 pipeline); a v2 file (a resumed fix) keeps its components/fidelity.
+  const doc = migrateIR(JSON.parse(await readFile(join(run.ws, "ir.json"), "utf8")), captures);
   const ctx: FixCtx = {
     db: run.db,
     projectId: run.projectId,
     handle: run.handle,
     workspaceDir: run.ws,
-    ir: await loadIr(run),
-    captures: await loadCaptures(run),
+    ir: doc,
+    captures,
     emit: await emitOpts(run),
     threshold: run.cfg.threshold,
     signal: run.signal,
@@ -583,7 +592,7 @@ async function runFixes(run: Run): Promise<boolean> {
     onRetry: retryLogger(run, "fix"),
   };
   // The graph from the persisted IR: after a crash mid-fix it may hold an accepted-but-unsaved patch.
-  writeGraph(run.db, run.projectId, ctx.ir, ctx.emit.assetMap);
+  writeGraph(run.db, run.projectId, compileV2(ctx.ir), ctx.emit.assetMap);
   let results: FixResult[];
   try {
     results = await run.deps.fixAll(ctx, targets);

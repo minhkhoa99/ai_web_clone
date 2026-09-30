@@ -331,14 +331,17 @@ test("a transient AI error after a sibling section's patch was merged: the patch
     openBrowser: fakeOpen,
     scoreSections: async () => [],
     fixAll: async (ctx: FixCtx): Promise<never> => {
+      expect(ctx.ir.version).toBe(2); // the v1 ir.json is migrated at the fix-phase boundary
       ctx.ir = { ...ctx.ir, sections: ctx.ir.sections.map((s, i) => (i === 0 ? { ...s, name: "patched-by-sibling" } : s)) };
       throw new AppError("AI_RATE_LIMIT", "rate limited after 3 retries");
     },
   };
   await runProject(db, id, { deps });
   expect(statusOf(db, id)).toBe("completed");
-  const saved = JSON.parse(await readFile(join(config.workspaceRoot, id, "ir.json"), "utf8")) as { sections: { name: string }[] };
+  const saved = JSON.parse(await readFile(join(config.workspaceRoot, id, "ir.json"), "utf8")) as { version: number; sections: { name: string }[] };
   expect(saved.sections[0]!.name).toBe("patched-by-sibling");
+  expect(saved.version).toBe(2); // the v2 document is persisted, as a pipeline checkpoint only
+  expect(db.prepare("SELECT count(*) AS n FROM document_history WHERE project_id=?").get(id)).toEqual({ n: 0 });
 });
 
 // n named pages over an empty IR (no sections): capture/ir/emit/qa done, one pending fix task.
@@ -350,7 +353,7 @@ async function namesReady(n: number) {
   const pageIds = pageIdsFor(urls);
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
-  await writeFile(join(ws, "ir.json"), JSON.stringify({ ...buildIR([]), pages: pageIds.map((p) => ({ id: p, path: `/${p}`, sectionIds: [] })) }));
+  await writeFile(join(ws, "ir.json"), JSON.stringify({ ...buildIR([]), pages: pageIds.map((p) => ({ id: p, path: `/${p}`, sectionIds: [], shell: { id: `${p}:0`, tag: "html", attrs: {}, cls: [], children: [] } })) }));
   const set = db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=? AND phase=?");
   for (const phase of ["capture", "ir", "emit", "qa"]) set.run(id, phase);
   db.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES('fx',?,'fix','p0:s1','pending')").run(id);
@@ -405,7 +408,7 @@ test("5 AI_BAD_RESPONSE in a row while naming still opens the circuit: project f
 test("4 naming AI failures then a transient AI error in fixAll (the 5th in a row): project failed + AI_CIRCUIT_OPEN", async () => {
   const { db, id, pageIds } = await namesReady(4);
   // every capture task points at `x`: a minimal capture so the fix phase can build its context
-  await writeFile(join(config.workspaceRoot, id, "x"), JSON.stringify({ pageId: pageIds[0], url: "http://x.test/p0", assets: {} }));
+  await writeFile(join(config.workspaceRoot, id, "x"), JSON.stringify({ pageId: pageIds[0], url: "http://x.test/p0", assets: {}, breakpoints: [] }));
   const events: JobEvent[] = [];
   const off = subscribe(id, (e) => events.push(e));
   const deps = {

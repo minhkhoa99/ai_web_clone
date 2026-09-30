@@ -1,6 +1,9 @@
 // QA fix loop (spec §9): <=3 AI rounds per failing section. Before every AI call the orchestrator
 // gathers inspector evidence; each candidate IR is emitted + scored in its own temp dir and only
 // accepted when its min score over the breakpoints rises, so a section's score never regresses.
+// The AI edits the IR v2 document through the editor command core (E1 spec §2); a fix is a pipeline checkpoint,
+// never an interactive History step (no document_history row).
+import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -9,17 +12,18 @@ import { PNG } from "pngjs";
 import { z } from "zod";
 import { evalWithTimeout, withPage, type BrowserHandle } from "./browser";
 import type { CaptureNode, PageCapture } from "./capture";
-import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
+import { compileV2, emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
 import { writeFileAtomic } from "./fsx";
 import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
-import { applyPatch, type IR, type IRNode, type PatchOp } from "./ir";
+import type { IR } from "./ir";
+import { applyCommands, COMMAND_LIMITS, prepareCommands, type EditorCommand, type NodeDraft, type NormalizedCommand } from "./ir-command";
+import type { IRV2 } from "./ir-v2";
 import { mapLimit } from "./limit";
 import { fitImages, fitRequest, MAX_IMAGES_B64, MAX_IMAGE_WIDTH } from "./naming";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
-import { attrsSchema, tagSchema } from "./safe-names";
 import { serveDir } from "./serve";
 import { STOP_AI, STOP_AI_CODES } from "./statuses";
 
@@ -28,7 +32,7 @@ export type FixCtx = {
   projectId: string;
   handle: BrowserHandle;
   workspaceDir: string;
-  ir: IR; // current best, replaced on every accepted patch
+  ir: IRV2; // current best, replaced on every accepted candidate
   captures: PageCapture[];
   emit: Pick<RenderOpts, "assetMap" | "pageUrls">;
   threshold?: number; // default 0.95
@@ -57,9 +61,6 @@ const MAX_ROUNDS = 3;
 const MAX_GENERATE_CALLS = 6; // per round; asTools already throws on the 6th tool call
 const FOCUS_NODES = 20;
 const MAX_FOCUS_CHARS = 20_000;
-const MAX_OPS = 50;
-const MAX_SUBTREE_DEPTH = 20;
-const MAX_SUBTREE_NODES = 500;
 const FIX_CONCURRENCY = 2;
 const DEFAULT_THRESHOLD = 0.95;
 const DEFAULT_CONTEXT_CHARS = 24_000;
@@ -67,57 +68,39 @@ const RM_OPTS = { recursive: true, force: true, maxRetries: 3 }; // Windows: a j
 
 const SYSTEM_PROMPT = `You fix one section of a static HTML clone so it renders like the original page.
 Images: original crop, clone crop, heat map (red = differing pixels).
-Reply with JSON only: {"ops": [...]} with at most ${MAX_OPS} ops, each one of
-{"op":"setStyle","id":string,"style":{cssProp:value}} | {"op":"setAttr","id":string,"attrs":{name:value}} |
-{"op":"setText","id":string,"text":string} | {"op":"replaceSubtree","id":string,"node":IRNode} | {"op":"setBehavior","id":string,"behavior":string}.
-Only node ids inside this section are allowed. Before answering you may call the inspector tools on the clone (target "clone", at most 5 calls).`;
+Reply with JSON only: {"commands": [...]} with at most ${COMMAND_LIMITS.commands} commands ([] = no change), each one of
+{"op":"setStyle","id":string,"target":"base"|768|375|"hover"|"focus"|"active"|"before"|"after","changes":{cssProp:value|null}} (null removes the prop) |
+{"op":"setText","id":string,"text":string} (a "#text" node) | {"op":"setAttribute","id":string,"name":string,"value":string|null} |
+{"op":"createNode","parentId":string,"index":number,"draft":{"tag":string,"attrs"?:{},"styles"?:{"base"?:{cssProp:value}},"children"?:[draft]}}
+(text goes in a {"tag":"#text","text":string} child; a draft has at most ${COMMAND_LIMITS.nodes} nodes and ${COMMAND_LIMITS.depth} levels; the server assigns its ids) |
+{"op":"moveNode","id":string,"parentId":string,"index":number} (index counted after the node is taken out) |
+{"op":"duplicateNode","id":string,"parentId":string,"index":number} | {"op":"deleteNode","id":string}.
+Every id and parentId must be a node inside this section. CONTEXT shows the rendered classes; setStyle edits the node's own style.
+Before answering you may call the inspector tools on the clone (target "clone", at most 5 calls).`;
 
-const str = z.string();
-const nodeSchema: z.ZodType<IRNode> = z.lazy(() =>
-  z.object({
-    id: str.min(1),
-    tag: tagSchema,
-    attrs: attrsSchema,
-    text: str.optional(),
-    cls: z.array(str),
-    hidden: z.boolean().optional(),
-    states: z.object({ hover: str.optional(), focus: str.optional(), active: str.optional() }).optional(),
-    behavior: str.optional(),
-    children: z.array(nodeSchema),
-  }),
-);
-const replySchema = z.object({
-  ops: z
-    .array(
-      z.discriminatedUnion("op", [
-        z.object({ op: z.literal("setStyle"), id: str, style: z.record(str, str) }),
-        z.object({ op: z.literal("setAttr"), id: str, attrs: attrsSchema }),
-        z.object({ op: z.literal("setText"), id: str, text: str }),
-        z.object({ op: z.literal("replaceSubtree"), id: str, node: nodeSchema }),
-        z.object({ op: z.literal("setBehavior"), id: str, behavior: str }),
-      ]),
-    )
-    .max(MAX_OPS),
-});
+// The QA fix subset of the editor commands (E1 §2): section-local edits only — no replaceSubtree / setBehavior
+// (E1 drops them), no layout/component/hide commands. Shapes only: prepareCommands validates CSS, attrs and drafts.
+const nodeId = z.string().min(1).max(200);
+const index = z.number().int().min(0);
+const commandSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("setStyle"), id: nodeId, target: z.union([z.enum(["base", "hover", "focus", "active", "before", "after"]), z.literal(768), z.literal(375)]), changes: z.record(z.string(), z.string().nullable()) }),
+  z.object({ op: z.literal("setText"), id: nodeId, text: z.string() }),
+  z.object({ op: z.literal("setAttribute"), id: nodeId, name: z.string(), value: z.string().nullable() }),
+  z.object({ op: z.literal("createNode"), parentId: nodeId, index, draft: z.custom<NodeDraft>((v) => typeof v === "object" && v !== null && !Array.isArray(v)) }),
+  z.object({ op: z.literal("moveNode"), id: nodeId, parentId: nodeId, index }),
+  z.object({ op: z.literal("duplicateNode"), id: nodeId, parentId: nodeId, index }),
+  z.object({ op: z.literal("deleteNode"), id: nodeId }),
+]) satisfies z.ZodType<EditorCommand>;
+const replySchema = z.object({ commands: z.array(commandSchema).max(COMMAND_LIMITS.commands) });
 
 const hasCode = (e: unknown, ...codes: Code[]): e is AppError => e instanceof AppError && codes.includes(e.code);
 const errorText = (e: unknown) => `error: ${e instanceof Error ? e.message : String(e)}`;
 const pct = (score: number) => `${(score * 100).toFixed(1)}%`;
 const selectorFor = (id: string) => `[data-ir-id=${JSON.stringify(id)}]`;
 
-// Depth/size cap on a raw replaceSubtree node, checked before zod recurses into it.
-function withinSubtreeLimits(raw: unknown): boolean {
-  let count = 0;
-  const walk = (node: unknown, depth: number): boolean => {
-    if (depth > MAX_SUBTREE_DEPTH || ++count > MAX_SUBTREE_NODES) return false;
-    const kids = (node as { children?: unknown } | null)?.children;
-    return !Array.isArray(kids) || kids.every((k) => walk(k, depth + 1));
-  };
-  return walk(raw, 1);
-}
-
-// Pure. AI reply -> ops, or AI_BAD_RESPONSE (bad JSON, bad shape, or an id outside `allowed`).
-export function parseOps(text: string, allowed: Set<string>): PatchOp[] {
+// Pure. AI reply -> commands ([] = no fix this round), or AI_BAD_RESPONSE (bad JSON, bad shape, an op E1 does not
+// give the AI, or an id / parentId outside `allowed`).
+export function parseCommands(text: string, allowed: Set<string>): EditorCommand[] {
   const bad = (why: string) => new AppError(Codes.AI_BAD_RESPONSE, `fix reply rejected: ${why}`, { reply: text.slice(0, 200) });
   let raw: unknown;
   try {
@@ -125,18 +108,25 @@ export function parseOps(text: string, allowed: Set<string>): PatchOp[] {
   } catch {
     throw bad("not JSON");
   }
-  const rawOps = (raw as { ops?: unknown } | null)?.ops;
-  if (Array.isArray(rawOps) && rawOps.length <= MAX_OPS && !rawOps.every((op) => withinSubtreeLimits((op as { node?: unknown } | null)?.node))) {
-    throw bad(`replaceSubtree node deeper than ${MAX_SUBTREE_DEPTH} or larger than ${MAX_SUBTREE_NODES} nodes`);
-  }
   const parsed = replySchema.safeParse(raw);
-  if (!parsed.success) throw bad(parsed.error.message);
-  const outside = parsed.data.ops.find((op) => !allowed.has(op.id));
-  if (outside) throw bad(`op targets ${outside.id}, outside the section`);
-  return parsed.data.ops;
+  if (!parsed.success) throw bad(parsed.error.message.slice(0, 500));
+  for (const c of parsed.data.commands) {
+    const outside = ["id" in c ? c.id : undefined, "parentId" in c ? c.parentId : undefined].find((id) => id !== undefined && !allowed.has(id));
+    if (outside) throw bad(`${c.op} targets ${outside}, outside the section`);
+  }
+  return parsed.data.commands;
 }
 
-function collectIds(node: IRNode, out: Set<string>): Set<string> {
+// The renderer's v1 view of a document, compiled once per IR object (scoring, inspection and the graph share it).
+const views = new WeakMap<IRV2, IR>();
+function viewOf(ir: IRV2): IR {
+  let view = views.get(ir);
+  if (!view) views.set(ir, (view = compileV2(ir)));
+  return view;
+}
+
+type Tree = { id: string; children: Tree[] };
+function collectIds(node: Tree, out: Set<string>): Set<string> {
   out.add(node.id);
   for (const child of node.children) collectIds(child, out);
   return out;
@@ -183,7 +173,7 @@ function cloneBoxesInPage(rootId: string): [string, number, number, number, numb
 // wrong (or no) captured node; match per bp by content hash if that shows up on real sites.
 function capturedNode(root: CaptureNode | undefined, rootId: string, id: string): CaptureNode | undefined {
   if (id === rootId) return root;
-  if (!id.startsWith(`${rootId}.`)) return undefined; // e.g. a node an earlier replaceSubtree invented
+  if (!id.startsWith(`${rootId}.`)) return undefined; // e.g. a node an earlier createNode added (server uuid)
   let node = root;
   for (const step of id.slice(rootId.length + 1).split(".")) node = node?.children[Number(step)];
   return node;
@@ -191,10 +181,11 @@ function capturedNode(root: CaptureNode | undefined, rootId: string, id: string)
 
 type Scored = { scores: Record<Bp, number>; min: number; worst: SectionScore; files: Map<string, Buffer> };
 
-// Emits `ir` into outDir and scores the one section at every bp; keeps its crops in memory
+// Emits `doc` into outDir and scores the one section at every bp; keeps its crops in memory
 // (scoring the next candidate overwrites them on disk).
-async function scoreIr(ctx: FixCtx, ir: IR, t: FixTarget, outDir: string): Promise<Scored> {
+async function scoreIr(ctx: FixCtx, doc: IRV2, t: FixTarget, outDir: string): Promise<Scored> {
   const { workspaceDir } = ctx;
+  const ir = viewOf(doc);
   await emitHtml(ir, { ...ctx.emit, outDir, workspaceDir });
   const rows = await scoreSections(ctx.handle, { workspaceDir, outDir, ir, captures: ctx.captures, pageIds: [t.pageId], sectionIds: [t.sectionId] });
   if (rows.length === 0) throw new Error(`qa-fix: section ${t.sectionId} is not scored on page ${t.pageId}`);
@@ -226,7 +217,7 @@ export function focusDiff(nodes: FocusNode[], maxChars = MAX_FOCUS_CHARS): Focus
 async function inspect(ctx: FixCtx, page: Page, t: FixTarget, best: Scored, rootId: string): Promise<{ a11y: string; focus: FocusNode[] }> {
   const { bp, heatPath } = best.worst;
   const capture = ctx.captures.find((c) => c.pageId === t.pageId);
-  const root = capture && sectionNodes(capture, ctx.ir, t.pageId, bp).get(t.sectionId);
+  const root = capture && sectionNodes(capture, viewOf(ctx.ir), t.pageId, bp).get(t.sectionId);
   const [a11y, boxes] = await Promise.all([snapshotA11y(page, selectorFor(rootId)).catch(errorText), evalWithTimeout(page, "Section node boxes", cloneBoxesInPage, rootId)]);
   const heat = heatPath ? best.files.get(heatPath) : undefined;
   const focus = heat ? topDiffNodes(PNG.sync.read(heat), boxes, FOCUS_NODES) : [];
@@ -260,11 +251,11 @@ TOOL_CALLS ${JSON.stringify(res.toolCalls)}`.trim(); // the AI's own turn, then 
   throw new AppError(Codes.AI_BAD_RESPONSE, `no patch after ${MAX_GENERATE_CALLS} generate calls`, { projectId: ctx.projectId });
 }
 
-// One round up to the AI's validated ops: evidence -> graph context -> AI. `reduced` (after an AI_TOO_LARGE, hardening
-// spec §8): no images, CONTEXT and FOCUS_NODES at half their budgets.
-async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: string, reduced: boolean): Promise<PatchOp[]> {
+// One round up to the AI's validated commands: evidence -> graph context -> AI. `reduced` (after an AI_TOO_LARGE,
+// hardening spec §8): no images, CONTEXT and FOCUS_NODES at half their budgets.
+async function proposeCommands(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: string, reduced: boolean): Promise<EditorCommand[]> {
   const section = ctx.ir.sections.find((s) => s.id === t.sectionId);
-  const file = pageFileNames(ctx.ir.pages).get(t.pageId);
+  const file = pageFileNames(viewOf(ctx.ir).pages).get(t.pageId);
   if (!section || !file) throw new Error(`qa-fix: unknown section ${t.sectionId} / page ${t.pageId}`);
   const rootId = section.root.id;
   const server = await serveDir(bestDir);
@@ -294,21 +285,26 @@ async function proposeOps(ctx: FixCtx, t: FixTarget, best: Scored, bestDir: stri
         return [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
       };
       const text = await ask(ctx, page, prompt, images);
-      return parseOps(text, collectIds(section.root, new Set()));
+      return parseCommands(text, collectIds(section.root, new Set()));
     });
   } finally {
     await server.close();
   }
 }
 
-function tryApply(ir: IR, ops: PatchOp[]): IR | undefined {
+// undefined: the command core refused the batch (IR_PATCH_INVALID), nothing applied.
+function refused<T>(run: () => T): T | undefined {
   try {
-    return applyPatch(ir, ops);
+    return run();
   } catch (e) {
     if (hasCode(e, Codes.IR_PATCH_INVALID)) return undefined;
     throw e;
   }
 }
+// Server-side ID allocation once per round: the same normalized batch is applied to the candidate and reapplied to
+// the latest shared IR, so a created node keeps its id between the two.
+const prepare = (ir: IRV2, commands: EditorCommand[]) => refused(() => prepareCommands(ir, commands, randomUUID));
+const tryApply = (ir: IRV2, commands: NormalizedCommand[]) => refused(() => applyCommands(ir, commands).ir);
 
 export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string, stop: FixStop = { budget: false }): Promise<FixResult> {
   const t = { sectionId, pageId };
@@ -335,11 +331,18 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
       rounds++;
       const round = ` vòng ${rounds}`;
       log("info", `${round}: bắt đầu (điểm ${pct(best.min)})`);
-      let ops: PatchOp[];
-      let candidateIr: IR | undefined;
+      let commands: NormalizedCommand[] | undefined;
+      let candidateIr: IRV2 | undefined;
+      let base = ctx.ir;
       try {
-        ops = await proposeOps(ctx, t, best, bestDir, reduced);
-        candidateIr = tryApply(ctx.ir, ops);
+        const proposed = await proposeCommands(ctx, t, best, bestDir, reduced);
+        if (proposed.length === 0) {
+          log("info", `${round}: AI không đưa lệnh sửa nào`);
+          continue; // "no fix" is an answer: the round is spent
+        }
+        base = ctx.ir; // a sibling may have been accepted during the AI call
+        commands = prepare(base, proposed);
+        candidateIr = commands && tryApply(base, commands);
       } catch (e) {
         if (ctx.signal?.aborted) throw e; // paused: never a budget / AI stop / spent round
         if (hasCode(e, Codes.BUDGET_EXCEEDED)) {
@@ -364,25 +367,27 @@ export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string,
         }
         throw e;
       }
-      if (!candidateIr) {
-        log("warn", `${round}: ops bị IR từ chối`);
+      if (!commands || !candidateIr) {
+        log("warn", `${round}: lệnh bị IR từ chối`);
         continue; // round spent
       }
 
       candidateDir = tmpDir(rounds);
       const candidate = await scoreIr(ctx, candidateIr, t, candidateDir);
       // Re-apply onto the latest shared IR: a parallel section may have been accepted meanwhile.
-      const merged = candidate.min > best.min ? tryApply(ctx.ir, ops) : undefined;
+      const merged = candidate.min <= best.min ? undefined : ctx.ir === base ? candidateIr : tryApply(ctx.ir, commands);
       if (!merged) {
-        // better, but the latest shared IR (a sibling's accepted patch) rejects the ops: an IR rejection too
-        if (candidate.min > best.min) log("warn", `${round}: ops bị IR từ chối`);
+        // better, but the latest shared IR (a sibling's accepted candidate) rejects the commands: an IR rejection too
+        if (candidate.min > best.min) log("warn", `${round}: lệnh bị IR từ chối`);
         else log("info", `${round}: ứng viên ${pct(candidate.min)} < ${pct(best.min)}, revert`);
         diskIsBest = false;
         await rm(candidateDir, RM_OPTS);
         continue;
       }
       ctx.ir = merged;
-      writeGraph(ctx.db, ctx.projectId, ctx.ir, ctx.emit.assetMap); // next round's contextForFix sees the accepted patch
+      // next round's contextForFix sees the accepted candidate. ponytail: the compiled view has no Component nodes
+      // (same as the editor's materialize) until Task 13's v2 graph.ts
+      writeGraph(ctx.db, ctx.projectId, viewOf(ctx.ir), ctx.emit.assetMap);
       await rm(bestDir, RM_OPTS);
       [bestDir, best, diskIsBest, patched] = [candidateDir, candidate, true, true];
       log("info", `${round}: nhận ứng viên (điểm ${pct(candidate.min)})`);

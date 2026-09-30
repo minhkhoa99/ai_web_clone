@@ -4,44 +4,45 @@ import { PNG } from "pngjs";
 import { generate } from "@/core/gateway";
 import { asTools } from "@/core/inspector";
 import { estimateTokens, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS } from "@/core/naming";
-import { ask, focusDiff, parseOps, type FixCtx } from "@/core/qa-fix";
+import { ask, focusDiff, parseCommands, type FixCtx } from "@/core/qa-fix";
 
 vi.mock("@/core/gateway", async (orig) => ({ ...(await orig<typeof import("@/core/gateway")>()), generate: vi.fn() }));
 vi.mock("@/core/inspector", async (orig) => ({ ...(await orig<typeof import("@/core/inspector")>()), asTools: vi.fn() }));
 
-const allowed = new Set(["s:0", "s:0.1"]);
-const reply = (ops: unknown[]) => JSON.stringify({ ops });
-const node = (tag: string, attrs: Record<string, string> = {}, children: unknown[] = []) => ({ id: "s:0.1", tag, attrs, cls: [], children });
-const rejects = (text: string) => expect(() => parseOps(text, allowed)).toThrow(expect.objectContaining({ code: "AI_BAD_RESPONSE" }));
+const allowed = new Set(["s:0", "s:0.1", "s:0.2"]);
+const reply = (commands: unknown[]) => JSON.stringify({ commands });
+const rejects = (text: string) => expect(() => parseCommands(text, allowed)).toThrow(expect.objectContaining({ code: "AI_BAD_RESPONSE" }));
 
-test("valid ops (optionally fenced) parse; ids outside the section, bad JSON and bad shapes are AI_BAD_RESPONSE", () => {
-  const ops = [
-    { op: "setStyle", id: "s:0", style: { color: "red" } },
-    { op: "replaceSubtree", id: "s:0.1", node: node("p", { "aria-label": "x", "data-k": "v" }, [{ id: "n1", tag: "#text", attrs: {}, text: "hi", cls: [], children: [] }]) },
+test("parseCommands: create/move/delete/style commands inside the section parse (optionally fenced); [] is no fix", () => {
+  const commands = [
+    { op: "setStyle", id: "s:0", target: 768, changes: { color: "red", margin: null } },
+    { op: "setText", id: "s:0.2", text: "hi" },
+    { op: "setAttribute", id: "s:0.1", name: "alt", value: "x" },
+    { op: "createNode", parentId: "s:0", index: 0, draft: { tag: "p", children: [{ tag: "#text", text: "new" }] } },
+    { op: "moveNode", id: "s:0.2", parentId: "s:0.1", index: 0 },
+    { op: "duplicateNode", id: "s:0.1", parentId: "s:0", index: 1 },
+    { op: "deleteNode", id: "s:0.1" },
   ];
-  expect(parseOps(reply(ops), allowed)).toEqual(ops);
-  expect(parseOps("```json\n" + reply(ops) + "\n```", allowed)).toEqual(ops);
+  expect(parseCommands(reply(commands), allowed)).toEqual(commands);
+  expect(parseCommands("```json\n" + reply(commands) + "\n```", allowed)).toEqual(commands);
+  expect(parseCommands(reply([]), allowed)).toEqual([]);
+});
+
+test("parseCommands: ids or parents outside the section, E1-excluded ops, bad JSON/shapes and > 50 commands are AI_BAD_RESPONSE", () => {
+  expect(() => parseCommands('{"commands":[{"op":"deleteNode","id":"outside"}]}', new Set(["inside"]))).toThrow();
+  expect(() => parseCommands('{"commands":[{"op":"replaceSubtree","id":"inside"}]}', new Set(["inside"]))).toThrow();
   rejects(reply([{ op: "setText", id: "other:1", text: "x" }]));
+  rejects(reply([{ op: "moveNode", id: "s:0.1", parentId: "other:0", index: 0 }]));
+  rejects(reply([{ op: "createNode", parentId: "other:0", index: 0, draft: { tag: "div" } }]));
+  rejects(reply([{ op: "duplicateNode", id: "s:0.1", parentId: "other:0", index: 0 }]));
+  rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: { id: "s:0.1", tag: "div", attrs: {}, cls: [], children: [] } }]));
+  rejects(reply([{ op: "setBehavior", id: "s:0", behavior: "ix1" }]));
+  rejects(reply([{ op: "promoteLayout", sectionIds: ["s"] }])); // not a section-local fix
+  rejects(reply([{ op: "setStyle", id: "s:0", target: 1024, changes: { color: "red" } }]));
+  rejects(reply([{ op: "setStyle", id: "s:0", target: "base", changes: { color: 1 } }]));
+  rejects(JSON.stringify({ ops: [{ op: "setStyle", id: "s:0", style: { color: "red" } }] })); // the old PatchOps reply
   rejects("sure, here you go");
-  rejects(reply([{ op: "setStyle", id: "s:0", style: { color: 1 } }]));
-  rejects(reply(Array.from({ length: 51 }, () => ops[0])));
-});
-
-test("replaceSubtree/setAttr reject unsafe tags, event handlers and bad attr names", () => {
-  for (const tag of ["script", "style", "iframe", "object", "embed", "base", "meta", "link", "#section", "Script", 'img src=x onerror="a"', "x>"]) {
-    rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: node(tag) }]));
-  }
-  for (const name of ["onclick", "OnLoad", 'x"', "a b", "1a"]) {
-    rejects(reply([{ op: "setAttr", id: "s:0", attrs: { [name]: "v" } }]));
-    rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: node("div", { [name]: "v" }) }]));
-  }
-});
-
-test("replaceSubtree deeper than 20 or larger than 500 nodes is rejected", () => {
-  let deep = node("div");
-  for (let i = 0; i < 20; i++) deep = node("div", {}, [deep]);
-  rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: deep }]));
-  rejects(reply([{ op: "replaceSubtree", id: "s:0.1", node: node("div", {}, Array.from({ length: 500 }, () => node("span"))) }]));
+  rejects(reply(Array.from({ length: 51 }, () => ({ op: "deleteNode", id: "s:0.1" }))));
 });
 
 test("ask: the inspector's tool screenshots go through fitImages too (every request's images <= MAX_IMAGES_B64 (384 KiB) base64, <= 1024 px wide)", async () => {
