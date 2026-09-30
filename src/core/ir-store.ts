@@ -25,6 +25,7 @@ export type StoreHooks = {
   onUserEdit?: (projectId: string) => void; // runs inside the step's transaction
   captures?: (projectId: string) => Promise<PageCapture[]>; // the capture evidence Fidelity is re-derived from
   mirror?: (projectId: string, ir: IRV2) => Promise<void>; // writes the document file only (a Fidelity-only change); default: materialize
+  onAdopt?: (projectId: string, ir: IRV2) => Promise<void>; // once, after the checkpoint became the document (serialized with output writes)
 };
 type State = { ir_json: string; revision: number; cursor: number; materialized_revision: number };
 type Change = { ir: IRV2; createdIds: string[]; cursor: number; step?: { forward: string; inverse: string } };
@@ -57,8 +58,10 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
     if (found) return found;
     const ir = await hooks.loadInitial(id);
     assertIdle(id); // a job may have been queued during the await: it owns ir.json now
-    db.prepare("INSERT OR IGNORE INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,?,?,0,?)")
+    const { changes } = db.prepare("INSERT OR IGNORE INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,?,?,0,?)")
       .run(id, JSON.stringify(ir), ir.revision, ir.revision);
+    // queued on the output chain: a job's own repair (ensureMaterialized(id, true)) waits for it before scoring
+    if (changes > 0 && hooks.onAdopt) await serialized(id, () => hooks.onAdopt!(id, ir));
     return stateOf(id)!;
   }
 

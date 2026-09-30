@@ -2,7 +2,7 @@
 // editor of a `next build` + `next start` app; one text edited like a user would, saved, re-emitted.
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import { serveDir } from "@/core/serve";
 import { fmtPct } from "@/app/_ui/format";
 import { fidelityCounts } from "@/app/p/[id]/preview/preview-model";
 import type { FidelityItem } from "@/core/ir-v2";
+import type { PageCapture } from "@/core/capture";
 import { offline } from "./offline-deps";
 import { startNextApp } from "./next-app";
 import { parityShot } from "./parity-shots";
@@ -539,4 +540,125 @@ test("preview: after an editor save, 'Chạy lại QA' re-scores through the que
   const after = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as PreviewData;
   expect(after.stale).toBe(false);
   await page.close();
+});
+
+// A v1-era project: the completed clone's rows + workspace copied, ir.json = the v1 build of the same capture and
+// out/ its v1 output (renderView), qa.json fresh; the capture keeps only its 1440 breakpoint (no 768/375 box).
+async function copyAsV1(from: string): Promise<{ id: string; pageId: string }> {
+  const [{ buildLegacyIR }, { renderView }] = await Promise.all([import("@/core/ir"), import("@/core/emit-html")]);
+  const id = randomUUID();
+  const copy = (table: string, key: string, fresh: Record<string, string> = {}) => {
+    const cols = (db!.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    const values = cols.map((c) => (c === key ? "?" : (fresh[c] ?? c)));
+    db!.prepare(`INSERT INTO ${table}(${cols.join(",")}) SELECT ${values.join(",")} FROM ${table} WHERE ${key}=?`).run(id, from);
+  };
+  copy("projects", "id");
+  copy("tasks", "project_id", { id: "lower(hex(randomblob(16)))" });
+  copy("nodes", "project_id");
+  copy("edges", "project_id");
+  const [src, ws] = [join(workspaceRoot, from), join(workspaceRoot, id)];
+  await cp(src, ws, { recursive: true, filter: (p) => !p.startsWith(join(src, "profile")) });
+  const { output_path: capPath } = db!.prepare("SELECT output_path FROM tasks WHERE project_id=? AND phase='capture'").get(id) as { output_path: string };
+  const cap = JSON.parse(await readFile(join(ws, capPath), "utf8")) as PageCapture;
+  const v1 = buildLegacyIR([cap]);
+  await writeFile(join(ws, "ir.json"), JSON.stringify(v1));
+  for (const [rel, text] of Object.entries(renderView(v1, { assetMap: cap.assets, pageUrls: { [cap.pageId]: cap.url } }))) await writeFile(join(ws, "out", rel), text);
+  const qa = JSON.parse(await readFile(join(ws, "qa.json"), "utf8")) as { scores: unknown[] };
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: qa.scores }));
+  await writeFile(join(ws, capPath), JSON.stringify({ ...cap, breakpoints: cap.breakpoints.filter((b) => b.bp === 1440) }));
+  return { id, pageId: cap.pageId };
+}
+
+test("v1 → v2: Preview reads a v1 project without migrating it; the editor adopts it once (QA stale, v2 mirror); Save/Undo/Redo survive a reload; a failed repair serves no preview/file/export", { timeout: 180_000 }, async () => {
+  const base = app!.base;
+  const { id, pageId } = await copyAsV1(projectId);
+  const ws = join(workspaceRoot, id);
+  const json = async (rel: string) => JSON.parse(await readFile(join(ws, rel), "utf8")) as Record<string, unknown>;
+  const docRow = () => db!.prepare("SELECT revision,cursor,materialized_revision FROM document_state WHERE project_id=?").get(id);
+  const statusOf = () => (db!.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status;
+  const api = (path: string, init?: RequestInit) => fetch(`${base}/api/projects/${id}${path}`, init);
+  const postJson = (path: string, body: unknown) => api(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  // Preview: the loader migrates in memory — nothing written, no job started; a capture missing 768/375 still has Fidelity
+  const preview = await api("/preview");
+  expect(preview.status).toBe(200);
+  const data = (await preview.json()) as { pages: { pageId: string; file: string }[]; stale: boolean; scores: { heatPath: string | null }[]; fidelity: FidelityItem[] };
+  expect(data.pages).toEqual([expect.objectContaining({ pageId, file: "index.html" })]);
+  expect(data.stale).toBe(false);
+  expect(data.fidelity.some((x) => x.status === "partial")).toBe(true);
+  expect(data.fidelity).toContainEqual(expect.objectContaining({ pageId, feature: "capture-box", status: "partial", breakpoint: 768 }));
+  expect([docRow(), (await json("ir.json")).version, statusOf()]).toEqual([undefined, undefined, "completed"]);
+
+  // Editor: the first read adopts the migrated document at revision 0 — QA of the v1 output stale, ir.json the v2 mirror
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1080 } });
+  await page.goto(`${base}/p/${id}/editor`);
+  const heading = page.frameLocator("iframe.gjs-frame").locator("h1");
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
+  expect(docRow()).toEqual({ revision: 0, cursor: 0, materialized_revision: 0 });
+  expect(await json("ir.json")).toMatchObject({ version: 2, revision: 0 });
+  expect((await json("qa.json")).stale).toBe(true);
+
+  // Lưu / Hoàn tác / Làm lại, then a reload: the document and its History come from the server
+  const status = page.getByRole("status");
+  await heading.dblclick();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Upgraded headline");
+  await page.getByRole("button", { name: "Lưu" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã lưu: 1 thay đổi — điểm QA cần chạy lại");
+  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
+  await expect.poll(() => page.getByRole("button", { name: "Làm lại" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  await page.getByRole("button", { name: "Làm lại" }).click();
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã làm lại — điểm QA cần chạy lại");
+  await page.reload();
+  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Upgraded headline");
+  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  expect(await page.getByRole("button", { name: "Làm lại" }).isEnabled()).toBe(false);
+  expect(docRow()).toEqual({ revision: 3, cursor: 1, materialized_revision: 3 });
+  expect(await json("ir.json")).toMatchObject({ version: 2, revision: 3 });
+  const irId = (await heading.getAttribute("data-ir-id"))!;
+  await page.close();
+
+  // A step whose materialization fails: committed, output behind — Preview, out/ and export serve nothing half-written
+  const pagesJson = await readFile(join(ws, "pages.json"), "utf8");
+  await writeFile(join(ws, "pages.json"), "{");
+  const failed = await postJson("/editor/commands", { baseRevision: 3, commands: [{ op: "setAttribute", id: irId, name: "title", value: "repaired" }] });
+  expect([failed.status, await failed.json()]).toEqual([500, expect.objectContaining({ code: "DOCUMENT_MATERIALIZE_FAILED", revision: 4 })]);
+  expect(docRow()).toEqual({ revision: 4, cursor: 2, materialized_revision: 3 });
+  const file = await api("/files/out/index.html");
+  expect([file.status, file.headers.get("retry-after")]).toEqual([503, "5"]);
+  expect((await api("/preview")).status).toBe(503);
+  expect((await postJson("/export", { mode: "zip" })).status).toBe(503);
+  const heat = data.scores.find((s) => s.heatPath)!.heatPath!;
+  expect((await api(`/files/${heat}`)).status).toBe(200); // QA/capture images never go through the emit gate
+
+  // repaired on the next read: the new revision is served
+  await writeFile(join(ws, "pages.json"), pagesJson);
+  const repaired = await api("/files/out/index.html");
+  expect(repaired.status).toBe(200);
+  expect(repaired.headers.get("content-security-policy")).toContain("script-src ");
+  expect(await repaired.text()).toMatch(/<h1[^>]*title="repaired"[^>]*>Upgraded headline<\/h1>/);
+  expect(docRow()).toEqual({ revision: 4, cursor: 2, materialized_revision: 4 });
+  expect((await api("/preview")).status).toBe(200);
+  const zip = await postJson("/export", { mode: "zip", stripIds: true });
+  expect([zip.status, zip.headers.get("content-type")]).toEqual([200, "application/zip"]);
+  expect((await zip.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  expect(statusOf()).toBe("completed"); // nothing above started a job
+
+  // Preview & QA of the upgraded project at 1440/768/375: its Fidelity tab, no sideways scroll
+  const fidelity = ((await (await api("/preview")).json()) as { fidelity: FidelityItem[] }).fidelity;
+  const counts = fidelityCounts(fidelity);
+  expect(counts.partial).toBeGreaterThan(0);
+  const view = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await view.goto(`${base}/p/${id}/preview`);
+  await view.getByRole("tablist", { name: "Bảng bên" }).getByRole("tab", { name: `Fidelity (${fidelity.length})` }).click();
+  expect(await view.locator('[data-ui="ui_qa_preview_fidelity_summary"] .badge').allInnerTexts()).toEqual([`${counts.supported} hỗ trợ`, `${counts.partial} một phần`, `${counts.unsupported} không hỗ trợ`]);
+  for (const w of [1440, 768, 375]) {
+    await view.setViewportSize({ width: w, height: 900 });
+    await shotAt(view, `preview-v1-upgraded-${w}`);
+    expect(await view.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `scrollWidth at ${w}`).toBe(true);
+  }
+  await view.close();
 });

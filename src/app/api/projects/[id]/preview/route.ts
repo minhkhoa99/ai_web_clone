@@ -2,13 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pageFileNames } from "@/core/emit-html";
 import { coverage } from "@/core/graph";
-import type { IR } from "@/core/ir";
-import type { LegacyIR } from "@/core/ir-legacy";
-import { previewFidelity, type QaFile } from "@/core/jobs";
+import { previewDocument, type QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
 import { handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
-import { isRescorable } from "@/app/_server/session";
+import { ensureOutput, isRescorable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,19 +21,17 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
   }
 }
 
-// Pages (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the
-// clone), QA scores (qa.json, `stale` after an editor save), interaction rows, per-page coverage and the Fidelity
-// report (E1 §5, at most 2000 items; a separate measure: the pixel scores are untouched) — the preview screen's data.
+// The preview screen's data, from the document through the central loader (never adopted, no job started): pages
+// (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the clone),
+// QA scores (qa.json, `stale` after an editor save), interaction rows, per-page coverage and the Fidelity report
+// (E1 §5, at most 2000 items; a separate measure: the pixel scores are untouched).
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
     const project = requireProject(db, id);
-    const ws = workspaceOf(id);
-    const [ir, qa] = await Promise.all([
-      readJsonIfExists<Pick<IR, "pages" | "sections" | "interactions"> | null>(join(ws, "ir.json"), null),
-      readJsonIfExists<QaFile>(join(ws, "qa.json"), { scores: [] }),
-    ]);
+    await ensureOutput(db, id); // a pending repair first: the pages below and out/ are the same revision
+    const [{ doc: ir, fidelity }, qa] = await Promise.all([previewDocument(db, id), readJsonIfExists<QaFile>(join(workspaceOf(id), "qa.json"), { scores: [] })]);
     const irPages = ir?.pages ?? [];
     const files = pageFileNames(irPages);
     const pages = irPages.map((p) => ({ pageId: p.id, path: p.path, file: files.get(p.id) }));
@@ -53,7 +49,6 @@ export function GET(req: Request, { params }: IdCtx) {
       const i = t.key.indexOf(":");
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
-    const fidelity = ir ? await previewFidelity(db, id, ir as LegacyIR | IR) : [];
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
     return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes, fidelity });
   });

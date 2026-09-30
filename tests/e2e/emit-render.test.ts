@@ -9,6 +9,7 @@ import { serveDir } from "@/core/serve";
 import { capturePage, type CaptureNode, type PageCapture } from "@/core/capture";
 import { buildIR, buildLegacyIR } from "@/core/ir";
 import { emitHtml, renderSite, renderView } from "@/core/emit-html";
+import { scoreSections } from "@/core/qa";
 
 const site1Dir = fileURLToPath(new URL("../fixtures/site1", import.meta.url));
 
@@ -188,4 +189,11 @@ test("site1: v2 emit renders the same text, attributes and computed styles as v1
     expect(shots[0]!.length).toBeGreaterThan(10);
     expect(shots[1]).toEqual(shots[0]);
   }
+  // the QA pixel gate: every section x bp of the v2 output scores no lower than the v1 output (same capture)
+  const score = (outDir: string) => scoreSections(handle, { workspaceDir, outDir, ir: v2, captures: [cap] });
+  const before = new Map((await score(dirV1)).map((s) => [`${s.sectionId}@${s.bp}`, s.score]));
+  const after = await score(dirV2);
+  expect(after.map((s) => `${s.sectionId}@${s.bp}`).sort()).toEqual([...before.keys()].sort());
+  expect(new Set(after.map((s) => s.bp))).toEqual(new Set([375, 768, 1440]));
+  for (const s of after) expect(s.score, `${s.sectionId}@${s.bp}`).toBeGreaterThanOrEqual(before.get(`${s.sectionId}@${s.bp}`)! - 0.001);
 });

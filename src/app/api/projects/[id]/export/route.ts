@@ -8,7 +8,7 @@ import { loadEditable } from "@/core/jobs";
 import { zipDir } from "@/core/zip";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
-import { exclusive } from "@/app/_server/session";
+import { ensureOutput, exclusive } from "@/app/_server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,11 +21,14 @@ const bodySchema = z.discriminatedUnion("mode", [
 
 const RM_OPTS = { recursive: true, force: true, maxRetries: 3 };
 
-// The directory to export: out/ as is, or (stripIds) a fresh emit of the same IR without data-ir-id attributes.
+// The directory to export (under the busy guard, after a pending repair): out/ as is, or (stripIds) a fresh emit of
+// the same document (read through the loader, never adopted) without data-ir-id attributes.
 async function exportDir(id: string, strip: boolean | undefined): Promise<{ dir: string; cleanup(): Promise<void> }> {
   const ws = workspaceOf(id);
+  await ensureOutput(getDb(), id);
+  if (!(await stat(join(ws, "out")).catch(() => null))?.isDirectory()) throw new ApiError(404, "NOT_FOUND", "nothing emitted yet (no out/)");
   if (!strip) return { dir: join(ws, "out"), cleanup: async () => {} };
-  const { doc, emit } = await loadEditable(getDb(), id).catch((e: unknown) => {
+  const { doc, emit } = await loadEditable(getDb(), id, false).catch((e: unknown) => {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new ApiError(409, "NO_IR", "the clone has no IR yet: nothing to re-emit");
     throw e;
   });
@@ -59,8 +62,6 @@ export function POST(req: Request, { params }: IdCtx) {
     const { id } = await params;
     const body = bodySchema.parse(await req.json());
     requireProject(getDb(), id);
-    const out = join(workspaceOf(id), "out");
-    if (!(await stat(out).catch(() => null))?.isDirectory()) throw new ApiError(404, "NOT_FOUND", "nothing emitted yet (no out/)");
     if (body.mode === "zip") {
       const release = await holdBusy(id);
       let src: Awaited<ReturnType<typeof exportDir>> | undefined;

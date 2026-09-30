@@ -424,7 +424,17 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   const id = await newProject();
   const ws = join(config.workspaceRoot, id);
   await mkdir(ws, { recursive: true });
-  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", path: "/" }, { id: "about", path: "/about" }] }));
+  const el = (tag: string, children: CaptureNode[] = []): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children });
+  const dom = el("html", [el("head"), el("body", [el("main")])]);
+  const cap = (pageId: string, url: string) => ({
+    url, pageId, capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
+    cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
+    breakpoints: [1440, 768, 375].map((bp) => ({ bp, dom, truncated: false })),
+    interactions: [], assets: {}, skippedAssets: [], dynamic: [],
+  }) as PageCapture;
+  await writeFile(join(ws, "pages.json"), JSON.stringify([{ pageId: "home", url: "http://x.test/" }, { pageId: "about", url: "http://x.test/about" }]));
+  // a v2 checkpoint read through the loader (never adopted)
+  await writeFile(join(ws, "ir.json"), JSON.stringify(buildIR([cap("home", "http://x.test/"), cap("about", "http://x.test/about")])));
   await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ pageId: "home", sectionId: "s1", bp: 375, score: 0.9 }], stale: true }));
   getDb().prepare("INSERT INTO tasks(id,project_id,phase,key,status,error_code,error_msg) VALUES(?,?,'fix','home:s1','done','BUDGET_EXCEEDED','token budget spent')").run(crypto.randomUUID(), id);
   const body = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as { pages: unknown[]; scores: unknown[]; stale: boolean; coverage: unknown[]; fixes: unknown[]; fidelity: unknown[] };
@@ -433,8 +443,14 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   expect(body.stale).toBe(true);
   expect(body.coverage).toEqual([]);
   expect(body.fixes).toEqual([{ pageId: "home", sectionId: "s1", status: "done", errorCode: "BUDGET_EXCEEDED", errorMsg: "token budget spent" }]);
-  // Fidelity (E1 §5): always a list; an ir.json the migration refuses says so instead of failing the preview
-  expect(body.fidelity).toEqual([expect.objectContaining({ pageId: "home", feature: "fidelity-unavailable", status: "partial" })]);
+  expect(Array.isArray(body.fidelity)).toBe(true);
+  expect(getDb().prepare("SELECT 1 FROM document_state WHERE project_id=?").get(id)).toBeUndefined();
+  // an ir.json the loader refuses: said in the Fidelity list instead of failing the preview (no v1 cast of the raw file)
+  await writeFile(join(ws, "ir.json"), JSON.stringify({ pages: [{ id: "home", path: "/" }] }));
+  const refused = (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as typeof body;
+  expect(refused.pages).toEqual([]);
+  expect(refused.scores).toHaveLength(1);
+  expect(refused.fidelity).toEqual([expect.objectContaining({ feature: "fidelity-unavailable", status: "partial" })]);
 });
 
 test("DELETE removes the rows and the workspace; unknown id is 404", async () => {

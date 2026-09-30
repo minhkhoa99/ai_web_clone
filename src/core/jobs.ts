@@ -297,9 +297,11 @@ async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSour
 }
 
 // The editor's document (SQLite snapshot once adopted, else ir.json migrated) and its display view (compileV2).
-export async function loadEditable(db: DatabaseSync, projectId: string): Promise<{ doc: IR; ir: LegacyIR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
+// `adopt` false (export): read through the loader without adopting.
+export async function loadEditable(db: DatabaseSync, projectId: string, adopt = true): Promise<{ doc: IR; ir: LegacyIR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
   const src = await editSource(db, projectId);
-  const [doc, emit] = await Promise.all([projectDocuments(db).loadDocument(projectId), emitOpts(src)]);
+  const store = projectDocuments(db);
+  const [doc, emit] = await Promise.all([adopt ? store.loadDocument(projectId) : store.readDocument(projectId), emitOpts(src)]);
   return { doc, ir: compileV2(doc), emit };
 }
 
@@ -330,7 +332,7 @@ async function markQaStale(ws: string): Promise<void> {
 }
 
 // The editor document (E1 §3): SQLite holds the IR v2 snapshot + History; these files are its materialization.
-// The first idle read migrates ir.json (v1 -> v2; the file becomes the v2 mirror on the first step). Every step
+// The first idle read adopts ir.json (a v1 one migrated; the file becomes the v2 mirror: onAdopt). Every step
 // marks qa.json stale (first: a crash mid-way never leaves fresh-looking scores over a new out/), rewrites ir.json,
 // out/ and the graph. A user step closes the outstanding fix tasks in its transaction (the manual edit wins).
 async function materializeDocument(db: DatabaseSync, projectId: string, ir: IR): Promise<void> {
@@ -341,16 +343,25 @@ async function materializeDocument(db: DatabaseSync, projectId: string, ir: IR):
 }
 
 export function projectDocuments(db: DatabaseSync) {
+  const migrated = new Set<string>(); // projects whose last loadInitial (this store) read a v1 checkpoint
   return documentStore(db, (projectId, ir) => materializeDocument(db, projectId, ir), {
-    // v2 is only validated (no capture evidence needed); v1 is migrated, and the QA scored on its output goes stale
-    // until "Chạy lại QA" (E1 §6) — a job reading it rescores anyway.
+    // v2 is only validated (no capture evidence needed); v1 is migrated in memory — a plain read writes nothing
     loadInitial: async (projectId) => {
       const src = await editSource(db, projectId);
       const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
+      migrated.delete(projectId);
       if ((raw as { version?: unknown } | null)?.version === 2) return migrateIR(raw, []);
       const ir = migrateIR(raw, await loadCaptures(src));
-      if (existsSync(join(src.ws, "qa.json"))) await markQaStale(src.ws);
+      migrated.add(projectId);
       return ir;
+    },
+    // Adopting a v1 checkpoint is the one-time migration (E1 §6): the QA scored on the v1 output goes stale until
+    // "Chạy lại QA", and ir.json becomes the v2 mirror (so it never counts as a migration again). out/ is unchanged.
+    onAdopt: async (projectId, ir) => {
+      if (!migrated.has(projectId)) return;
+      const ws = workspaceOf(projectId);
+      if (existsSync(join(ws, "qa.json"))) await markQaStale(ws);
+      await writeJsonAtomic(join(ws, "ir.json"), ir);
     },
     isBusy: isQueuedOrActive,
     onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
@@ -360,23 +371,25 @@ export function projectDocuments(db: DatabaseSync) {
   });
 }
 
-// The Preview & QA Fidelity report (E1 §5). An adopted document is the source of truth: re-derived against the
-// captures and stored in place when idle — this backfills documents stored before the analyzer existed and picks up
-// anything since the last step (the preview reloads after "Chạy lại QA"); unchanged -> nothing written. Otherwise
-// (never opened in the editor, or a job running) ir.json, the job's checkpoint, is analyzed in memory and never
-// written. The preview does not adopt the document: that stays the editor's first read.
-export async function previewFidelity(db: DatabaseSync, projectId: string, raw: LegacyIR | IR): Promise<FidelityItem[]> {
+// The Preview & QA document and its Fidelity report (E1 §5), read through the central loader without adopting (that
+// stays the editor's first read): the SQLite snapshot once adopted, else the job's checkpoint (v1 migrated in memory).
+// An adopted document's Fidelity is re-derived against the captures and stored in place when idle — this backfills
+// documents stored before the analyzer existed and picks up anything since the last step (the preview reloads after
+// "Chạy lại QA"); unchanged -> nothing written. Otherwise it is derived in memory, never written.
+// No IR yet -> null; a checkpoint the loader refuses (the editor refuses it too) -> null and one item saying so.
+export async function previewDocument(db: DatabaseSync, projectId: string): Promise<{ doc: IR | null; fidelity: FidelityItem[] }> {
+  const store = projectDocuments(db);
+  let doc: IR;
+  try {
+    doc = await store.readDocument(projectId);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { doc: null, fidelity: [] };
+    return { doc: null, fidelity: [{ pageId: "", feature: "fidelity-unavailable", status: "partial", note: `Chưa đọc được ir.json (${codeOf(e) ?? "lỗi"})` }] };
+  }
   // no pages.json yet, or a missing/corrupt capture.json: no capture evidence (items are then only carried)
   const captures = await editSource(db, projectId).then(loadCaptures).catch((): PageCapture[] => []);
-  const stored = await projectDocuments(db).updateFidelity(projectId, null, (items, ir) => refreshFidelity(items, ir, captures));
-  if (stored) return stored;
-  try {
-    const doc = "version" in raw && raw.version === 2 ? raw : migrateIR(raw, captures);
-    return refreshFidelity(doc.fidelity ?? [], doc, captures);
-  } catch (e) {
-    // a v1 checkpoint the migration refuses (the editor refuses it too): said, not a broken preview
-    return [{ pageId: raw.pages[0]?.id ?? "", feature: "fidelity-unavailable", status: "partial", note: `Chưa suy được Fidelity từ ir.json (${codeOf(e) ?? "lỗi"})` }];
-  }
+  const stored = await store.updateFidelity(projectId, doc.revision, (items, ir) => refreshFidelity(items, ir, captures));
+  return { doc, fidelity: stored ?? refreshFidelity(doc.fidelity ?? [], doc, captures) };
 }
 
 // Scores every section x bp of out/ and writes qa.json (tmp -> rename).

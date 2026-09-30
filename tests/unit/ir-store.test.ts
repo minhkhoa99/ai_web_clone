@@ -14,7 +14,7 @@ import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
 import type { BrowserHandle } from "@/core/browser";
 import { refreshFidelity } from "@/core/fidelity";
 import { applyCommands } from "@/core/ir-command";
-import { createProject, enqueue, previewFidelity, projectDocuments, runProject } from "@/core/jobs";
+import { createProject, enqueue, previewDocument, projectDocuments, runProject } from "@/core/jobs";
 import type { FixCtx, FixTarget } from "@/core/qa-fix";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
@@ -255,6 +255,29 @@ test("jobs wiring: a v1 ir.json is migrated once; a commit writes the v2 mirror,
   expect(stateOf(db, id)).toMatchObject({ revision: 1, materialized_revision: 1 });
 });
 
+test("v1 ir.json: a plain read (preview, a job) never marks QA stale; adoption marks it once and writes the v2 mirror", async () => {
+  const { db, id, ws } = await seedJobsProject();
+  const file = (name: string) => readFile(join(ws, name), "utf8").then((t) => JSON.parse(t) as Record<string, unknown>);
+  const store = projectDocuments(db);
+  expect((await store.readDocument(id)).version).toBe(2);
+  const preview = await previewDocument(db, id);
+  expect(preview.doc?.version).toBe(2);
+  expect(preview.fidelity.length).toBeGreaterThan(0);
+  expect(await file("qa.json")).toEqual({ scores: [{ score: 0.5 }] }); // e.g. fresh scores of a rescore: left alone
+  expect([stateOf(db, id), (await file("ir.json")).version]).toEqual([undefined, undefined]); // still the v1 checkpoint
+
+  const doc = await store.loadDocument(id); // the editor's first read adopts the migrated document
+  expect(await file("qa.json")).toEqual({ scores: [{ score: 0.5 }], stale: true });
+  expect(await file("ir.json")).toEqual(doc); // migrated once: ir.json is now the v2 mirror
+  // rescored afterwards: re-reading, a fresh store and a re-adoption of the v2 mirror never re-mark it
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [{ score: 0.9 }] }));
+  await projectDocuments(db).loadDocument(id);
+  await previewDocument(db, id);
+  db.prepare("DELETE FROM document_state WHERE project_id=?").run(id);
+  expect((await projectDocuments(db).loadDocument(id)).sections[0]!.root.id).toBe(doc.sections[0]!.root.id);
+  expect(await file("qa.json")).toEqual({ scores: [{ score: 0.9 }] });
+});
+
 // --- Fidelity (E1 §5): derived data, never a History step ---
 const styleItem = { pageId: "pg", feature: "style-target", status: "unsupported" as const, nodeId: "t", sourceRef: "t", note: "Style :hover @media 768 không lưu" };
 const legacyCapture = { pageId: "pg", url: "http://x.test/", capturedAt: "", title: "", meta: {}, breakpoints: [], interactions: [], assets: {}, skippedAssets: [], dynamic: [] } as unknown as PageCapture;
@@ -325,7 +348,7 @@ test("updateFidelity caps the list at 2000 items", async () => {
 test("preview Fidelity: ir.json analyzed in memory without adopting; a stored v2 document without analyzer items is backfilled once in place", async () => {
   const { db, id, ws } = await seedJobsProject({ scripts: 3, iframes: 0, canvases: 0, skippedNodes: 0 });
   const raw = () => readFile(join(ws, "ir.json"), "utf8").then((t) => JSON.parse(t) as IRV2);
-  const v1 = await previewFidelity(db, id, await raw());
+  const v1 = (await previewDocument(db, id)).fidelity;
   expect(v1.find((x) => x.feature === "script")).toMatchObject({ pageId: "home", status: "unsupported" });
   expect(stateOf(db, id)).toBeUndefined(); // the preview never adopts the document
 
@@ -334,23 +357,28 @@ test("preview Fidelity: ir.json analyzed in memory without adopting; a stored v2
   // a document stored before the analyzer existed: only migration items
   const old = { ...doc, fidelity: doc.fidelity.filter((x) => x.feature === "capture-box") };
   db.prepare("UPDATE document_state SET ir_json=? WHERE project_id=?").run(JSON.stringify(old), id);
-  const items = await previewFidelity(db, id, await raw());
+  const items = (await previewDocument(db, id)).fidelity;
   expect(items.filter((x) => x.feature === "script")).toHaveLength(1);
   expect((await store.loadDocument(id)).fidelity).toEqual(items);
   expect((await raw()).fidelity).toEqual(items); // ir.json mirrored
   expect([stateOf(db, id), historyRows(db, id)]).toEqual([{ revision: 0, cursor: 0, materialized_revision: 0 }, 0]);
   // adopting the v1 checkpoint marked the pixel QA stale (E1 §6); the Fidelity backfill leaves it alone
   expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
-  expect(await previewFidelity(db, id, await raw())).toEqual(items); // idempotent
+  expect((await previewDocument(db, id)).fidelity).toEqual(items); // idempotent
 });
 
-test("preview Fidelity: a missing or corrupt capture.json is no capture evidence, not an error", async () => {
+test("preview: a missing or corrupt capture.json is no capture evidence for a v2 document; a v1 checkpoint that cannot migrate says so", async () => {
   const { db, id, ws } = await seedJobsProject();
-  const raw = JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2;
-  await writeFile(join(ws, "pages", "home", "capture.json"), "{");
-  expect(Array.isArray(await previewFidelity(db, id, raw))).toBe(true);
-  await rm(join(ws, "pages", "home", "capture.json"));
-  expect(Array.isArray(await previewFidelity(db, id, raw))).toBe(true);
+  const capture = join(ws, "pages", "home", "capture.json");
+  const good = await readFile(capture, "utf8");
+  await writeFile(capture, "{"); // v1: the migration needs the capture (box): refused, said, never a broken preview
+  expect(await previewDocument(db, id)).toEqual({ doc: null, fidelity: [expect.objectContaining({ feature: "fidelity-unavailable", status: "partial" })] });
+  await writeFile(capture, good);
+  const doc = await projectDocuments(db).loadDocument(id);
+  await writeFile(capture, "{");
+  expect((await previewDocument(db, id)).doc).toEqual(doc);
+  await rm(capture);
+  expect((await previewDocument(db, id)).fidelity.length).toBeGreaterThan(0); // carried
 });
 
 // --- pipeline jobs over an adopted document (E1 §6: SQLite is the source of truth once adopted) ---

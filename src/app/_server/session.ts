@@ -87,6 +87,15 @@ export async function exclusiveEdit<T>(db: DatabaseSync, projectId: string, fn: 
   }
 }
 
+// Output (out/) and the document are read only after a pending repair from the SQLite snapshot (E1 §3): a failed
+// repair is a retryable 503, never half an output. A queued/active job's out/ is served as the job left it.
+export async function ensureOutput(db: DatabaseSync, projectId: string): Promise<void> {
+  await projectDocuments(db).ensureMaterialized(projectId).catch((e: unknown) => {
+    console.error("output repair failed", e); // server-side only; the client gets a retryable 503, no partial bytes
+    throw new ApiError(503, "DOCUMENT_MATERIALIZE_FAILED", "Chưa khôi phục được bản xuất — thử lại sau ít phút.");
+  });
+}
+
 // Opens (once) a real headed browser on the project's profile at `url`; the user logs in / solves the CAPTCHA by hand.
 export async function openAuthWindow(db: DatabaseSync, projectId: string, url: string): Promise<void> {
   if (state.windows.has(projectId)) return;
