@@ -458,10 +458,14 @@ test("DELETE removes the rows and the workspace; unknown id is 404", async () =>
   const ws = join(config.workspaceRoot, id);
   await mkdir(join(ws, "out"), { recursive: true });
   await writeFile(join(ws, "out", "index.html"), "x");
+  // the document store's rows go with the project (no orphan state/history for a reused id)
+  getDb().prepare("INSERT INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,'{}',1,1,1)").run(id);
+  getDb().prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES(?,1,'[]','[]','user')").run(id);
   const res = await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }));
   expect(res.status).toBe(200);
   expect(existsSync(ws)).toBe(false);
   expect(getDb().prepare("SELECT id FROM projects WHERE id=?").get(id)).toBeUndefined();
+  for (const table of ["document_state", "document_history"]) expect(getDb().prepare(`SELECT 1 FROM ${table} WHERE project_id=?`).get(id)).toBeUndefined();
   expect((await project.DELETE(new Request("http://127.0.0.1", { method: "DELETE" }), ctx({ id }))).status).toBe(404);
 });
 

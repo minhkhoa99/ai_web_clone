@@ -28,7 +28,7 @@ export function DELETE(req: Request, { params }: IdCtx) {
       forgetCredentials(db, id);
       await rm(ws, { recursive: true, force: true, maxRetries: 3 });
       tx(db, () => {
-        for (const table of ["tasks", "nodes", "edges"]) db.prepare(`DELETE FROM ${table} WHERE project_id=?`).run(id);
+        for (const table of ["tasks", "nodes", "edges", "document_state", "document_history"]) db.prepare(`DELETE FROM ${table} WHERE project_id=?`).run(id);
         db.prepare("DELETE FROM projects WHERE id=?").run(id);
       });
       forget(id); // the event ring of a deleted project
