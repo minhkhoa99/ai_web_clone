@@ -380,6 +380,9 @@ test("export: zip streams out/ as a valid zip; folder refuses the workspace and 
   tmpDirs.push(dest);
   expect((await exportRoute.POST(post({ mode: "folder", dest }), ctx({ id }))).status).toBe(200);
   expect(await readFile(join(dest, "assets", "a.css"), "utf8")).toBe("body{}");
+  // the body goes through the capped reader: an oversized one is refused before it is parsed
+  const huge = await exportRoute.POST(post({ mode: "folder", dest: "x".repeat(4000), pad: "x".repeat(1_100_000) }), ctx({ id }));
+  expect([huge.status, ((await huge.json()) as { code: string }).code]).toEqual([413, "PAYLOAD_TOO_LARGE"]);
 });
 
 test("export: the zip stream holds the busy guard until read to the end; stripIds re-emits without data-ir-id", async () => {

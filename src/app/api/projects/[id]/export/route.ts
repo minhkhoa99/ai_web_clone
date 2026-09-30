@@ -7,7 +7,7 @@ import { emitHtml } from "@/core/emit-html";
 import { loadEditable } from "@/core/jobs";
 import { zipDir } from "@/core/zip";
 import { getDb } from "@/app/_server/db";
-import { ApiError, handle, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
+import { ApiError, handle, jsonBody, requireProject, workspaceOf, type IdCtx } from "@/app/_server/http";
 import { ensureOutput, exclusive } from "@/app/_server/session";
 
 export const runtime = "nodejs";
@@ -60,7 +60,7 @@ async function holdBusy(id: string): Promise<() => void> {
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
-    const body = bodySchema.parse(await req.json());
+    const body = await jsonBody(req, bodySchema);
     requireProject(getDb(), id);
     if (body.mode === "zip") {
       const release = await holdBusy(id);
