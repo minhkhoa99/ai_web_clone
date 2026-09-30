@@ -55,6 +55,29 @@ test("reset removes one or all node overrides; detach retains effective values a
   expect(cards(ir)[1]!.component).toBeDefined();
 });
 
+test("reset and detach rewrite only the target instance: the others stay as stored and keep resolving live", () => {
+  const ir = promoted(), main = ir.components[0]!.root;
+  main.styles.base.color = "green"; // card0/card2 store "red" and show the main's "green"
+  main.children.push({ ...structuredClone(main.children[1]!), id: "new-source" }); // shown in every card, stored in none
+  const before = structuredClone(ir);
+  for (const out of [resetOverride(ir, "card1"), resetOverride(ir, "card1", "styles.base.color"), resetOverride(ir, "text1", "text"), detachComponent(ir, "card1"), detachComponent(ir, "label1")]) {
+    expect(ir).toEqual(before);
+    expect([cards(out)[0], cards(out)[2]]).toEqual([cards(ir)[0], cards(ir)[2]]);
+    expect(out.components[0]!.root).toEqual(main);
+    const shown = cards(resolveComponents(out));
+    expect([shown[0]!.styles.base.color, shown[2]!.styles.base.color]).toEqual(["green", "green"]);
+    expect(shown[0]!.children[2]!.id).toMatch(/^instance:/); // still generated from the main, not materialized
+  }
+  // the target itself is materialized as shown
+  expect(cards(resetOverride(ir, "card1"))[1]!.styles.base.color).toBe("green");
+  expect(cards(resetOverride(ir, "card1"))[1]!.children).toHaveLength(3);
+  const detached = cards(detachComponent(ir, "label1"))[1]!;
+  expect(detached.component!.overrides).toContain("children");
+  expect(detached.children.map(c => c.id).slice(0, 2)).toEqual(["label1", "extra1"]);
+  expect(detached.children[1]).toEqual(cards(ir)[1]!.children[1]); // the stored sibling is kept as is
+  expect(cards(resolveComponents(detachComponent(ir, "label1")))[1]!.children).toHaveLength(3);
+});
+
 test("uncertain structure stays ordinary with partial fidelity", () => {
   const v1 = legacy(); v1.sections[0]!.root.children[1]!.children.pop();
   const ir = promoteLegacyComponents(toV2(v1, []), v1.components);

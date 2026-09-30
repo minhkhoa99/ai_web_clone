@@ -50,7 +50,7 @@ export type HistoryCommand =
   | Plain
   | { op: "restoreRefs"; command: Plain; refs: Refs }
   | { op: "restoreLayout"; sectionIds: string[]; layoutId?: string; placeholders: [string, string][]; refs: Refs } // placeholder id -> old section
-  | { op: "restoreComponent"; command: ComponentEdit; trees: { tree: Tree; root: IRNodeV2 }[]; instanceIds: string[][] };
+  | { op: "restoreComponent"; command: ComponentEdit; node: IRNodeV2; instanceIds?: string[][] }; // the subtree before (+ refs on detach)
 
 type Fail = (message: string) => never;
 type Tree = { kind: "sections" | "pages" | "components"; index: number };
@@ -389,30 +389,33 @@ function restoreLayout(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreLayout
   return { ir: { ...next, sections }, inverse: { op: "promoteLayout", sectionIds: c.sectionIds } };
 }
 
-// --- components: ir-component owns the semantics; the inverse keeps the page/section trees it rewrote ---
+// --- components: ir-component owns the semantics; only the target's subtree is taken over (and kept for Undo) ---
+// The subtree a reset/detach rewrites: the instance node, or its instance parent when a detach gives that parent its
+// own children.
+function componentEditRoot(found: Found, c: ComponentEdit): IRNodeV2 {
+  return c.op === "detachComponent" && found.parent?.component?.role === "instance" ? found.parent : found.node;
+}
 function applyComponent(ir: IRV2, c: ComponentEdit, fail: Fail): Step {
   const found = need(ir, c.instanceId, fail, "instance");
   const ref = found.node.component;
   if (ref?.role !== "instance" || found.tree.kind === "components") return fail(`not a component instance on a page: ${found.node.id}`);
   if (c.op === "resetOverride" && c.path !== undefined && (typeof c.path !== "string" || !(ref.overrides ?? []).includes(c.path))) fail("no override at that path");
   const resolved = guard(() => (c.op === "resetOverride" ? resetOverride(ir, c.instanceId, c.path) : detachComponent(ir, c.instanceId)), fail);
-  // keep unchanged trees shared; a JSON compare is enough, both sides are plain data
-  const trees = treesOf(ir).filter((t) => t.kind !== "components" && JSON.stringify(rootOf(ir, t)) !== JSON.stringify(rootOf(resolved, t)));
-  let next: IRV2 = { ...ir, components: ir.components.map((m, i) => ({ ...m, instanceIds: resolved.components[i]!.instanceIds })) };
-  for (const t of trees) next = withRoot(next, t, rootOf(resolved, t));
+  const old = componentEditRoot(found, c), fresh = need(resolved, old.id, fail).node;
+  const next = withRoot(ir, found.tree, update(rootOf(ir, found.tree), old.id, () => fresh)!);
   const command: ComponentEdit = c.op === "detachComponent" ? { op: c.op, instanceId: c.instanceId } : { op: c.op, instanceId: c.instanceId, ...(c.path !== undefined && { path: c.path }) };
-  return { ir: next, inverse: { op: "restoreComponent", command, trees: trees.map((tree) => ({ tree, root: rootOf(ir, tree) })), instanceIds: ir.components.map((m) => m.instanceIds) } };
+  if (c.op === "resetOverride") return { ir: next, inverse: { op: "restoreComponent", command, node: old } };
+  const components = ir.components.map((m, i) => ({ ...m, instanceIds: resolved.components[i]!.instanceIds }));
+  return { ir: { ...next, components }, inverse: { op: "restoreComponent", command, node: old, instanceIds: ir.components.map((m) => m.instanceIds) } };
 }
 function restoreComponent(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreComponent" }>, fail: Fail): Step {
-  if (!Array.isArray(c.trees) || !Array.isArray(c.instanceIds) || c.instanceIds.length !== ir.components.length ||
-      !isObject(c.command) || (c.command.op !== "resetOverride" && c.command.op !== "detachComponent")) return fail("invalid component restore");
-  let next: IRV2 = { ...ir, components: ir.components.map((m, i) => ({ ...m, instanceIds: c.instanceIds[i]! })) };
-  for (const { tree, root } of c.trees) {
-    const ok = isObject(tree) && (tree.kind === "sections" || tree.kind === "pages") && Number.isInteger(tree.index) &&
-      ir[tree.kind][tree.index] !== undefined && isObject(root) && root.id === rootOf(ir, tree).id;
-    if (!ok) return fail("invalid component restore");
-    next = withRoot(next, tree, root);
-  }
+  const bad = () => fail("invalid component restore");
+  if (!isObject(c.command) || (c.command.op !== "resetOverride" && c.command.op !== "detachComponent") || !isObject(c.node)) return bad();
+  if (c.instanceIds !== undefined && (!Array.isArray(c.instanceIds) || c.instanceIds.length !== ir.components.length)) return bad();
+  const found = find(ir, c.node.id);
+  if (!found || found.tree.kind === "components" || found.node.parentId !== c.node.parentId) return bad();
+  let next = withRoot(ir, found.tree, update(rootOf(ir, found.tree), found.node.id, () => c.node)!);
+  if (c.instanceIds) next = { ...next, components: next.components.map((m, i) => ({ ...m, instanceIds: c.instanceIds![i]! })) };
   return { ir: next, inverse: c.command };
 }
 const guard = <T>(run: () => T, fail: Fail): T => {

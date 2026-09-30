@@ -315,6 +315,31 @@ test("resetOverride and detachComponent undo exactly", () => {
   expect(() => applyCommands(ir, [{ op: "detachComponent", instanceId: ir.components[0]!.root.id }])).toThrow(/command 0 \(detachComponent\)/);
 });
 
+test("reset/detach store only the target instance: other instances stay shared, the inverse holds the target alone", () => {
+  const base = cardsIr(), mainId = base.components[0]!.root.id;
+  // a stale stored value (card0/card2 show the main's green) and a main child no instance stores yet
+  const ir = deepFreeze(applyCommands(base, [
+    { op: "setStyle", id: mainId, target: "base", changes: { color: "green" } },
+    { op: "createNode", parentId: mainId, index: 2, node: n("added", "i") },
+  ]).ir);
+  for (const command of [
+    { op: "resetOverride", instanceId: "card1" }, { op: "resetOverride", instanceId: "card1", path: "styles.base.color" },
+    { op: "detachComponent", instanceId: "card1" }, { op: "detachComponent", instanceId: "label1" },
+  ] as const) {
+    const { ir: out, inverse } = roundTrip(ir, [command]);
+    expect(kids(out)[0]).toBe(kids(ir)[0]);
+    expect(kids(out)[2]).toBe(kids(ir)[2]);
+    expect(out.pages).toBe(ir.pages);
+    expect(out.components[0]!.root).toBe(ir.components[0]!.root);
+    const undo = JSON.stringify(inverse);
+    for (const id of ["label0", "text0", "label2", "text2"]) expect(undo).not.toContain(`"${id}"`);
+    const undone = applyCommands(out, inverse);
+    expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out); // redo
+    expect(card(out, 0).styles.base.color).toBe("green");
+    expect(card(out, 0).children[2]!.id).toMatch(/^instance:/);
+  }
+});
+
 test("main structure edits that orphan an instance override are refused; instance roots keep instanceIds in sync", () => {
   const ir = cardsIr(), main = ir.components[0]!.root;
   const overriddenMainChildId = main.children[0]!.children[0]!.id; // text0's source: text1/text2 override "text"

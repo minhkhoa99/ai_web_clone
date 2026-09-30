@@ -156,22 +156,53 @@ export function overridingInstance(ir: IRV2, componentId: string, sourceIds: Rea
   return undefined;
 }
 
-export function resetOverride(ir: IRV2, instanceId: string, path?: string): IRV2 {
-  const result = structuredClone(ir), node = indexTrees(roots(result)).get(instanceId);
+// Puts `node` in place of the stored node with its ID (a tree root or a child of its parentId). The page is resolved
+// as a whole, but only the target's own subtree is written back: every other instance keeps resolving live (E1 §4).
+function replaceStored(ir: IRV2, node: IRNodeV2): void {
+  const section = ir.sections.find(s => s.root.id === node.id), page = ir.pages.find(p => p.shell.id === node.id);
+  if (section) section.root = node;
+  else if (page) page.shell = node;
+  else {
+    const parent = indexTrees(roots(ir)).get(node.parentId ?? "") ?? fail(`no parent for ${node.id}`);
+    parent.children = parent.children.map(c => (c.id === node.id ? node : c));
+  }
+  indexTrees(roots(ir)); // a shown node taken from elsewhere in the tree would now appear twice
+}
+const shownNodes = (ir: IRV2, id: string) => {
+  const shown = indexTrees(roots(resolveComponents(ir)));
+  if (!shown.has(id)) fail(`instance node ${id} is not shown (no main source): detach or delete it`);
+  return shown;
+};
+function instanceAt(ir: IRV2, instanceId: string): { nodes: Map<string, IRNodeV2>; node: IRNodeV2 } {
+  const nodes = indexTrees(roots(ir)), node = nodes.get(instanceId);
   if (node?.component?.role !== "instance") fail(`not a component instance: ${instanceId}`);
-  if (path === undefined) {
-    for (const child of indexTrees([node!]).values()) if (child.component?.id === node!.component!.id) child.component.overrides = [];
-  } else node!.component!.overrides = (node!.component!.overrides ?? []).filter(p => p !== path);
-  return resolveComponents(result);
+  return { nodes, node: node! };
 }
 
+// Clears one path or every override of the instance node (and its linked descendants), then stores its subtree as the
+// main now shows it.
+export function resetOverride(ir: IRV2, instanceId: string, path?: string): IRV2 {
+  const result = structuredClone(ir), { node } = instanceAt(result, instanceId);
+  if (path === undefined) {
+    for (const child of indexTrees([node]).values()) if (child.component?.id === node.component!.id) child.component.overrides = [];
+  } else node.component!.overrides = (node.component!.overrides ?? []).filter(p => p !== path);
+  replaceStored(result, shownNodes(result, instanceId).get(instanceId)!);
+  return result;
+}
+
+// The instance subtree as shown becomes plain nodes (same IDs). Under an instance parent, that parent keeps its shown
+// children as its own (a `children` override): stored siblings as they are, generated ones materialized.
 export function detachComponent(ir: IRV2, instanceId: string): IRV2 {
-  const result = structuredClone(resolveComponents(ir)), nodes = indexTrees(roots(result)), node = nodes.get(instanceId);
-  if (node?.component?.role !== "instance") fail(`not a component instance: ${instanceId}`);
-  const parent = nodes.get(node!.parentId ?? "");
-  if (parent?.component?.role === "instance") parent.component.overrides = [...new Set([...(parent.component.overrides ?? []), "children"])];
-  const detached = new Set(indexTrees([node!]).keys());
-  for (const n of indexTrees([node!]).values()) delete n.component;
-  for (const component of result.components) component.instanceIds = component.instanceIds.filter(id => !detached.has(id));
+  const result = structuredClone(ir), { nodes, node } = instanceAt(result, instanceId), shown = shownNodes(result, instanceId);
+  const detached = shown.get(instanceId)!;
+  const ids = new Set(indexTrees([detached]).keys());
+  for (const n of indexTrees([detached]).values()) delete n.component;
+  const parent = nodes.get(node.parentId ?? "");
+  if (parent?.component?.role === "instance") {
+    parent.component.overrides = [...new Set([...(parent.component.overrides ?? []), "children"])];
+    parent.children = shown.get(parent.id)!.children.map(c => (c.id === instanceId ? detached : parent.children.find(s => s.id === c.id) ?? c));
+    indexTrees(roots(result));
+  } else replaceStored(result, detached);
+  for (const component of result.components) component.instanceIds = component.instanceIds.filter(id => !ids.has(id));
   return result;
 }
