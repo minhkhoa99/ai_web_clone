@@ -85,7 +85,7 @@ test("createNode gets server IDs, ignores client IDs, validates the draft", () =
   const created = kids(out)[1]!;
   expect([created.id, created.parentId, created.type, created.children[0]!.id, created.children[0]!.parentId]).toEqual(["new1", "p", "container", "new2", "new1"]);
   expect(JSON.stringify(out)).not.toContain("evil");
-  for (const bad of [{ tag: "script" }, { tag: "#section" }, { tag: "div", attrs: { onload: "x" } }, { tag: "div", text: "x" }, { tag: "div", type: "weird" }, { tag: "div", component: { id: "x", role: "main" } }]) {
+  for (const bad of [{ tag: "script" }, { tag: "div", children: [{ tag: "script" }] }, { tag: "#section" }, { tag: "div", attrs: { onload: "x" } }, { tag: "div", text: "x" }, { tag: "div", type: "weird" }, { tag: "div", component: { id: "x", role: "main" } }]) {
     expect(() => prepareCommands(ir, [{ op: "createNode", parentId: "p", index: 0, draft: bad } as never], ids())).toThrow(/command 0/);
   }
   expect(() => prepareCommands(ir, [{ op: "createNode", parentId: "p", index: 4, draft: { tag: "div" } }], ids())).toThrow(/index/);

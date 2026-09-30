@@ -4,6 +4,8 @@ import { PNG } from "pngjs";
 import { generate } from "@/core/gateway";
 import { asTools } from "@/core/inspector";
 import { estimateTokens, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS } from "@/core/naming";
+import { prepareCommands } from "@/core/ir-command";
+import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
 import { ask, focusDiff, parseCommands, type FixCtx } from "@/core/qa-fix";
 
 vi.mock("@/core/gateway", async (orig) => ({ ...(await orig<typeof import("@/core/gateway")>()), generate: vi.fn() }));
@@ -43,6 +45,20 @@ test("parseCommands: ids or parents outside the section, E1-excluded ops, bad JS
   rejects(JSON.stringify({ ops: [{ op: "setStyle", id: "s:0", style: { color: "red" } }] })); // the old PatchOps reply
   rejects("sure, here you go");
   rejects(reply(Array.from({ length: 51 }, () => ({ op: "deleteNode", id: "s:0.1" }))));
+});
+
+test("a fix reply drafting a script (top level, nested or upper-case) parses as a shape but the command core refuses it", () => {
+  const node = (id: string, tag: string, children: IRNodeV2[] = []): IRNodeV2 => ({ id, tag, type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children });
+  const ir: IRV2 = {
+    version: 2, revision: 0, pages: [{ id: "p", path: "/", title: "", meta: {}, sectionIds: ["s"], shell: node("html", "html") }],
+    sections: [{ id: "s", pageId: "p", name: "s", role: "main", hash: "h", origin: "capture", root: { ...node("s:0", "div", [{ ...node("s:0.1", "p"), parentId: "s:0" }]) } }],
+    layouts: [], components: [], tokens: {}, cssom: { keyframes: [], fontFace: [], vars: {} }, interactions: [], fidelity: [],
+  };
+  let i = 0;
+  for (const draft of [{ tag: "script", children: [{ tag: "#text", text: "alert(1)" }] }, { tag: "div", children: [{ tag: "script" }] }, { tag: "SCRIPT" }]) {
+    const commands = parseCommands(reply([{ op: "createNode", parentId: "s:0", index: 0, draft }]), allowed);
+    expect(() => prepareCommands(ir, commands, () => `n${++i}`)).toThrow(expect.objectContaining({ code: "IR_PATCH_INVALID", message: expect.stringMatching(/tag not allowed/) }));
+  }
 });
 
 test("ask: the inspector's tool screenshots go through fitImages too (every request's images <= MAX_IMAGES_B64 (384 KiB) base64, <= 1024 px wide)", async () => {
