@@ -9,6 +9,7 @@ import { snapshotInPage, lazyLoadInPage, readCssomInPage, parseCssTextInPage, re
 import { withPage, blockNavigationAway, type BrowserHandle } from "./browser";
 import { detectNeedsAuth } from "./auth";
 import { scanInteractions, type Interaction } from "./interactions";
+import { scanInteractives, type CapturedInteractive } from "./interactive-scan";
 import { trackResponses, collectAssetUrls, urlsFromFontFaces, downloadAssets, type DownloadResult } from "./assets";
 
 // Runs `run` (a page.evaluate call) and rethrows any failure (crashed page,
@@ -210,6 +211,7 @@ export type PageCapture = {
   cssom: CssomResult;
   breakpoints: Pick<ResponsiveCapture, "bp" | "dom" | "truncated">[];
   interactions: Interaction[];
+  interactives?: CapturedInteractive[]; // absent in captures written before E2
   assets: Record<string, string>;
   skippedAssets: DownloadResult["skipped"];
   dynamic: DynamicAsset[];
@@ -290,6 +292,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
 
       const cssom = await readCssom(page);
       const breakpoints = await captureResponsive(page);
+      const interactives = await scanInteractives(page); // E2 §3: live page at 1440 (the last responsive viewport); never throws
       const inventory = await evalOrCrash(page, "Inventory", () => page.evaluate(inventoryInPage, MAX_NODES));
       const { dynamic, warnings: canvasWarnings } = await captureCanvases(page, workspaceDir);
       const interactions = await scanInteractions(page, { stateSelectors: cssom.stateSelectors });
@@ -309,6 +312,7 @@ export async function capturePage(handle: BrowserHandle, opts: CapturePageOpts):
         cssom,
         breakpoints: breakpoints.map(({ bp, dom, truncated }) => ({ bp, dom, truncated })),
         interactions,
+        interactives,
         assets: Object.fromEntries(assets),
         skippedAssets: skipped,
         dynamic,

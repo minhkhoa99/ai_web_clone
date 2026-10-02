@@ -69,6 +69,7 @@ test("captures site1 and writes capture.json + shots for all 3 breakpoints", asy
   expect(raw.breakpoints[0]!.dom.tag).toBe("html");
   expect(raw.cssom.vars["--brand-color"]).toBe("#ff6600");
   expect(Array.isArray(raw.interactions)).toBe(true);
+  expect(Array.isArray(raw.interactives)).toBe(true); // E2 scan ran (site1 has no carousel or hover menu)
   expect(typeof raw.assets).toBe("object");
   expect(Array.isArray(raw.skippedAssets)).toBe(true);
   // Counts only: 1 <script> + 1 inline onclick, 2 iframes, 1 canvas; no script text is kept.
