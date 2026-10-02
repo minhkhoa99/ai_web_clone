@@ -204,6 +204,7 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   await page.setViewportSize({ width: 375, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "no sideways scroll at 375 (behaviour list)").toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "no sideways scroll at 1440 (behaviour list)").toBe(true);
 
   // Fidelity (E1 §5): its own tab, counts = the API's items, page/status filters, node links only for present nodes
   const fidelity = ((await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { fidelity: FidelityItem[] }).fidelity;
