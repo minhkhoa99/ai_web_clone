@@ -76,8 +76,11 @@ export function alignChildren<N extends Keyed>(node: N, other: N | undefined): {
   if (!mine.length || ![...mine, ...theirs].every((c) => keyOf(c) !== undefined)) return undefined;
   const byKey = new Map<string, N>();
   for (const c of theirs) if (!byKey.has(keyOf(c)!)) byKey.set(keyOf(c)!, c);
-  return { kids: (node.children as N[]).map((c) => (c.tag === "#text" ? undefined : byKey.get(keyOf(c)!))), keyed: true };
+  const kids = (node.children as N[]).map((c) => (c.tag === "#text" ? undefined : byKey.get(keyOf(c)!)));
+  // no 1440 child found its key (e.g. ids regenerated on resize): not the same list, keep the E1 behaviour
+  return kids.some(Boolean) ? { kids, keyed: true } : undefined;
 }
+export const isLoopClone = (c: Keyed) => CLONE_CLASS.test(c.attrs.class ?? "");
 
 function landmarkOf(node: Draft): string | undefined {
   if (LANDMARK_TAGS.has(node.tag)) return node.tag;

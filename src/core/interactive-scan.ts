@@ -55,7 +55,7 @@ export async function scanInteractives(page: Page, opts: { limits?: Partial<type
       await page.mouse.move(0, 0).catch(() => undefined);
       if (opened) out.push({ kind: "dropdown", selector: c.trigger, panel: c.panel, openOn: "hover" });
     }
-    if (candidates.length) await withEvalTimeout(page, "Scroll reset", page.evaluate(() => scrollTo(0, 0)), SETTLE_MS * 10).catch(() => undefined); // page.hover scrolled the triggers into view
+    if (candidates.length) await withEvalTimeout(page, "Scroll reset", page.evaluate(() => scrollTo(0, 0)), within(SETTLE_MS * 10)).catch(() => undefined); // page.hover scrolled the triggers into view
   } catch {
     // E2 §11: capture never fails because of E2
   }

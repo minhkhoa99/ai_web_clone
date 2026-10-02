@@ -139,3 +139,22 @@ test("768/375 slide boxes follow the slide key: uneven widths and per-bp duplica
   expect(spec.gap["768"]).toBe(10);
   expect(spec.slidesPerView["768"]).toBe(Math.round((710 / 210) * 100) / 100); // median real slide 200 + gap
 });
+
+test("ids regenerated per breakpoint (no 1440 child finds its key) fall back to E1 pairing: nothing is hidden", () => {
+  expect(alignChildren(el("ul", {}, [el("li", { id: "a" }), el("li", { id: "b" })]), el("ul", {}, [el("li", { id: "x" })]))).toBeUndefined();
+  const list = (...ids: string[]) => doc(el("section", {}, [el("ul", {}, ids.map((id) => el("li", { id }, [txt(id)])))]), foot());
+  const ir = buildIR([capture({ breakpoints: [{ bp: 1440, dom: list("a", "b"), truncated: false }, { bp: 768, dom: list("a", "b"), truncated: false }, { bp: 375, dom: list("x"), truncated: false }] })]);
+  const lis = walk(ir).filter((n) => n.tag === "li");
+  expect(lis).toHaveLength(2);
+  for (const li of lis) expect(li.styles.bp[375]?.display).toBeUndefined();
+});
+
+test("no capture-box notes for loop clones or text nodes a keyed parent left without counterpart", () => {
+  const ir = buildIR([capture({ interactives: [{ kind: "carousel", selector: "#sw", source: "swiper", confidence: "observed", autoplay: false }] })]);
+  const spec = carouselOf(ir).interactive as CarouselSpec;
+  const nodes = new Map(walk(ir).map((n) => [n.id, n]));
+  const quiet = new Set<string>();
+  for (const c of nodes.get(spec.track)!.children) if (c.hidden) { quiet.add(c.id); c.children.forEach((t) => quiet.add(t.id)); }
+  for (const s of spec.slides) nodes.get(s)!.children.forEach((t) => quiet.add(t.id));
+  expect(ir.fidelity.filter((x) => x.feature === "capture-box" && quiet.has(x.nodeId ?? ""))).toEqual([]);
+});
