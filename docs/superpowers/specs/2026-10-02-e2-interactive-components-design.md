@@ -94,7 +94,7 @@ Kết quả ghi vào `PageCapture.interactives[]` (thay `interactions` cũ cho c
 - `data-behavior` cũ bị bỏ. Class gốc vẫn không được xuất.
 - CSS cơ bản cho từng kind (track flex hoặc grid, ẩn panel…) sinh theo spec rồi đi qua dedupe như style thường.
 
-**`js/runtime.js`** (≤ 15 KB, vanilla, CSP giữ nguyên chỉ cho phép đúng file này):
+**`js/runtime.js`** (≤ 20 KB, vanilla, CSP giữ nguyên chỉ cho phép đúng file này):
 
 | Kind | Hành vi |
 |---|---|
@@ -180,7 +180,7 @@ React thuần trong `src/app/p/[id]/editor/component-panel/`. Không import Grap
 | Quan sát autoplay | ≤ 6 s mỗi carousel, ≤ 30 s mỗi trang (vượt: `guessed`) |
 | Evaluate đọc cấu hình | 1 lần mỗi trang, timeout 30 s |
 | `data-c-cfg` | ≤ 16 KB mỗi component |
-| `runtime.js` | ≤ 15 KB (test kiểm) |
+| `runtime.js` | ≤ 20 KB (test kiểm) |
 | QA hành vi | ≤ 5 s mỗi component, ≤ 50 component mỗi trang |
 
 ## 11. Lỗi và an toàn
@@ -215,3 +215,36 @@ React thuần trong `src/app/p/[id]/editor/component-panel/`. Không import Grap
 - Chat AI (E4).
 - Canvas editor mới (E3).
 - Chạy hoặc đóng gói thư viện JS gốc.
+
+## 14. Rulings khi triển khai (2026-10-03)
+
+Quyết định phát sinh khi làm plan (R1–R13) và trong các task; ghi lại để spec khớp code.
+
+### Plan R1–R13
+
+- R1 `slidesPerView` cho phép số lẻ tới 2 chữ số thập phân (`multipleOf(0.01)`), đọc ".5" là "cho phép số lẻ"; giá trị đo từ bbox giữ 2 chữ số để layout runtime khớp pixel bản chụp.
+- R2 Dropdown/menu: gốc = tổ tiên chung thấp nhất (LCA) của trigger và panel. Nếu LCA đã giữ một `interactive` khác (hai dropdown anh em chung một cha, site2 `#vis-btn`/`#fade-btn`) thì gốc = chính node trigger, và `panel` của dropdown/menu được phép nằm ngoài subtree cùng trang — cùng ngoại lệ như `triggers` của modal …
+- R3 QA hành vi là bước thứ hai của task `qa` (và của lần chấm lại sau `fix`), không thêm task/phase mới vào DB hay phase stepper; kết quả ở `qa.json.behavior[]`.
+- R4 Kiểm tra autoplay dùng `page.clock` (đồng hồ giả của Playwright) để `1.5 × interval` (tới 90 s) vẫn nằm trong 5 s/component.
+- R5 Nâng Fidelity bằng QA hành vi được áp lúc đọc Preview từ `qa.json` còn tươi (không `stale`), không ghi vào IR; edit làm `qa.json` stale nên item tự về trạng thái gốc.
+- R6 `stripIds` (export) vẫn giữ `data-ir-id` trên các node được `data-c-cfg` tham chiếu.
+- R7 Chỉ node có ở 1440 biểu diễn được (IR dựng từ 1440): node 1440 thiếu ở 768/375 (sau khi ghép theo khoá slide) nhận `display:none` ở bp đó; node chỉ có ở 768/375 không có trong IR.
+- R8 Canvas GrapesJS (srcdoc, không có `?edit=1` trên URL) nạp `runtime.js?edit=1`; runtime đọc mode từ `document.currentScript.src`. Panel nhận thêm prop `onShow(rootId, index)` để editor chuyển `postMessage` vào frame.
+- R9 CSP `frame-src` cho embed: emitter thêm `<meta http-equiv="Content-Security-Policy" content="frame-src https://www.youtube-nocookie.com https://player.vimeo.com">` vào trang có embed (kết hợp với header của files route, giữ được cả khi export/file://); header route không đổi.
+- R10 Fixture site4 dùng hai script "mini" tự viết (`swiper-mini.js`, `slick-mini.js`) mô phỏng đúng bề mặt E2 đọc (class DOM, `el.swiper.params`, `$(el).slick('getSlick').options`, slide duplicate theo breakpoint, autoplay); không vendor bản build thật (không có mạng, không thêm dependency). Kiểm với thư viện thật cần một …
+- R11 Load-time validate: `interactive` sai trong tài liệu đã lưu là lỗi `IR_PATCH_INVALID` như mọi cấu trúc v2 sai khác (chỉ code của tool tạo ra nó, command luôn validate sau mỗi bước).
+- R12 `interactive` không được đặt trên node main (`ir.components`); trên instance thì kèm override path `interactive` (cả spec) hoặc `interactive.<field>` (updateComponent). Copy bằng `duplicateNode` bỏ `interactive`. Copy item (add/duplicate) bỏ `id`, `aria-controls`, `aria-labelledby`, `for` để không trùng id HTML.
+- R13 Tabs/accordion/dropdown ẩn–hiện panel theo đúng cách bản chụp ẩn nó (`hidden` / `display` / `visibility` / `opacity`, logic `show/hide` của runtime cũ), không đổi `visibility:hidden` thành `display:none` (đổi layout → tụt pixel site2).
+
+### Rulings theo task
+
+- Task 1:  nested interactive roots allowed (carousel inside a tab panel is real) — cost if wrong: runtime must handle nesting (Task 3/4)
+- Task 2:  emitter always drops captured data-c/data-c-* attrs; only IR interactive produces them — cost if wrong: a site relying on its own data-c attrs for CSS loses them
+- Task 3:  until Task 6 removes the legacy [data-behavior] block, the 15 KB size test measures runtime.js minus that block (delimited by /* legacy:start */ … /* legacy:end */ markers); Task 6 deletes block + exclusion — final runtime must be ≤15 KB — cost if wrong: none at end state
+- Task 4: runtime.js size limit raised from 15 KB to 20 KB (20 × 1024) — 15 KB left 270 B after Task 4 and forced comment stripping; later tasks still touch the runtime; spec §10 + plan constraint updated in Task 15 docs — cost if wrong: +5 KB per clone page load
+- Task 8: modal >100 triggers keeps first 100 + partial note — cost: extra triggers inert
+- Task 8: section split must not unwrap into a carousel root (hero sliders) — fixed in Task 8 round
+- Task 8: buildIR guessAll on every page adds guessed components to site1–3 (pixels unchanged) accepted
+- Task 9: fresh browser context per behaviour check (Playwright clock is per-context and can't be uninstalled) accepted — cost: one extra window per check when headed
+- Task 9: modal behaviour check follows configured closeOn (not always Esc) — spec §5 said "Esc đóng"; closeOn is configurable — cost if wrong: Esc-less modals no longer flagged
+- Task 9: carousel with nothing to advance → no behaviour result (not applicable)
