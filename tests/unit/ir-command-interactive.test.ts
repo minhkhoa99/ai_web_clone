@@ -113,3 +113,135 @@ test("every batch is validated after each command: a step that breaks a componen
   const planted = { ...props, interactive: { kind: "tabs", source: "manual", confidence: "manual", tabs: [{ trigger: "t1", panel: "open" }], active: 0 } as InteractiveSpec };
   expect(() => applyCommands(fixture(), [{ op: "setHidden", id: "t1", hidden: true }, { op: "restoreProps", id: "tabs", props: planted }])).toThrow(/command 1 \(restoreProps\).*outside/);
 });
+
+// --- Task 11: item commands ---
+const texted = (): IRV2 => {
+  const ir = fixture();
+  node(ir, "s0")!.children = [n("s0t", "#text", [], { text: "A", parentId: "s0" }), n("s0i", "img", [], { attrs: { src: "https://x.test/a.png", alt: "a" }, parentId: "s0" })];
+  node(ir, "s1")!.children = [n("s1t", "#text", [], { text: "B", parentId: "s1" })];
+  return ir;
+};
+const slides = (ir: IRV2) => (node(ir, "root")!.interactive as CarouselSpec).slides;
+
+test("addComponentItem: blank slide (text/img emptied) or a duplicate of `from`; server ids; active follows; Undo/Redo exact", () => {
+  const ir = texted();
+  const forward = prepareCommands(ir, [{ op: "addComponentItem", id: "root", index: 0 }], ids());
+  const done = applyCommands(ir, forward);
+  expect(slides(done.ir)).toEqual(["new1", "s0", "s1"]);
+  expect(node(done.ir, "new1")!.children.map((c) => [c.tag, c.text, c.attrs.src])).toEqual([["#text", "", undefined], ["img", undefined, undefined]]);
+  expect(applyCommands(done.ir, done.inverse).ir).toEqual(ir);
+  expect(applyCommands(applyCommands(done.ir, done.inverse).ir, forward).ir).toEqual(done.ir); // redo: same ids
+  const dup = run(texted(), [{ op: "addComponentItem", id: "root", from: "s1", index: 2 }]).ir;
+  expect(node(dup, slides(dup)[2]!)!.children[0]!.text).toBe("B");
+  const moved = run(texted(), [{ op: "updateComponent", id: "root", patch: { active: 1 } }, { op: "addComponentItem", id: "root", index: 0 }]).ir;
+  expect((node(moved, "root")!.interactive as CarouselSpec).active).toBe(2);
+});
+
+test("tabs/accordion items: trigger + panel copied (no duplicate html ids); <details> container copied as one", () => {
+  const ir = fixture();
+  node(ir, "tabs")!.interactive = { kind: "tabs", source: "aria", confidence: "guessed", tabs: [{ trigger: "t1", panel: "p1" }], active: 0 };
+  node(ir, "t1")!.attrs = { id: "tab-1", "aria-controls": "panel-1" };
+  const out = run(ir, [{ op: "addComponentItem", id: "tabs", from: "t1", index: 1 }]).ir;
+  const tabs = (node(out, "tabs")!.interactive as InteractiveSpec & { tabs: { trigger: string; panel: string }[] }).tabs;
+  expect(tabs).toHaveLength(2);
+  expect(node(out, tabs[1]!.trigger)!.attrs).toEqual({});
+  expect(node(out, "tabs")!.children.map((c) => c.id)).toEqual(["t1", tabs[1]!.trigger, "p1", tabs[1]!.panel]);
+});
+
+test("removeComponentItem: active adjusts, the last item cannot go, Undo puts the node back at its place", () => {
+  const ir = run(texted(), [{ op: "updateComponent", id: "root", patch: { active: 1 } }]).ir;
+  const { ir: out, inverse } = applyCommands(ir, prepareCommands(ir, [{ op: "removeComponentItem", id: "root", itemId: "s0" }], ids()));
+  expect(slides(out)).toEqual(["s1"]);
+  expect((node(out, "root")!.interactive as CarouselSpec).active).toBe(0);
+  expect(applyCommands(out, inverse).ir).toEqual(ir);
+  expect(() => run(out, [{ op: "removeComponentItem", id: "root", itemId: "s1" }])).toThrow(/last item/);
+});
+
+test("moveComponentItem: spec and DOM reorder together, hidden loop clones keep their slots, active follows its item", () => {
+  const ir = texted();
+  node(ir, "tr")!.children = [n("clone", "div", [], { hidden: true, parentId: "tr" }), ...node(ir, "tr")!.children];
+  const out = roundTrip(ir, [{ op: "moveComponentItem", id: "root", itemId: "s0", index: 1 }]).ir;
+  expect(slides(out)).toEqual(["s1", "s0"]);
+  expect(node(out, "tr")!.children.map((c) => c.id)).toEqual(["clone", "s1", "s0"]);
+  expect((node(out, "root")!.interactive as CarouselSpec).active).toBe(1);
+});
+
+test("limits and instances: 100 items max; item commands on an instance are refused; aliases normalize", () => {
+  const big = texted();
+  const hundred = Array.from({ length: 100 }, (_, i) => n(`k${i}`, "div", [], { parentId: "tr" }));
+  node(big, "tr")!.children = hundred;
+  node(big, "root")!.interactive = { ...spec, slides: hundred.map((x) => x.id) }; // not the shared `spec` object
+  expect(() => run(big, [{ op: "addComponentItem", id: "root", index: 0 }])).toThrow(/100/);
+  const inst = texted();
+  node(inst, "root")!.component = { id: "c", role: "instance", sourceId: "m", overrides: ["interactive"] };
+  expect(() => run(inst, [{ op: "removeComponentItem", id: "root", itemId: "s0" }])).toThrow(/main|detach/);
+  expect(prepareCommands(texted(), [{ op: "addCarouselSlide", id: "root", index: 0 }], ids())[0]).toMatchObject({ op: "addComponentItem" });
+  expect(() => prepareCommands(texted(), [{ op: "updateCarousel", id: "dlg", patch: { closeOn: [] } }], ids())).toThrow(/carousel/);
+});
+
+// --- Task 11 edge cases ---
+const tabbed = (): IRV2 => {
+  const ir = fixture();
+  const box = node(ir, "tabs")!;
+  box.children = [n("t1", "button", [], { parentId: "tabs" }), n("t2", "button", [], { parentId: "tabs" }), n("p1", "div", [], { parentId: "tabs" }), n("p2", "div", [], { parentId: "tabs" })];
+  box.interactive = { kind: "tabs", source: "aria", confidence: "guessed", tabs: [{ trigger: "t1", panel: "p1" }, { trigger: "t2", panel: "p2" }], active: 1 };
+  return ir;
+};
+const detailed = (): IRV2 => {
+  const ir = fixture();
+  const d = (k: string) => n(`d${k}`, "details", [n(`sm${k}`, "summary", [n(`sm${k}t`, "#text", [], { text: k })]), n(`pn${k}`, "div")]);
+  node(ir, "sec")!.children.push(n("acc", "div", [d("1"), d("2")], { parentId: "sec", interactive: { kind: "accordion", source: "details", confidence: "guessed", items: [{ trigger: "sm1", panel: "pn1", open: false }, { trigger: "sm2", panel: "pn2", open: true }], multiple: true } }));
+  return ir;
+};
+const accItems = (ir: IRV2) => (node(ir, "acc")!.interactive as Extract<InteractiveSpec, { kind: "accordion" }>).items;
+
+test("tabs sharing one parent: move / remove keep triggers among triggers and panels among panels; Undo and redo exact", () => {
+  const moved = roundTrip(tabbed(), [{ op: "moveComponentItem", id: "tabs", itemId: "t1", index: 1 }]);
+  expect(node(moved.ir, "tabs")!.children.map((c) => c.id)).toEqual(["t2", "t1", "p2", "p1"]);
+  expect(node(moved.ir, "tabs")!.interactive).toMatchObject({ tabs: [{ trigger: "t2", panel: "p2" }, { trigger: "t1", panel: "p1" }], active: 0 });
+  const removed = roundTrip(tabbed(), [{ op: "removeComponentItem", id: "tabs", itemId: "t1" }]);
+  expect(node(removed.ir, "tabs")!.children.map((c) => c.id)).toEqual(["t2", "p2"]);
+  expect(node(removed.ir, "tabs")!.interactive).toMatchObject({ active: 0 });
+  for (const out of [moved, removed]) {
+    const undone = applyCommands(out.ir, out.inverse);
+    expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out.ir); // inverse of the inverse
+  }
+  const added = roundTrip(tabbed(), [{ op: "addComponentItem", id: "tabs", index: 1 }]);
+  expect(node(added.ir, "tabs")!.children.map((c) => c.id)).toEqual(["t1", "new1", "t2", "p1", "new2", "p2"]);
+  expect(node(added.ir, "tabs")!.interactive).toMatchObject({ active: 2 });
+});
+
+test("<details> accordion: the container is the item (copied, removed and moved as one); ids follow preorder", () => {
+  const added = roundTrip(detailed(), [{ op: "addComponentItem", id: "acc", from: "sm2", index: 0 }]);
+  expect(node(added.ir, "acc")!.children.map((c) => c.id)).toEqual(["new1", "d1", "d2"]);
+  expect(accItems(added.ir)[0]).toEqual({ trigger: "new2", panel: "new4", open: false });
+  expect(node(added.ir, "new3")!.text).toBe("2");
+  const removed = roundTrip(detailed(), [{ op: "removeComponentItem", id: "acc", itemId: "sm1" }]).ir;
+  expect(node(removed, "acc")!.children.map((c) => c.id)).toEqual(["d2"]);
+  const moved = roundTrip(detailed(), [{ op: "moveComponentItem", id: "acc", itemId: "sm2", index: 0 }]).ir;
+  expect(node(moved, "acc")!.children.map((c) => c.id)).toEqual(["d2", "d1"]);
+  expect(accItems(moved).map((x) => x.trigger)).toEqual(["sm2", "sm1"]);
+});
+
+test("item commands refuse bad input: unknown item / from, out-of-range index, kinds without items, wrong alias kind, forged newIds", () => {
+  expect(() => run(texted(), [{ op: "removeComponentItem", id: "root", itemId: "nope" }])).toThrow(/not in/);
+  expect(() => run(texted(), [{ op: "addComponentItem", id: "root", from: "nope", index: 0 }])).toThrow(/not in/);
+  expect(() => run(texted(), [{ op: "addComponentItem", id: "root", index: 3 }])).toThrow(/index out of range/);
+  expect(() => run(texted(), [{ op: "moveComponentItem", id: "root", itemId: "s0", index: 2 }])).toThrow(/index out of range/);
+  expect(() => run(texted(), [{ op: "addComponentItem", id: "dlg", index: 0 }])).toThrow(/no items/);
+  expect(() => run(texted(), [{ op: "removeCarouselSlide", id: "dlg", itemId: "x" }])).toThrow(/carousel/);
+  expect(() => run(texted(), [{ op: "addComponentItem", id: "tabs", index: 0 }])).toThrow(/no interactive/);
+  expect(prepareCommands(texted(), [{ op: "removeCarouselSlide", id: "root", itemId: "s0" }], ids())[0]).toEqual({ op: "removeComponentItem", id: "root", itemId: "s0" });
+  expect(prepareCommands(texted(), [{ op: "updateCarousel", id: "root", patch: { loop: true } }], ids())[0]).toEqual({ op: "updateComponent", id: "root", patch: { loop: true } });
+  expect(() => applyCommands(texted(), [{ op: "addComponentItem", id: "root", index: 0, newIds: ["s1", "a", "b"] }])).toThrow(/duplicate node id/);
+  expect(() => applyCommands(texted(), [{ op: "addComponentItem", id: "root", index: 0, newIds: ["z"] }])).toThrow(/newIds/);
+  expect(() => applyCommands(texted(), [{ op: "restoreItems", id: "root", interactive: spec, remove: [], insert: [], order: [{ parentId: "tr", ids: ["s0"] }] }])).toThrow(/invalid item restore/);
+  const nested = tabbed();
+  node(nested, "t1")!.children = [n("p1", "div", [], { parentId: "t1" })];
+  node(nested, "tabs")!.children = node(nested, "tabs")!.children.filter((c) => c.id !== "p1");
+  expect(() => run(nested, [{ op: "addComponentItem", id: "tabs", from: "t1", index: 0 }])).toThrow(/nested/);
+  const instTrack = texted(); // the root is plain but the track is an instance node: still a structural edit of the instance
+  node(instTrack, "tr")!.component = { id: "c", role: "instance", sourceId: "m", overrides: [] };
+  for (const command of [{ op: "moveComponentItem", id: "root", itemId: "s0", index: 1 }, { op: "removeComponentItem", id: "root", itemId: "s0" }, { op: "addComponentItem", id: "root", index: 0 }] as EditorCommand[])
+    expect(() => run(instTrack, [command])).toThrow(/component instance tr/);
+});

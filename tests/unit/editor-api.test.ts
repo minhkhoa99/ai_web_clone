@@ -291,3 +291,15 @@ test("commands route accepts the E2 component ops; private restoreSpec is refuse
   const shape = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "unwrapComponent", id: root }] });
   expect(((await shape.json()) as { code: string }).code).toBe("IR_PATCH_INVALID"); // accepted by zod, refused by the core: no component there
 });
+
+test("commands route: item ops and carousel aliases pass zod (the core judges them); restoreItems is refused", async () => {
+  const id = await seed();
+  const doc = await projectDocuments(getDb()).loadDocument(id);
+  const root = doc.sections[0]!.root.id;
+  for (const command of [{ op: "addCarouselSlide", id: root, index: 0 }, { op: "moveComponentItem", id: root, itemId: root, index: 0 }, { op: "removeComponentItem", id: root, itemId: root }]) {
+    const res = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [command] });
+    expect(((await res.json()) as { code: string }).code).toBe("IR_PATCH_INVALID");
+  }
+  const bad = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "restoreItems", id: root }] });
+  expect(((await bad.json()) as { code: string }).code).toBe("VALIDATION");
+});

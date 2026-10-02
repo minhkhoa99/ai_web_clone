@@ -135,6 +135,50 @@ export function specFromRoles(kind: InteractiveKind, roles: Record<string, unkno
   return parseSpec({ ...DEFAULTS[kind], ...roles, ...items, kind, source: "manual", confidence: "manual" });
 }
 
+// E2 §6 items: the DOM a slide / tab pair / accordion item owns. Trigger and panel sharing a parent that is not the
+// root and holds no other trigger (e.g. <details>) -> that parent is the item; otherwise the trigger and the panel.
+export type Item = { id: string; nodes: string[] };
+export function itemsOf(spec: InteractiveSpec, parentOf: (id: string) => string | undefined, rootId: string): Item[] {
+  if (spec.kind === "carousel") return spec.slides.map((s) => ({ id: s, nodes: [s] }));
+  const pairs: { trigger: string; panel: string }[] = spec.kind === "tabs" ? spec.tabs : spec.kind === "accordion" ? spec.items : [];
+  const triggers = new Set(pairs.map((x) => x.trigger));
+  return pairs.map((x) => {
+    const box = parentOf(x.trigger);
+    const own = box !== undefined && box !== rootId && box === parentOf(x.panel) && !triggers.has(box) && pairs.every((o) => o === x || parentOf(o.trigger) !== box);
+    return { id: x.trigger, nodes: own ? [box] : [x.trigger, x.panel] };
+  });
+}
+// Pure spec edits; `active` (carousel/tabs) keeps pointing at the same item, a remove clamps it.
+type Entry = string | { trigger: string; panel: string; open?: boolean };
+const entries = (spec: InteractiveSpec): Entry[] =>
+  spec.kind === "carousel" ? spec.slides : spec.kind === "tabs" ? spec.tabs : spec.kind === "accordion" ? spec.items : invalid(`${spec.kind} has no items`);
+const keyOfEntry = (x: Entry) => (typeof x === "string" ? x : x.trigger);
+const withEntries = (spec: InteractiveSpec, list: Entry[], active: number | undefined): InteractiveSpec => parseSpec({
+  ...spec, [spec.kind === "carousel" ? "slides" : spec.kind === "tabs" ? "tabs" : "items"]: list, ...(active !== undefined && { active }),
+});
+const activeOf = (spec: InteractiveSpec) => (spec.kind === "carousel" || spec.kind === "tabs" ? spec.active : undefined);
+const entryAt = (list: Entry[], itemId: string) => {
+  const i = list.findIndex((x) => keyOfEntry(x) === itemId);
+  return i >= 0 ? i : invalid(`item ${String(itemId).slice(0, 200)} is not in the component`);
+};
+export function withoutItem(spec: InteractiveSpec, itemId: string): InteractiveSpec {
+  const list = [...entries(spec)], i = entryAt(list, itemId), active = activeOf(spec);
+  if (list.length === 1) invalid("cannot remove the last item");
+  list.splice(i, 1);
+  return withEntries(spec, list, active === undefined ? undefined : i < active ? active - 1 : Math.min(active, list.length - 1));
+}
+export function withItem(spec: InteractiveSpec, index: number, ids: { trigger: string; panel?: string }): InteractiveSpec {
+  const list = [...entries(spec)], active = activeOf(spec);
+  list.splice(index, 0, spec.kind === "carousel" ? ids.trigger : { trigger: ids.trigger, panel: ids.panel!, ...(spec.kind === "accordion" && { open: false }) });
+  return withEntries(spec, list, active === undefined ? undefined : index <= active ? active + 1 : active);
+}
+export function withItemMoved(spec: InteractiveSpec, itemId: string, index: number): InteractiveSpec {
+  const before = entries(spec), list = [...before], i = entryAt(list, itemId), active = activeOf(spec);
+  if (!Number.isInteger(index) || index < 0 || index >= list.length) invalid(`index out of range 0..${list.length - 1}`);
+  list.splice(index, 0, ...list.splice(i, 1));
+  return withEntries(spec, list, active === undefined ? undefined : list.indexOf(before[active]!));
+}
+
 export function cfgOf(spec: InteractiveSpec): string {
   const { source: _source, confidence: _confidence, ...cfg } = spec as InteractiveSpec & { poster?: string };
   delete (cfg as { poster?: string }).poster; // a URL: written as the video's own attribute through the asset map
