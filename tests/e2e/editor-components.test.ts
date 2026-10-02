@@ -80,9 +80,19 @@ test("panel: select a slide -> Carousel panel; add, duplicate, delete, reorder; 
   expect(await interval.inputValue()).toBe(stored);
   expect(await revisionNow()).toBe(rev);
   const before = await slideCount(base);
+  // the panel stays locked from the command until the reload lands: never re-enabled in between (a click there was lost
+  // when the reload locked it again, or sent the old revision)
+  await page.evaluate(() => {
+    const f = document.querySelector(".cmp-fieldset")!, w = window as unknown as { locks: boolean[] };
+    w.locks = [];
+    new MutationObserver(() => w.locks.push(f.hasAttribute("disabled"))).observe(f, { attributes: true, attributeFilter: ["disabled"] });
+  });
   await panel.getByRole("button", { name: "Thêm" }).click();
   await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã cập nhật component — điểm QA cần chạy lại");
   expect(await slideCount(base)).toBe(before + 1);
+  const canvasSlides = canvas.locator('[data-c-role="slide"]'); // every carousel, like slideCount
+  await expect.poll(async () => (await canvasSlides.count()) === before + 1 && !(await page.locator(".cmp-fieldset").isDisabled()), { timeout: 30_000 }).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { locks: boolean[] }).locks)).toEqual([true, false]);
   await panel.getByRole("button", { name: /Nhân bản/ }).first().click();
   await expect.poll(() => slideCount(base), { timeout: 30_000 }).toBe(before + 2);
   await panel.getByRole("button", { name: /Xoá/ }).first().click();

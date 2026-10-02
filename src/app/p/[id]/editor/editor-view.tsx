@@ -166,6 +166,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
     try {
       setMsg(await fn());
       setSaved(true);
+      setLoading(true); // with busy=false in one render: the panel never re-enables before the reload lands
       setVersion((v) => v + 1);
     } catch (e) {
       const { code, revision } = e as { code?: string; revision?: number };
