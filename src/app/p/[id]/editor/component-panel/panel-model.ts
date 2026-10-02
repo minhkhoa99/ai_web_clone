@@ -25,3 +25,23 @@ export function thumbStyle(box: [number, number, number, number] | undefined, sh
   const scale = size / box[2];
   return { backgroundImage: `url("${shot}")`, backgroundSize: `${1440 * scale}px auto`, backgroundPosition: `${-box[0] * scale}px ${-box[1] * scale}px`, width: `${size}px`, height: `${Math.min(size, Math.round(box[3] * scale))}px` };
 }
+
+// The schema's number rules (core/interactive zod, mirrored: the form must not send what the server refuses).
+export type NumberRule = { min: number; max: number; int?: true; cents?: true; optional?: true };
+export const NUMBER_RULES = {
+  interval: { min: 1000, max: 60000, int: true },
+  speed: { min: 0, max: 5000, int: true },
+  slidesPerView: { min: 1, max: 10, cents: true, optional: true },
+  gap: { min: 0, max: 200, optional: true },
+} as const satisfies Record<string, NumberRule>;
+export function numberValue(raw: string, rule: NumberRule): { value?: number; error?: string } {
+  if (raw.trim() === "" && rule.optional) return { value: undefined };
+  const v = raw.trim() === "" ? NaN : Number(raw);
+  const ok = Number.isFinite(v) && v >= rule.min && v <= rule.max && (!rule.int || Number.isInteger(v)) && (!rule.cents || Math.abs(v * 100 - Math.round(v * 100)) < 1e-9);
+  if (ok) return { value: v };
+  const what = `${rule.int ? "số nguyên" : "số"} từ ${rule.min} đến ${rule.max}${rule.cents ? ", tối đa 2 chữ số thập phân" : ""}`;
+  return { error: `Cần ${what}${rule.optional ? " (để trống: theo màn rộng hơn)" : ""}.` };
+}
+
+// resolveComponents' view-only ids for a main's nodes inside an instance (`instance:…`): never sent as a role
+export const generatedId = (id: string) => id.startsWith("instance:");

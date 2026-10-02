@@ -186,7 +186,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
   // UndoManager, cleared at load).
   const requireSaved = async () => {
     await flushEditing();
-    if (editorRef.current?.UndoManager.hasUndo()) throw new Error("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout.");
+    if (editorRef.current?.UndoManager.hasUndo()) throw new Error("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout / sửa trong panel Component.");
   };
 
   const save = () =>

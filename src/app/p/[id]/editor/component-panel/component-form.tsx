@@ -1,24 +1,28 @@
 "use client";
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { Field } from "@/app/_ui/Field";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import type { Bp, PanelComponent } from "@/core/interactive";
+import { NUMBER_RULES, numberValue, type NumberRule } from "./panel-model";
 
 type Patch = Record<string, unknown>;
 const BPS: [Bp, string][] = [["1440", "Desktop"], ["768", "Tablet"], ["375", "Mobile"]];
 
-// A number committed on blur / Enter (each change is one server command + an editor reload, not one per keystroke).
-// key = the current value: a new document value resets the input. "" = no value (a breakpoint inherits the wider one).
-function NumberInput({ label, value, min, max, step = 1, onCommit }: { label: string; value: number | undefined; min: number; max: number; step?: number; onCommit(v: number | undefined): void }) {
-  const commit = (raw: string) => {
-    const v = raw.trim() === "" ? undefined : Number(raw);
-    if (v === value || (v !== undefined && (!Number.isFinite(v) || v < min || v > max))) return;
-    onCommit(v);
+// A number committed on blur / Enter (each change is one server command + an editor reload, not one per keystroke),
+// checked with the schema's rules first: an invalid one is not sent, the input goes back to the stored value and says
+// why. key = the current value: a new document value resets the input. "" = no value (a breakpoint inherits the wider).
+function NumberInput({ label, value, rule, step = 1, onCommit }: { label: string; value: number | undefined; rule: NumberRule; step?: number; onCommit(v: number | undefined): void }) {
+  const [error, setError] = useState("");
+  const commit = (input: HTMLInputElement) => {
+    const parsed = numberValue(input.value, rule);
+    setError(parsed.error ?? "");
+    if (parsed.error) input.value = value === undefined ? "" : String(value);
+    else if (parsed.value !== value) onCommit(parsed.value);
   };
   return (
-    <Field label={label}>
-      <input key={String(value)} type="number" min={min} max={max} step={step} defaultValue={value ?? ""} onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+    <Field label={label} hint={error ? <span className="cmp-error" role="alert">{error}</span> : undefined}>
+      <input key={String(value)} type="number" min={rule.min} max={rule.max} step={step} defaultValue={value ?? ""} aria-invalid={error ? true : undefined}
+        onBlur={(e) => commit(e.currentTarget)} onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
     </Field>
   );
 }
@@ -43,15 +47,15 @@ export function ComponentForm({ component: c, onPatch }: { component: PanelCompo
       body = (
         <>
           <Check label="Tự chạy" checked={s.autoplay} onChange={(v) => onPatch({ autoplay: v })} />
-          <NumberInput label="Khoảng thời gian (ms)" value={s.interval} min={1000} max={60000} step={100} onCommit={(v) => v !== undefined && onPatch({ interval: v })} />
+          <NumberInput label="Khoảng thời gian (ms)" value={s.interval} rule={NUMBER_RULES.interval} step={100} onCommit={(v) => v !== undefined && onPatch({ interval: v })} />
           <Check label="Lặp" checked={s.loop} onChange={(v) => onPatch({ loop: v })} />
           <SegmentedControl label="Hướng" value={s.direction} onChange={(v) => onPatch({ direction: v })} options={[{ value: "horizontal", label: "Ngang" }, { value: "vertical", label: "Dọc" }]} />
           <SegmentedControl label="Chuyển cảnh" value={s.transition} onChange={(v) => onPatch({ transition: v })} options={[{ value: "slide", label: "Trượt" }, { value: "fade", label: "Mờ dần" }]} />
-          <NumberInput label="Tốc độ (ms)" value={s.speed} min={0} max={5000} step={50} onCommit={(v) => v !== undefined && onPatch({ speed: v })} />
+          <NumberInput label="Tốc độ (ms)" value={s.speed} rule={NUMBER_RULES.speed} step={50} onCommit={(v) => v !== undefined && onPatch({ speed: v })} />
           {BPS.map(([bp, name]) => (
             <div key={bp} className="cmp-bp">
-              <NumberInput label={`Số slide hiển thị · ${name}`} value={s.slidesPerView[bp]} min={1} max={10} step={0.01} onCommit={(v) => perBp("slidesPerView", bp, v)} />
-              <NumberInput label={`Khoảng cách (px) · ${name}`} value={s.gap[bp]} min={0} max={200} onCommit={(v) => perBp("gap", bp, v)} />
+              <NumberInput label={`Số slide hiển thị · ${name}`} value={s.slidesPerView[bp]} rule={NUMBER_RULES.slidesPerView} step={0.01} onCommit={(v) => perBp("slidesPerView", bp, v)} />
+              <NumberInput label={`Khoảng cách (px) · ${name}`} value={s.gap[bp]} rule={NUMBER_RULES.gap} onCommit={(v) => perBp("gap", bp, v)} />
             </div>
           ))}
           {/* arrows / pagination need their nodes: only the captured ones can be turned off (Undo brings them back) */}

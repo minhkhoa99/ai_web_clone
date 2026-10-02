@@ -7,7 +7,7 @@ import { IconButton } from "@/app/_ui/IconButton";
 import type { EditorCommand } from "@/core/ir-command";
 import { ComponentForm } from "./component-form";
 import { ConvertWizard } from "./convert-wizard";
-import { componentFor, moveCommand, thumbStyle, type PanelDocument } from "./panel-model";
+import { componentFor, generatedId, moveCommand, thumbStyle, type PanelDocument } from "./panel-model";
 
 const KIND: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const CONF: Record<string, string> = { config: "cấu hình thư viện", observed: "quan sát", guessed: "suy đoán", manual: "gắn tay" };
@@ -30,7 +30,9 @@ export function ComponentPanel({ document: doc, selectedId, revision: _revision,
   if (!selectedId) return null;
   if (!c) return (
     <Card title="Component" data-ui="ui_editor_component_panel">
-      {wizard ? <ConvertWizard rootId={selectedId} outline={doc.outline} onCancel={() => setWizard(false)} onSubmit={(cmd) => { setWizard(false); onCommands([cmd]); }} />
+      {/* a main's node shown inside an instance has a view-only id: roles must name document nodes */}
+      {generatedId(selectedId) ? <p className="t-body-sm text-2">Phần tử này thuộc component instance: đánh dấu ở main, hoặc tách (detach) instance trước.</p>
+        : wizard ? <ConvertWizard rootId={selectedId} outline={doc.outline.filter((o) => !generatedId(o.id))} onCancel={() => setWizard(false)} onSubmit={(cmd) => { setWizard(false); onCommands([cmd]); }} />
         : <Button data-ui="ui_editor_component_convert" onClick={() => setWizard(true)}>Đánh dấu là component…</Button>}
     </Card>
   );
@@ -62,7 +64,7 @@ export function ComponentPanel({ document: doc, selectedId, revision: _revision,
         </ol>
       )}
       {c.items.length > 0 && <Button icon="add" onClick={() => add()} disabled={lock}>Thêm</Button>}
-      {OPENS.has(c.spec.kind) && <Button icon="visibility" onClick={() => onShow(c.rootId, 0)}>Mở trên canvas</Button>}
+      {OPENS.has(c.spec.kind) && <Button data-ui="ui_editor_component_show_on_canvas" icon="visibility" onClick={() => onShow(c.rootId, 0)}>Mở trên canvas</Button>}
       {lock && <p className="t-body-sm text-2">Instance: sửa danh sách ở main hoặc tách (detach) trước.</p>}
       <ComponentForm component={c} onPatch={(patch) => onCommands([{ op: "updateComponent", id: c.rootId, patch }])} />
       <Button data-ui="ui_editor_component_unwrap" variant="warn" icon="block" onClick={() => onCommands([{ op: "unwrapComponent", id: c.rootId }])}>Bỏ hành vi</Button>

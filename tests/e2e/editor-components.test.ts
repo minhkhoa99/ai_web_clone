@@ -69,6 +69,16 @@ test("panel: select a slide -> Carousel panel; add, duplicate, delete, reorder; 
   const rootId = (await canvas.locator('[data-c="carousel"]').first().getAttribute("data-ir-id"))!;
   await panel.locator(".cmp-item-pick").nth(1).click();
   await expect.poll(() => canvas.locator(`[data-ir-id="${rootId}"]`).getAttribute("data-c-active"), { timeout: 10_000 }).toBe("1");
+  // a value the schema refuses is never sent: inline Vietnamese error, the input back to the stored value
+  const interval = panel.getByLabel("Khoảng thời gian (ms)");
+  const stored = await interval.inputValue();
+  const revisionNow = async () => ((await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number }).revision;
+  const rev = await revisionNow();
+  await interval.fill("1500.5");
+  await interval.press("Enter");
+  expect(await panel.getByRole("alert").innerText()).toBe("Cần số nguyên từ 1000 đến 60000.");
+  expect(await interval.inputValue()).toBe(stored);
+  expect(await revisionNow()).toBe(rev);
   const before = await slideCount(base);
   await panel.getByRole("button", { name: "Thêm" }).click();
   await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã cập nhật component — điểm QA cần chạy lại");

@@ -2,6 +2,7 @@
 import { z } from "zod";
 import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
+import { COMPONENT_FEATURE } from "./fidelity"; // a cycle (fidelity imports this file): read only at call time
 import type { IRNodeV2, IRV2 } from "./ir-v2";
 
 export type Bp = "1440" | "768" | "375";
@@ -282,7 +283,7 @@ export function panelComponents(ir: IRV2, pageId: string): PanelComponent[] {
   return roots.map((root) => {
     const spec = root.interactive!;
     const items = spec.kind === "carousel" || spec.kind === "tabs" || spec.kind === "accordion" ? itemsOf(spec, (x) => parent.get(x), root.id) : [];
-    const fidelity = (ir.fidelity ?? []).find((x) => x.feature === "component" && x.nodeId === root.id)?.status; // fidelity.ts COMPONENT_FEATURE (it imports this file)
+    const fidelity = (ir.fidelity ?? []).find((x) => x.feature === COMPONENT_FEATURE && x.nodeId === root.id)?.status;
     return {
       rootId: root.id, spec, members: rolesOf(spec).map(([ref]) => ref), instance: root.component?.role === "instance", ...(fidelity && { fidelity }),
       items: items.map((item, k) => {

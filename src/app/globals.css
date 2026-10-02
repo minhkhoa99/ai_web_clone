@@ -767,6 +767,7 @@ select.full { width: 100%; min-height: 38px; }
 .cmp-thumb { flex: none; border-radius: 4px; background-color: var(--c-surface-high); background-repeat: no-repeat; width: 48px; height: 32px; }
 .cmp-bp { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-sm); }
 .cmp-form input[type="number"], .cmp-form select, .cmp-wizard select { width: 100%; }
+.cmp-error { color: var(--c-danger); }
 .cmp-actions { display: flex; flex-wrap: wrap; gap: var(--s-sm); }
 .editor-shell { overflow: hidden; }
 /* GrapesJS theme on the Stitch tokens (spec §3.8) */

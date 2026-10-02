@@ -209,6 +209,7 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_component_form` | `feat_editor`, `feat_interaction_scan` | E2 §7 form cấu hình theo kind (carousel/tabs/accordion/modal/dropdown/menu/video) — `updateComponent` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_unwrap` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Bỏ hành vi" — `unwrapComponent` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_convert` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Đánh dấu là component…" khi node không thuộc component — mở wizard | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_show_on_canvas` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Mở trên canvas" cho modal / dropdown / menu (không có danh sách item); rời component → đóng lại (`aiwc:hide`) — `aiwc:show` qua postMessage, không lưu | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_wizard` | `feat_editor`, `feat_interaction_scan` | E2 §7 wizard chọn kind + vai trò trong node đang chọn và con cháu (≤ 100) — `convertToComponent` | không có trong mockup, dùng token/component sẵn có | build |
 
 ## Drift — danh sách chính thức (59 id, không render, không implement)

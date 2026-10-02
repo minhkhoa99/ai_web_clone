@@ -404,7 +404,7 @@ test("editor: edit one heading in the canvas, save -> exactly one command, out/i
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Unsaved words");
   await page.getByRole("button", { name: "Hoàn tác" }).click();
-  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout.");
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout / sửa trong panel Component.");
   expect(await heading.innerText()).toBe("Unsaved words");
   expect(await outHtml()).toMatch(/Edited headline<\/h1>/);
   await page.close();

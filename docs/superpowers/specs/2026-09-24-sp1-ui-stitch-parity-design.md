@@ -36,7 +36,7 @@ UI SP1 hiện tại (Task 24/25) có đủ tính năng spec §10 nhưng lệch x
 
 | # | Quyết định | Lý do |
 |---|---|---|
-| D1 | Icon là **SVG path subset** sinh từ `@material-symbols/svg-400` (devDependency) vào file `src/app/_ui/icons.gen.ts` được commit; không dùng font ligature. | Cùng bộ glyph Material Symbols Outlined; không FOUT, không để lộ chữ ligature cho screen reader, chỉ bundle icon thực dùng (72 icon ≈ 30KB), không cần công cụ subset font. |
+| D1 | Icon là **SVG path subset** sinh từ `@material-symbols/svg-400` (devDependency) vào file `src/app/_ui/icons.gen.ts` được commit; không dùng font ligature. | Cùng bộ glyph Material Symbols Outlined; không FOUT, không để lộ chữ ligature cho screen reader, chỉ bundle icon thực dùng (74 icon ≈ 30KB), không cần công cụ subset font. |
 | D2 | Nút filled primary = nền `primary #c0c1ff` + chữ `on-primary #1000a9` (hover `primary-fixed #e1e0ff`); `primary-container #8083ff` + `on-primary-container #0d0096` dùng cho accent fill (hàng chọn, badge đếm của tab đang chọn, file đang mở). | 8/11 mockup dùng `bg-primary text-on-primary` cho CTA; settings/code-viewer dùng `primary-container` cho vùng chọn. Contrast chữ ≥ 7:1 cả hai. |
 | D3 | "Chạy lại QA" chạy qua **job queue** như task `qa:rescore` (status `completed → running → completed`), chỉ chấm điểm, **không** mở fix loop. | Giữ giới hạn "1 job chạy đồng thời" (§1 spec SP1), tái dùng checkpoint/pause/SSE sẵn có; không để AI tự sửa đè lên chỉnh tay. |
 | D4 | Danh sách drift chính thức chuyển vào `docs/superpowers/design/stitch-screens.md` (được commit); `.superpowers/sdd/.../drift-list.md` bị gitignore nên chỉ là bản local, cập nhật đồng bộ. | Nguồn sự thật phải nằm trong repo để graphify đọc được. |
@@ -156,7 +156,7 @@ Focus: `:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 1p
 - Gói: `@material-symbols/svg-400` (Apache-2.0), **devDependency**, bản Outlined, viewBox `0 -960 960 960`.
 - Script `scripts/gen-icons.mjs` (npm script `icons`): đọc danh sách tên cố định trong script, lấy thuộc tính `d` của mỗi `outlined/<name>.svg`, ghi `src/app/_ui/icons.gen.ts` = `export const ICONS = { name: "d…" } as const; export type IconName = keyof typeof ICONS;`. File sinh ra được commit (build không cần mạng, không cần chạy script). Tên thiếu trong gói → script exit 1.
 - Component `Icon` (§2.2) render `<svg aria-hidden="true" focusable="false" fill="currentColor">`; kích thước 16 (mặc định), 14 (trong pill), 20 (header trang, section header `/new`).
-- Subset (72 icon), nguồn tên theo `data-icon` trong mockup:
+- Subset (74 icon), nguồn tên theo `data-icon` trong mockup (trừ panel Component của editor E2, không có mockup):
   - shell/nav: `history`, `add`, `settings`, `timeline`, `account_tree`, `difference`, `edit`, `code`
   - chung: `search`, `refresh`, `open_in_new`, `content_copy`, `visibility`, `visibility_off`, `expand_more`, `chevron_right`, `chevron_left`, `close`, `check`, `remove`, `more_vert`, `arrow_forward`, `undo`, `redo`, `save`
   - trạng thái: `check_circle`, `cancel`, `pause_circle`, `warning`, `lock`, `error`, `schedule`, `draft`
@@ -166,6 +166,7 @@ Focus: `:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 1p
   - preview: `phone_iphone`, `tablet_mac`, `desktop_windows`, `view_column_2`, `opacity`, `compare`, `layers`
   - code viewer: `folder`, `folder_open`, `description`, `html`, `css`, `javascript`, `data_object`, `format_list_numbered`, `wrap_text`
   - sitemap: `unfold_more`, `unfold_less`
+  - editor, panel Component (E2 §7, sắp xếp bằng bàn phím): `arrow_upward`, `arrow_downward`
 - A11y: icon trang trí luôn `aria-hidden`; nút chỉ có icon (`IconButton`) bắt buộc prop `label` → render `aria-label={label}` + `title={label}` (TypeScript bắt buộc, không optional).
 
 ---
