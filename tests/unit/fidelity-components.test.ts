@@ -29,11 +29,17 @@ test("unwrap: the node keeps an unsupported 'bỏ hành vi theo yêu cầu' item
   expect(refreshFidelity(unwrapped, ir(tabs("config")), []).find((x) => x.feature === COMPONENT_FEATURE)!.status).toBe("supported");
 });
 
-test("withBehavior: a passed check lifts the component item, a failed one says why; notes are untouched", () => {
-  const items = [...componentFidelity(ir(tabs("guessed")), []), { pageId: "p", feature: COMPONENT_NOTE, status: "partial" as const, nodeId: "r", note: "interval suy đoán" }];
+test("withBehavior: a passed check lifts the component item unless a partial note remains; a failed one says why; notes are untouched", () => {
+  const bare = componentFidelity(ir(tabs("guessed")), []);
+  expect(withBehavior(bare, [{ pageId: "p", nodeId: "r", kind: "tabs", ok: true }]).find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status: "supported", note: expect.stringContaining("đã kiểm chứng") });
+  const items = [...bare, { pageId: "p", feature: COMPONENT_NOTE, status: "partial" as const, nodeId: "r", note: "interval suy đoán" }];
   const ok = withBehavior(items, [{ pageId: "p", nodeId: "r", kind: "tabs", ok: true }]);
-  expect(ok.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status: "supported", note: expect.stringContaining("đã kiểm chứng") });
+  // spec §5: fields still noted partial keep the item partial — verified, but not the whole config
+  expect(ok.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status: "partial", note: expect.stringContaining("đã kiểm chứng") });
   expect(ok.find((x) => x.feature === COMPONENT_NOTE)!.status).toBe("partial");
+  // a note on another page's node of the same id does not hold this one back
+  const elsewhere = [...bare, { pageId: "q", feature: COMPONENT_NOTE, status: "partial" as const, nodeId: "r", note: "x" }];
+  expect(withBehavior(elsewhere, [{ pageId: "p", nodeId: "r", kind: "tabs", ok: true }]).find((x) => x.feature === COMPONENT_FEATURE)!.status).toBe("supported");
   const bad = withBehavior(items, [{ pageId: "p", nodeId: "r", kind: "tabs", ok: false, reason: "panel 2 không hiện" }]);
   expect(bad.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status: "partial", note: expect.stringContaining("panel 2 không hiện") });
 });

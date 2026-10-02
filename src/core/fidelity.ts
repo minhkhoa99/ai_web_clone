@@ -236,13 +236,16 @@ export function componentFidelity(ir: IRV2, before: FidelityItem[]): FidelityIte
   return out;
 }
 
-// E2 §5 (R5): applied when the Preview reads a fresh qa.json; never stored.
+// E2 §5 (R5): applied when the Preview reads a fresh qa.json; never stored. A passed check lifts the item to supported
+// unless a partial component-note remains (fields still guessed / defaulted): then it stays partial, noted as verified.
 export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): FidelityItem[] {
   const byNode = new Map(results.map((r) => [`${r.pageId}|${r.nodeId}`, r]));
+  const noted = new Set(items.filter((x) => x.feature === COMPONENT_NOTE && x.status !== "supported").map((x) => `${x.pageId}|${x.nodeId}`));
   return items.map((x): FidelityItem => {
-    const r = x.feature === COMPONENT_FEATURE && x.status !== "unsupported" ? byNode.get(`${x.pageId}|${x.nodeId}`) : undefined;
+    const key = `${x.pageId}|${x.nodeId}`;
+    const r = x.feature === COMPONENT_FEATURE && x.status !== "unsupported" ? byNode.get(key) : undefined;
     if (!r) return x;
-    return r.ok ? { ...x, status: "supported", note: clip(`${x.note} · đã kiểm chứng hành vi trên bản clone`) } : { ...x, status: "partial", note: clip(`${x.note} · QA hành vi không đạt: ${r.reason ?? "không rõ"}`) };
+    return r.ok ? { ...x, status: noted.has(key) ? "partial" : "supported", note: clip(`${x.note} · đã kiểm chứng hành vi trên bản clone`) } : { ...x, status: "partial", note: clip(`${x.note} · QA hành vi không đạt: ${r.reason ?? "không rõ"}`) };
   });
 }
 

@@ -511,6 +511,33 @@ test("pause mid fix phase: the hung AI call is aborted, the browser closed, fix 
   expect(tasksIn(db, id, "fix").map((t) => t.status)).toEqual(["done", "done"]);
 });
 
+test("pause mid behaviour QA: the pass gets the run's signal and its abort is thrown — no qa.json written, qa task back to pending, paused", async () => {
+  const { db, id } = await fixReady([]);
+  db.prepare("UPDATE tasks SET status='pending' WHERE project_id=? AND phase='qa'").run(id);
+  let started!: () => void;
+  const inBehavior = new Promise<void>((r) => (started = r));
+  const run = runProject(db, id, {
+    deps: {
+      openBrowser: closable().open,
+      scoreSections: async () => [],
+      checkBehavior: (_h, opts) => {
+        started();
+        // without the run's signal the pass cannot know about the pause: it would end with a made-up failure
+        if (!opts.signal) return Promise.resolve([{ pageId: "home", nodeId: "x", kind: "tabs" as const, ok: false, reason: "Trình duyệt đã đóng trong lúc kiểm tra" }]);
+        // like the real pass: an aborted signal is thrown, never turned into a result
+        return new Promise<never>((_, reject) => opts.signal!.addEventListener("abort", () => reject(opts.signal!.reason), { once: true }));
+      },
+    },
+  });
+  await inBehavior;
+  pauseProject(id);
+  await run;
+  expect(statusOf(db, id)).toBe("paused");
+  expect(tasksIn(db, id, "qa").map((t) => t.status)).toEqual(["pending"]);
+  expect(tasksIn(db, id, "fix")).toEqual([]);
+  await expect(readFile(join(config.workspaceRoot, id, "qa.json"), "utf8")).rejects.toThrow(/ENOENT/);
+});
+
 test("pause mid naming: the aborted call's fallback is not kept, name tasks back to pending, no AI failure counted", async () => {
   const { db, id } = await namesReady(2);
   let started!: () => void;

@@ -400,7 +400,7 @@ export async function previewDocument(db: DatabaseSync, projectId: string): Prom
 async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
   const outDir = join(run.ws, "out");
   const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir, ir, captures: await loadCaptures(run) });
-  const behavior = await run.deps.checkBehavior(run.handle, { outDir, ir });
+  const behavior = await run.deps.checkBehavior(run.handle, { outDir, ir, signal: run.signal }); // a pause throws: nothing written
   if (behavior.length) log(run, "info", `QA hành vi: ${behavior.filter((b) => b.ok).length}/${behavior.length} component đạt`);
   await writeJsonAtomic(join(run.ws, "qa.json"), { scores, behavior } satisfies QaFile);
   return scores;
