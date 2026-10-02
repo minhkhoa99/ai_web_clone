@@ -2,7 +2,7 @@
 // Nothing JS-driven is ever `supported` here: a captured interaction or passing pixel QA is not proof the behavior works.
 import type { CaptureNode, PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
-import { findTrigger, indexById } from "./ir-build";
+import { alignChildren, findTrigger, indexById } from "./ir-build";
 import { roleIndex, type InteractiveKind, type InteractiveSpec } from "./interactive";
 import type { FidelityItem, IRNodeV2, IRV2 } from "./ir-v2";
 
@@ -94,9 +94,10 @@ function pageFidelity(c: PageCapture, index: Index): FidelityItem[] {
         ? "Canvas chỉ là ảnh tĩnh chụp lúc capture, không vẽ lại"
         : "Canvas không chụp được (ẩn, lỗi chụp hoặc vượt giới hạn 20)");
     }
-    const kids: (CaptureNode[] | undefined)[] = [];
+    const kids: ((CaptureNode | undefined)[] | undefined)[] = [];
     for (const [bp, other] of [[768, n768], [375, n375]] as const) {
-      kids.push(other?.tag === node.tag && other.children.length === node.children.length ? other.children : undefined);
+      const aligned = alignChildren(node, other);
+      kids.push(aligned?.kids);
       if (!other) continue; // missing breakpoint (capture-box) or an ancestor already diverged (reported there)
       if (other.tag !== node.tag) {
         addNode("breakpoint-structure", "partial", at(path), `Phần tử ở ${bp} khác 1440 (${other.tag.slice(0, 20)}); style ${bp} không được clone`, bp);
@@ -105,7 +106,9 @@ function pageFidelity(c: PageCapture, index: Index): FidelityItem[] {
       if (JSON.stringify(other.pseudo ?? {}) !== JSON.stringify(node.pseudo ?? {})) {
         addNode("pseudo-breakpoint", "partial", at(path), `::before/::after ở ${bp} khác 1440; clone chỉ giữ bản 1440`, bp);
       }
-      if (other.children.length !== node.children.length) {
+      if (aligned?.keyed) {
+        addNode("breakpoint-structure", "partial", at(path), `Số phần tử con ở ${bp} khác 1440; đã ghép theo khoá slide, phần tử chỉ có ở 1440 bị ẩn ở ${bp}`, bp);
+      } else if (other.children.length !== node.children.length) {
         addNode("breakpoint-structure", "partial", at(path), `Số phần tử con ở ${bp} khác 1440; style ${bp} của cây con không được clone`, bp);
       }
     }

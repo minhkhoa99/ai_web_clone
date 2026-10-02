@@ -1,12 +1,13 @@
 // E2 §3 step 3 + §9: structure-only inference over IR v2 page trees, and the one-time v1 behavior migration. Pure.
 import { capFidelity, COMPONENT_NOTE } from "./fidelity";
-import { cfgOf, checkInteractives, INTERACTIVE_LIMITS, parseSpec, rolesOf, type Bp, type CarouselSpec, type InteractiveSpec } from "./interactive";
+import { checkInteractives, INTERACTIVE_LIMITS, parseSpec, rolesOf, specViolation, type Bp, type CarouselSpec, type InteractiveSpec } from "./interactive";
 import type { FidelityItem, IRNodeV2, IRV2 } from "./ir-v2";
 
 export type PageNodes = { pageId: string; byId: Map<string, IRNodeV2>; parent: Map<string, string>; tree: Map<string, string>; htmlId: Map<string, string>; order: string[] };
 // notes: partial Fidelity notes (guessed/defaulted fields); info: supported notes (e.g. "Bỏ 4 slide clone do loop");
-// hide: loop clones to mark hidden; snapshotActive: `active` came from an active class in the 1440 snapshot
-export type Guess = { root: string; spec: InteractiveSpec; notes: string[]; info?: string[]; hide?: string[]; snapshotActive?: true };
+// hide: loop clones to mark hidden; snapshotActive: `active` came from an active class in the 1440 snapshot;
+// over: the item count when it exceeds INTERACTIVE_LIMITS.items (not placed, noted unsupported; never truncated)
+export type Guess = { root: string; spec: InteractiveSpec; notes: string[]; info?: string[]; hide?: string[]; snapshotActive?: true; over?: number };
 type Hint = "carousel" | "tab" | "accordion" | "modal" | "menu";
 
 const BPS = [1440, 768, 375] as const;
@@ -47,11 +48,12 @@ function guessTabs(p: PageNodes, tablist: IRNodeV2): Guess | undefined {
   const visit = (x: IRNodeV2) => { if (x.attrs.role === "tab") tabs.push(x); else x.children.forEach(visit); };
   tablist.children.forEach(visit);
   const pairs = tabs.flatMap((t) => { const panel = target(p, t.attrs["aria-controls"]); return panel ? [{ trigger: t.id, panel }] : []; });
-  if (!pairs.length || pairs.length !== tabs.length || pairs.length > INTERACTIVE_LIMITS.items) return undefined;
+  if (!pairs.length || pairs.length !== tabs.length) return undefined;
   const root = lca(p, [tablist.id, ...pairs.map((x) => x.panel)]);
-  return root ? { root, spec: { kind: "tabs", source: "aria", confidence: "guessed", tabs: pairs, active: Math.max(0, tabs.findIndex((t) => t.attrs["aria-selected"] === "true")) }, notes: [] } : undefined;
+  return root ? { root, spec: { kind: "tabs", source: "aria", confidence: "guessed", tabs: pairs, active: Math.max(0, tabs.findIndex((t) => t.attrs["aria-selected"] === "true")) }, notes: [], ...over(pairs.length) } : undefined;
 }
 const DEFAULTED = (fields: string[]) => `${fields.join(", ")}: giá trị mặc định`;
+const over = (count: number) => (count > INTERACTIVE_LIMITS.items ? { over: count } : {});
 function firstBelow(from: IRNodeV2, hit: (x: IRNodeV2) => boolean): IRNodeV2 | undefined {
   let found: IRNodeV2 | undefined;
   const visit = (x: IRNodeV2) => { if (found) return; if (hit(x)) found = x; else x.children.forEach(visit); };
@@ -63,9 +65,10 @@ function guessModal(p: PageNodes, trigger: IRNodeV2): Guess | undefined {
   const ref = (t: IRNodeV2) => target(p, t.attrs["aria-controls"] ?? t.attrs["data-modal"] ?? t.attrs["data-target"]);
   const dialog = p.byId.get(ref(trigger) ?? "");
   if (!dialog) return undefined;
-  const triggers = p.order.filter((id) => id !== dialog.id && ref(p.byId.get(id)!) === dialog.id).slice(0, INTERACTIVE_LIMITS.items);
+  const all = p.order.filter((id) => id !== dialog.id && ref(p.byId.get(id)!) === dialog.id), triggers = all.slice(0, INTERACTIVE_LIMITS.items);
+  const extra = all.length - triggers.length; // the dialog still opens from the first 100; the rest is noted, not hidden
   const close = firstBelow(dialog, (x) => x.attrs["data-close"] !== undefined || /close|đóng/i.test(`${x.attrs["aria-label"] ?? ""} ${x.attrs.class ?? ""}`))?.id;
-  return { root: dialog.id, notes: [DEFAULTED(["closeOn"])], spec: { kind: "modal", source: "aria", confidence: "guessed", triggers, dialog: dialog.id,
+  return { root: dialog.id, notes: [DEFAULTED(["closeOn"]), ...(extra > 0 ? [`vượt giới hạn ${INTERACTIVE_LIMITS.items} item: ${extra} trigger khác không mở dialog`] : [])], spec: { kind: "modal", source: "aria", confidence: "guessed", triggers, dialog: dialog.id,
     closeOn: ["esc", "backdrop", ...(close ? (["button"] as const) : [])], ...(close && { closeButton: close }) } };
 }
 
@@ -86,8 +89,8 @@ function guessDetails(p: PageNodes, det: IRNodeV2): Guess | undefined {
   const own = !parent || ["html", "body"].includes(parent.tag);
   const dets = own ? [det] : elementKids(parent).filter((c) => c.tag === "details");
   const items = dets.flatMap((d) => { const [s, panel] = elementKids(d); return s?.tag === "summary" && panel ? [{ trigger: s.id, panel: panel.id, open: d.attrs.open !== undefined }] : []; });
-  if (!items.length || items.length > INTERACTIVE_LIMITS.items) return undefined;
-  return { root: own ? det.id : parent.id, notes: [], spec: { kind: "accordion", source: "details", confidence: "guessed", multiple: true, items } }; // native <details> are independent
+  if (!items.length) return undefined;
+  return { root: own ? det.id : parent.id, notes: [], spec: { kind: "accordion", source: "details", confidence: "guessed", multiple: true, items }, ...over(items.length) }; // native <details> are independent
 }
 
 function guessVideo(n: IRNodeV2): Guess | undefined {
@@ -127,7 +130,7 @@ function guessCarousel(p: PageNodes, node: IRNodeV2): Guess | undefined {
   const kids = elementKids(track), marked = kids.filter((c) => CLONE.test(c.attrs.class ?? ""));
   const hide = marked.length ? marked.map((c) => c.id) : endClones(kids);
   const real = kids.filter((c) => !hide.includes(c.id));
-  if (!real.length || real.length > INTERACTIVE_LIMITS.items) return undefined;
+  if (!real.length) return undefined;
   // arrows: library classes, else /next/ /prev|previous|back/ in aria-label or class, within 3 ancestor levels (like the scan)
   const arrow = (re: RegExp, c?: string) => {
     for (let s: string | undefined = node.id, d = 0; s && d < 3; s = p.parent.get(s), d++) {
@@ -150,7 +153,7 @@ function guessCarousel(p: PageNodes, node: IRNodeV2): Guess | undefined {
     ...(dots && { pagination: { container: dots.id, kind: classes(dots).has("swiper-pagination-fraction") ? "fraction" : "bullets" } }),
   };
   const defaulted = ["autoplay", "interval", "speed", ...(hide.length ? [] : ["loop"]), ...(measured ? [] : ["slidesPerView", "gap"])];
-  return { root, spec, notes: [DEFAULTED(defaulted)], ...(hide.length && { hide, info: [`Bỏ ${hide.length} slide clone do loop`] }), ...(at >= 0 && { snapshotActive: true as const }) };
+  return { root, spec, notes: [DEFAULTED(defaulted)], ...(hide.length && { hide, info: [`Bỏ ${hide.length} slide clone do loop`] }), ...(at >= 0 && { snapshotActive: true as const }), ...over(real.length) };
 }
 
 export function guessAt(p: PageNodes, nodeId: string, hint: Hint): Guess | undefined {
@@ -204,17 +207,10 @@ export function measureCarousel(p: PageNodes, viewport: string, slides: string[]
   return Object.keys(spv).length ? { slidesPerView: spv, gap, direction } as const : undefined;
 }
 
-// The checkInteractives rules for one spec at `root` (inside the root, R2 / modal exceptions, slides under the track,
-// cfg size): a guess that breaks one is not placed, so a load never fails over a guess.
-function fits(p: PageNodes, root: string, spec: InteractiveSpec): boolean {
-  for (const [ref, role] of rolesOf(spec)) {
-    if (!p.byId.has(ref)) return false;
-    if ((spec.kind === "modal" && role === "trigger") || ((spec.kind === "dropdown" || spec.kind === "menu") && role === "panel")) continue;
-    if (!chain(p, ref).includes(root)) return false;
-  }
-  if (spec.kind === "carousel" && spec.slides.some((s) => p.parent.get(s) !== spec.track)) return false;
-  return new TextEncoder().encode(cfgOf(spec)).length <= INTERACTIVE_LIMITS.cfgBytes;
-}
+// The checkInteractives rules (specViolation) for one spec at `root`: a guess that breaks one is not placed, so a load
+// never fails over a guess.
+const fits = (p: PageNodes, root: string, spec: InteractiveSpec) =>
+  !specViolation(spec, root, p.pageId, { inside: (ref) => p.byId.has(ref) && chain(p, ref).includes(root), onPage: (ref) => p.byId.has(ref), parent: (ref) => p.parent.get(ref) });
 
 // Places guesses (page order) on a clone it owns: a taken root or member is skipped (R2: a dropdown/menu whose LCA is
 // taken falls back to its trigger as root), at most 50 per page; notes -> Fidelity `component-note` items.
@@ -229,6 +225,7 @@ export function placeGuesses(ir: IRV2, pageId: string, guesses: Guess[], origin:
     if (p.byId.get(root)?.interactive && (g.spec.kind === "dropdown" || g.spec.kind === "menu")) root = g.spec.trigger; // R2
     const node = p.byId.get(root);
     if (!node || node.interactive || rolesOf(g.spec).some(([ref]) => members.has(ref))) { skip(g, "trùng node gốc với component khác"); continue; }
+    if (g.over) { skip(g, `vượt giới hạn ${INTERACTIVE_LIMITS.items} item (có ${g.over})`); continue; }
     if (count >= INTERACTIVE_LIMITS.perPage) { skip(g, `vượt giới hạn ${INTERACTIVE_LIMITS.perPage} component/trang`); continue; }
     let spec: InteractiveSpec;
     try { spec = parseSpec(g.spec); } catch { skip(g, "không dựng được spec"); continue; }

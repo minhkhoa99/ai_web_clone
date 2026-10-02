@@ -77,3 +77,14 @@ test("embed iframe src is stored absolute: a protocol-relative src resolves agai
   walk(dom);
   expect(srcs).toEqual(["https://www.youtube-nocookie.com/embed/abc123", `${new URL(site.url).protocol}//www.youtube-nocookie.com/embed/rel1`]);
 });
+
+test("hover probes (which scroll triggers into view) leave the page scrolled back to the top", { timeout: 60_000 }, async () => {
+  const [all, y] = await withPage(handle, async (page) => {
+    await open(page);
+    await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<div style="margin-top:4000px"><button aria-haspopup="true">Low</button><ul style="display:none"><li>x</li></ul></div>')); // a trigger far below the fold
+    const all = await scanInteractives(page);
+    return [all, await page.evaluate(() => scrollY)] as const;
+  });
+  expect(all.some((x) => x.kind === "dropdown")).toBe(true);
+  expect(y).toBe(0);
+});

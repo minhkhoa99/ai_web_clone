@@ -49,12 +49,34 @@ export function toDraft(node: CaptureNode, path: string, at768: CaptureNode | un
     }
   }
 
-  const aligned = (other: CaptureNode | undefined) =>
-    other?.tag === node.tag && other.children.length === node.children.length ? other.children : undefined;
-  const kids768 = aligned(at768);
-  const kids375 = aligned(at375);
-  draft.children = node.children.map((child, i) => toDraft(child, `${path}.${i}`, kids768?.[i], kids375?.[i], walk));
+  const a768 = alignChildren(node, at768), a375 = alignChildren(node, at375);
+  draft.children = node.children.map((child, i) => {
+    const d = toDraft(child, `${path}.${i}`, a768?.kids[i], a375?.kids[i], walk);
+    // R7: keyed alignment and no counterpart -> the node does not exist at that breakpoint
+    for (const [bp, a] of [["768", a768], ["375", a375]] as const) if (a?.keyed && !a.kids[i] && child.tag !== "#text") d.style.media = { ...d.style.media, [bp]: { display: "none" } };
+    return d;
+  });
   return draft;
+}
+
+const KEY_ATTRS = ["data-swiper-slide-index", "data-slick-index", "data-index", "id"];
+const CLONE_CLASS = /(^|\s)(swiper-slide-duplicate|slick-cloned|splide__slide--clone)(\s|$)/;
+type Keyed = { tag: string; attrs: Record<string, string>; children: Keyed[] };
+const keyOf = (c: Keyed): string | undefined => {
+  for (const a of KEY_ATTRS) if (c.attrs[a] !== undefined) return `${c.tag}|${a}=${c.attrs[a]}|${CLONE_CLASS.test(c.attrs.class ?? "") ? "clone" : ""}`;
+  return undefined;
+};
+// The counterpart children at another breakpoint: by position when the counts match (as before), else by slide key
+// when every element child on both sides has one (E2 §4 responsive); undefined when neither holds.
+export function alignChildren<N extends Keyed>(node: N, other: N | undefined): { kids: (N | undefined)[]; keyed: boolean } | undefined {
+  if (other?.tag !== node.tag) return undefined;
+  if (other.children.length === node.children.length) return { kids: other.children as N[], keyed: false };
+  const els = (list: N[]) => list.filter((c) => c.tag !== "#text");
+  const mine = els(node.children as N[]), theirs = els(other.children as N[]);
+  if (!mine.length || ![...mine, ...theirs].every((c) => keyOf(c) !== undefined)) return undefined;
+  const byKey = new Map<string, N>();
+  for (const c of theirs) if (!byKey.has(keyOf(c)!)) byKey.set(keyOf(c)!, c);
+  return { kids: (node.children as N[]).map((c) => (c.tag === "#text" ? undefined : byKey.get(keyOf(c)!))), keyed: true };
 }
 
 function landmarkOf(node: Draft): string | undefined {

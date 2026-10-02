@@ -43,16 +43,19 @@ export async function scanInteractives(page: Page, opts: { limits?: Partial<type
       out.push(changes ? { kind: "carousel", selector: h.selector, source: h.source, confidence: "observed", autoplay: changes.length > 0, ...(interval && { interval }) }
         : { kind: "carousel", selector: h.selector, source: h.source, confidence: "guessed" }); // over budget / observation failed
     }
-    const candidates = Date.now() < deadline ? await withEvalTimeout(page, "Hover candidates", page.evaluate(hoverCandidatesInPage, { max: limits.max }), LIST_MS).catch(() => []) : [];
+    // every hover step is clamped to what is left of the page budget (>= 1 ms: a Playwright timeout of 0 means none)
+    const left = () => deadline - Date.now(), within = (ms: number) => Math.max(1, Math.min(ms, left()));
+    const candidates = left() > 0 ? await withEvalTimeout(page, "Hover candidates", page.evaluate(hoverCandidatesInPage, { max: limits.max }), within(LIST_MS)).catch(() => []) : [];
     for (const c of candidates) {
-      if (Date.now() >= deadline) break;
-      const opened = await page.hover(c.trigger, { timeout: limits.hoverMs })
-        .then(() => page.waitForTimeout(SETTLE_MS))
-        .then(() => withEvalTimeout(page, "Hover panel", page.evaluate(visibleInPage, c.panel), limits.hoverMs))
+      if (left() <= 0) break;
+      const opened = await page.hover(c.trigger, { timeout: within(limits.hoverMs) })
+        .then(() => page.waitForTimeout(within(SETTLE_MS)))
+        .then(() => withEvalTimeout(page, "Hover panel", page.evaluate(visibleInPage, c.panel), within(limits.hoverMs)))
         .catch(() => false);
       await page.mouse.move(0, 0).catch(() => undefined);
       if (opened) out.push({ kind: "dropdown", selector: c.trigger, panel: c.panel, openOn: "hover" });
     }
+    if (candidates.length) await withEvalTimeout(page, "Scroll reset", page.evaluate(() => scrollTo(0, 0)), SETTLE_MS * 10).catch(() => undefined); // page.hover scrolled the triggers into view
   } catch {
     // E2 §11: capture never fails because of E2
   }

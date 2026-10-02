@@ -329,9 +329,12 @@ export function compileV2(input: IRV2): IR {
   const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
   const members = roleIndex(ir), clones = loopClones(ir);
   const rolesOfNode = (n: IRNodeV2): Role[] => [...new Set((members.get(n.id) ?? []).map((m) => m.role))];
+  // the runtime's base rules hold at every breakpoint: a 768/375 override of the same prop is dropped
   const withBase = (n: IRNodeV2): NodeStyles => {
-    const extra = Object.assign({}, ...(members.get(n.id) ?? []).map((m) => baseDecl(m.spec, [m.role], n.styles.base)));
-    return Object.keys(extra).length ? { ...n.styles, base: { ...n.styles.base, ...extra } } : n.styles;
+    const want: Decl = Object.assign({}, ...(members.get(n.id) ?? []).map((m) => baseDecl(m.spec, [m.role], {})));
+    if (!Object.keys(want).length) return n.styles;
+    const keep = (d: Decl) => Object.fromEntries(Object.entries(d).filter(([prop]) => !Object.hasOwn(want, prop)));
+    return { ...n.styles, base: { ...n.styles.base, ...want }, bp: Object.fromEntries(Object.entries(n.styles.bp).map(([bp, d]) => [bp, keep(d)])) };
   };
   const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(withBase(n)), children: n.children.map(styled) });
   const stateRoots: StyledNode[] = [];

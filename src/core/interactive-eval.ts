@@ -55,8 +55,9 @@ export function readCarouselConfigInPage(hits: CarouselHit[]): (CarouselRead | n
         const p = el.swiper?.originalParams ?? el.swiper?.params; // real Swiper merges the current breakpoint into params
         if (!p) return null; // bundled build without el.swiper: observed instead (Review Focus 2)
         const table = Object.fromEntries(Object.entries(p.breakpoints ?? {}).map(([k, v]: [string, any]) => [k, { spv: num(v?.slidesPerView), gap: px(v?.spaceBetween) }]));
+        const effect = p.effect; // read once: a getter must not pass the check with one value and return another
         return { perBp: perBp({ spv: num(p.slidesPerView), gap: px(p.spaceBetween) }, table, false), loop: !!p.loop, autoplay: !!(p.autoplay && (p.autoplay.enabled ?? true)),
-          interval: num(p.autoplay?.delay), effect: EFFECTS.includes(p.effect) ? p.effect : undefined, speed: num(p.speed),
+          interval: num(p.autoplay?.delay), effect: EFFECTS.includes(effect) ? effect : undefined, speed: num(p.speed),
           direction: p.direction === "vertical" ? "vertical" : "horizontal", active: num(el.swiper.realIndex) };
       }
       if (source === "slick") {

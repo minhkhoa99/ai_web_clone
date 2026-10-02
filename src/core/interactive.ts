@@ -125,16 +125,25 @@ export function checkInteractives(ir: IRV2): void {
       const spec = parseSpec(root.interactive);
       const inside = new Set<string>();
       walk(root, (n) => inside.add(n.id));
-      for (const [ref, role] of rolesOf(spec)) {
-        if (inside.has(ref)) continue;
-        if (spec.kind === "modal" && role === "trigger" && onPage.has(ref)) continue;
-        if ((spec.kind === "dropdown" || spec.kind === "menu") && role === "panel" && onPage.has(ref)) continue; // R2
-        invalid(`${spec.kind} ${root.id}: ${role} ${ref} is outside the component (or not on page ${page.id})`);
-      }
-      if (spec.kind === "carousel") for (const s of spec.slides) if (parent.get(s) !== spec.track) invalid(`slide ${s} is not a child of track ${spec.track}`);
-      if (new TextEncoder().encode(cfgOf(spec)).length > INTERACTIVE_LIMITS.cfgBytes) invalid(`data-c-cfg of ${root.id} exceeds 16 KB`);
+      const why = specViolation(spec, root.id, page.id, { inside: (ref) => inside.has(ref), onPage: (ref) => onPage.has(ref), parent: (ref) => parent.get(ref) });
+      if (why) invalid(why);
     }
   }
+}
+
+// The reference rules of one parsed spec at `root` (shared by checkInteractives and the guessers, so a placed guess
+// can never make a load fail): refs inside the root (modal triggers and, R2, dropdown/menu panels: anywhere on the
+// page), slides are track children, cfg <= 16 KB. Returns the violation, or undefined.
+export function specViolation(spec: InteractiveSpec, root: string, pageId: string, tree: { inside: (id: string) => boolean; onPage: (id: string) => boolean; parent: (id: string) => string | undefined }): string | undefined {
+  for (const [ref, role] of rolesOf(spec)) {
+    if (tree.inside(ref)) continue;
+    if (spec.kind === "modal" && role === "trigger" && tree.onPage(ref)) continue;
+    if ((spec.kind === "dropdown" || spec.kind === "menu") && role === "panel" && tree.onPage(ref)) continue; // R2
+    return `${spec.kind} ${root}: ${role} ${ref} is outside the component (or not on page ${pageId})`;
+  }
+  if (spec.kind === "carousel") for (const s of spec.slides) if (tree.parent(s) !== spec.track) return `slide ${s} is not a child of track ${spec.track}`;
+  if (new TextEncoder().encode(cfgOf(spec)).length > INTERACTIVE_LIMITS.cfgBytes) return `data-c-cfg of ${root} exceeds 16 KB`;
+  return undefined;
 }
 
 // Every node a component spec references -> its memberships (nested components: a node may have several, E2 §4).

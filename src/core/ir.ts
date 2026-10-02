@@ -2,6 +2,7 @@
 import type { PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
 import type { LegacyIR, LegacyLayout, LegacySection } from "./ir-legacy";
+import { attachInteractives } from "./interactive-build";
 import { migrateIR } from "./ir-migrate";
 import type { IRNodeV2, IRV2 } from "./ir-v2";
 import { dedupeStyles, extractTokens, structuralHash, type StyledNode } from "./dedupe";
@@ -146,9 +147,10 @@ export function buildLegacyIR(captures: PageCapture[]): LegacyIR {
   };
 }
 
-// IR v2 with the class-based builder's output migrated in memory (E1 §6): same section/layout/node IDs as v1.
+// IR v2 with the class-based builder's output migrated in memory (E1 §6): same section/layout/node IDs as v1; capture
+// records and structural guesses become components (E2 §3).
 export function buildIR(captures: PageCapture[]): IR {
-  return migrateIR(buildLegacyIR(captures), captures);
+  return attachInteractives(migrateIR(buildLegacyIR(captures), captures), captures);
 }
 
 // The section/layout references IR v2 shares with the renderer's v1 view (compileV2), which the editor adapter also

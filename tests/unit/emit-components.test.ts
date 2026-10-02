@@ -151,3 +151,15 @@ test("video spec on a wrapper root: the flags / embed src go on spec.node (role 
   expect(tag).toMatch(/ loop=""/);
   expect(tag).not.toMatch(/ controls=/);
 });
+
+test("a breakpoint override cannot defeat the carousel base rules (768 flex-shrink / display on slide and track)", () => {
+  const doc = site();
+  const track = doc.sections[0]!.root.children[0]!.children[0]!;
+  track.styles.bp[768] = { display: "block" };
+  for (const s of track.children.slice(1)) s.styles = { ...css({ width: "300px", "flex-shrink": "0" }), bp: { 768: { "flex-shrink": "1", color: "red" } } };
+  const out = renderSite(doc, opts)["css/styles.css"]!;
+  const at768 = out.slice(out.indexOf("@media (max-width: 1439.98px)"));
+  expect(at768).not.toMatch(/flex-shrink:1/);
+  expect(at768).not.toMatch(/display:block/);
+  expect(at768).toMatch(/color:red/); // other overrides stay
+});
