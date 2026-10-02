@@ -110,3 +110,32 @@ test("alignChildren: positional when counts match, keyed only when every element
   // a clone and a real slide with the same index never pair up
   expect(alignChildren(el("ul", {}, [k("0", { class: "slick-cloned" }), k("0")]), el("ul", {}, [k("0")]))!.kids).toEqual([undefined, expect.objectContaining({ attrs: { "data-index": "0" } })]);
 });
+
+test("section split never unwraps into a carousel root: body > div.wrapper > div.swiper -> one section holding the whole carousel", () => {
+  const slides = [0, 1, 2].map((k) => el("div", { class: "swiper-slide" }, [txt(`S${k}`)], [k * 300, 0, 300, 100]));
+  const dom = doc(el("div", { class: "wrapper" }, [el("div", { class: "swiper", id: "sw" }, [el("div", { class: "swiper-wrapper" }, slides), el("button", { class: "swiper-button-next" }, [txt(">")])], [0, 0, 900, 100])]));
+  const ir = buildIR([capture({ breakpoints: same(dom), interactives: [{ kind: "carousel", selector: "#sw", source: "swiper", confidence: "observed", autoplay: false }] })]);
+  expect(ir.sections).toHaveLength(1);
+  expect(ir.sections[0]!.root.attrs.class).toBe("swiper");
+  expect(ir.sections[0]!.root.interactive).toMatchObject({ kind: "carousel", slides: expect.any(Array), arrows: { next: expect.any(String) } });
+  // without the record the old split still applies (no carousel known before the split)
+  expect(buildIR([capture({ breakpoints: same(dom) })]).sections.length).toBeGreaterThan(1);
+});
+
+test("768/375 slide boxes follow the slide key: uneven widths and per-bp duplicate counts measure the real slides", () => {
+  // 768: no duplicates, uneven real slides 100 / 200 / 600 px, gap 10, viewport 700
+  const widths = [100, 200, 600];
+  let x = 0;
+  const real768 = widths.map((w, k) => { const s = el("div", { class: "swiper-slide", "data-swiper-slide-index": String(k) }, [txt(`S${k}`)], [x, 0, w, 100]); x += w + 10; return s; });
+  const dom768 = doc(el("section", {}, [el("div", { class: "swiper", id: "sw" }, [el("div", { class: "swiper-wrapper" }, real768, [0, 0, 3000, 100]), el("button", { class: "swiper-button-next" }, [txt(">")])], [0, 0, 700, 100])]), foot());
+  const ir = buildIR([capture({
+    breakpoints: [{ bp: 1440, dom: doc(swiper(2, 300, 30, "20px"), foot()), truncated: false }, { bp: 768, dom: dom768, truncated: false }, { bp: 375, dom: doc(swiper(3, 300, 10, "14px"), foot()), truncated: false }],
+    interactives: [{ kind: "carousel", selector: "#sw", source: "swiper", confidence: "observed", autoplay: false }],
+  })]);
+  const spec = carouselOf(ir).interactive as CarouselSpec;
+  const nodes = new Map(walk(ir).map((n) => [n.id, n]));
+  expect(spec.slides.map((id) => nodes.get(id)!.box?.[768]?.[2])).toEqual([100, 200, 600]);
+  expect(spec.slides.map((id) => nodes.get(id)!.box?.[375]?.[0])).toEqual([3 * 310, 4 * 310, 5 * 310]); // the real slides after 3 duplicates
+  expect(spec.gap["768"]).toBe(10);
+  expect(spec.slidesPerView["768"]).toBe(Math.round((710 / 210) * 100) / 100); // median real slide 200 + gap
+});

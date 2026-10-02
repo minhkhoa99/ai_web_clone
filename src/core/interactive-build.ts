@@ -1,11 +1,11 @@
 // E2 §3 -> IR: capture records (config / observed / hover) become specs on the node their selector names (the 1440
 // capture path is the IR id), then structural guesses fill the rest. Pure: no fs/network/db/Date/random/DOM.
-import type { CaptureNode, PageCapture } from "./capture";
+import type { PageCapture } from "./capture";
 import { COMPONENT_FEATURE, COMPONENT_NOTE, refreshFidelity } from "./fidelity";
 import { rolesOf, type CarouselSpec, type InteractiveSpec } from "./interactive";
 import { guessAll, guessAt, pageNodes, placeGuesses, type Guess, type PageNodes } from "./interactive-guess";
 import type { CapturedInteractive } from "./interactive-scan";
-import { findTrigger, indexById } from "./ir-build";
+import { selectorIds } from "./ir-build";
 import type { FidelityItem, IRV2 } from "./ir-v2";
 
 const ORIGIN = "Nhận diện khi clone";
@@ -19,11 +19,7 @@ export function attachInteractives(ir: IRV2, captures: PageCapture[]): IRV2 {
   for (const capture of captures) {
     const dom = capture.breakpoints.find((b) => b.bp === 1440)?.dom ?? capture.breakpoints[0]?.dom;
     if (!dom || !out.pages.some((p) => p.id === capture.pageId)) continue;
-    const paths = new Map<CaptureNode, string>();
-    const index = (n: CaptureNode, path: string): void => { paths.set(n, path); n.children.forEach((c, i) => index(c, `${path}.${i}`)); };
-    index(dom, "0");
-    const byId = indexById(dom, new Map());
-    const idOf = (selector: string) => { const hit = findTrigger(dom, byId, selector); return hit ? `${capture.pageId}:${paths.get(hit)}` : undefined; };
+    const idOf = selectorIds(dom, capture.pageId);
     const p = pageNodes(out, capture.pageId);
     const records: Guess[] = [];
     for (const rec of capture.interactives ?? []) {

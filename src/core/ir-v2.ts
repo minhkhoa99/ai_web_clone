@@ -2,6 +2,7 @@ import type { CaptureNode, PageCapture } from "./capture";
 import type { Decl, StyleSet } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { buildFidelity, capFidelity } from "./fidelity";
+import { alignChildren } from "./ir-build";
 import type { InteractiveSpec } from "./interactive";
 import type { LegacyIR, LegacyIRNode, LegacyPage, LegacySection } from "./ir-legacy";
 
@@ -61,18 +62,21 @@ type Boxes = Map<string, Partial<Record<1440 | 768 | 375, { tag: string; bbox: C
 export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
   const boxes: Boxes = new Map();
   const available = new Map(captures.map((capture) => [capture.pageId, new Set(capture.breakpoints.map((entry) => entry.bp))]));
+  // Boxes follow the IR's own breakpoint alignment (alignChildren: by slide key where toDraft keyed the children,
+  // else by path), so a slide's 768/375 box is its own even when the duplicate counts differ.
   for (const capture of captures) {
-    for (const { bp, dom } of capture.breakpoints) {
-      if (bp !== 1440 && bp !== 768 && bp !== 375) continue;
-      const visit = (node: CaptureNode, path: string): void => {
-        const id = `${capture.pageId}:${path}`;
-        const entry = boxes.get(id) ?? {};
-        entry[bp] = { tag: node.tag, bbox: node.bbox };
-        boxes.set(id, entry);
-        node.children.forEach((child, i) => visit(child, `${path}.${i}`));
-      };
-      visit(dom, "0");
-    }
+    const primary = capture.breakpoints.find((b) => b.bp === 1440) ?? capture.breakpoints[0];
+    if (!primary) continue;
+    type At = [bp: number, node: CaptureNode | undefined];
+    const visit = (node: CaptureNode, path: string, at: At[]): void => {
+      const id = `${capture.pageId}:${path}`;
+      const entry = boxes.get(id) ?? {};
+      for (const [bp, n] of [[primary.bp, node] as At, ...at]) if (n && (bp === 1440 || bp === 768 || bp === 375)) entry[bp] = { tag: n.tag, bbox: n.bbox };
+      boxes.set(id, entry);
+      const kids = at.map(([bp, o]): [number, (CaptureNode | undefined)[] | undefined] => [bp, o && (alignChildren(node, o)?.kids ?? o.children)]);
+      node.children.forEach((child, i) => visit(child, `${path}.${i}`, kids.map(([bp, k]): At => [bp, k?.[i]])));
+    };
+    visit(primary.dom, "0", capture.breakpoints.filter((b) => b !== primary).map((b): At => [b.bp, b.dom]));
   }
 
   const classOf = (name: string): StyleSet => {

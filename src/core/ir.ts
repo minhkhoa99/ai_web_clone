@@ -14,6 +14,7 @@ import {
   findTrigger,
   indexById,
   sectionPlaceholder,
+  selectorIds,
   splitSections,
   toDraft,
   toIRNode,
@@ -44,8 +45,11 @@ export function buildLegacyIR(captures: PageCapture[]): LegacyIR {
   const parsed = captures.map((capture) => {
     const dom = (bp: number) => capture.breakpoints.find((b) => b.bp === bp)?.dom;
     const walk: Walk = { pageId: capture.pageId, canvasAssets: new Map(capture.dynamic.map((d) => [d.order, d.asset])), canvasSeen: 0 };
-    const html = toDraft(dom(1440) ?? capture.breakpoints[0]!.dom, "0", dom(768), dom(375), walk);
-    const sections: DraftSection[] = splitSections(html).map(({ role, root }, i) => ({
+    const primary = dom(1440) ?? capture.breakpoints[0]!.dom;
+    const html = toDraft(primary, "0", dom(768), dom(375), walk);
+    const idOf = selectorIds(primary, capture.pageId);
+    const carousels = new Set((capture.interactives ?? []).flatMap((r) => (r.kind === "carousel" ? [idOf(r.selector) ?? ""] : [])));
+    const sections: DraftSection[] = splitSections(html, carousels).map(({ role, root }, i) => ({
       id: `${capture.pageId}-s${i + 1}`,
       pageId: capture.pageId,
       name: `section-${i + 1}`,

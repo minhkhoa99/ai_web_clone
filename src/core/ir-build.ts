@@ -85,7 +85,6 @@ function landmarkOf(node: Draft): string | undefined {
 }
 
 const isMain = (node: Draft) => node.tag === "main" || node.attrs.role === "main";
-const isWrapper = (node: Draft) => !landmarkOf(node) && !isMain(node) && elements(node).length > 0;
 const hasMainWithin = (node: Draft, depth: number): boolean =>
   elements(node).some((c) => isMain(c) || (depth > 1 && hasMainWithin(c, depth - 1)));
 const isNoise = (node: Draft) =>
@@ -102,7 +101,9 @@ const withoutNoise = (nodes: Draft[]) => {
 // `main` (so header/footer beside main become sections); `main` contributes each element child.
 // Noise (hidden, zero-size, script-like) is never a section root. Body, wrappers, main and
 // noise stay in the shell.
-export function splitSections(html: Draft): { role: string; root: Draft }[] {
+// `keep`: carousel roots known before the split (capture records): never unwrapped, so a lone carousel stays whole.
+export function splitSections(html: Draft, keep: ReadonlySet<string> = new Set()): { role: string; root: Draft }[] {
+  const isWrapper = (node: Draft) => !landmarkOf(node) && !isMain(node) && !keep.has(node.id) && elements(node).length > 0;
   const body = html.children.find((c) => c.tag === "body");
   if (!body) return [];
   let candidates = elements(body);
@@ -115,7 +116,7 @@ export function splitSections(html: Draft): { role: string; root: Draft }[] {
     candidates = candidates.flatMap((c) => (c === wrapper ? elements(c) : [c]));
   }
   const all = candidates.flatMap((node) => {
-    const kids = isMain(node) ? elements(node) : [];
+    const kids = isMain(node) && !keep.has(node.id) ? elements(node) : [];
     return kids.length > 0 ? kids : [node];
   });
   return withoutNoise(all).map((root) => ({ role: landmarkOf(root) ?? "block", root }));
@@ -167,6 +168,16 @@ export function findTrigger<N extends Tree<N>>(html: N, byId: Map<string, N>, tr
     if (!cur) return undefined;
   }
   return cur;
+}
+
+// A capture-time selector (interactions-eval / interactive-eval form) -> the IR id of the node it names in `dom`
+// (the capture path from <html>), for one page.
+export function selectorIds(dom: CaptureNode, pageId: string): (selector: string) => string | undefined {
+  const paths = new Map<CaptureNode, string>();
+  const index = (n: CaptureNode, path: string): void => { paths.set(n, path); n.children.forEach((c, i) => index(c, `${path}.${i}`)); };
+  index(dom, "0");
+  const byId = indexById(dom, new Map());
+  return (selector) => { const hit = findTrigger(dom, byId, selector); return hit ? `${pageId}:${paths.get(hit)}` : undefined; };
 }
 
 export function indexById<N extends Tree<N>>(node: N, out: Map<string, N>): Map<string, N> {
