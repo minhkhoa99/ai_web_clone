@@ -19,7 +19,8 @@ import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyCommands, COMMAND_LIMITS, prepareCommands, type EditorCommand, type NodeDraft, type NormalizedCommand } from "./ir-command";
-import type { IRV2 } from "./ir-v2";
+import { PATCHABLE, type InteractiveKind } from "./interactive";
+import type { IRNodeV2, IRV2 } from "./ir-v2";
 import { mapLimit } from "./limit";
 import { fitImages, fitRequest, MAX_IMAGES_B64, MAX_IMAGE_WIDTH } from "./naming";
 import { prepareClonePage, scoreSections, sectionNodes, type Bp, type SectionScore } from "./qa";
@@ -74,6 +75,7 @@ Reply with JSON only: {"commands": [...]} with at most ${COMMAND_LIMITS.commands
 (text goes in a {"tag":"#text","text":string} child; a draft has at most ${COMMAND_LIMITS.nodes} nodes and ${COMMAND_LIMITS.depth} levels; the server assigns its ids) |
 {"op":"moveNode","id":string,"parentId":string,"index":number} (index counted after the node is taken out) |
 {"op":"duplicateNode","id":string,"parentId":string,"index":number} | {"op":"deleteNode","id":string}.
+{"op":"updateComponent","id":string,"patch":{field:value}} — only for an id listed in COMPONENTS, only its listed config fields (e.g. slidesPerView/gap per "1440"|"768"|"375", speed, direction): fix a visual mismatch, never add/remove/reorder items.
 Every id and parentId must be a node inside this section. CONTEXT shows the rendered classes; setStyle edits the node's own style.
 Before answering you may call the inspector tools on the clone (target "clone", at most 5 calls).`;
 
@@ -89,6 +91,7 @@ const commandSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("moveNode"), id: nodeId, parentId: nodeId, index }),
   z.object({ op: z.literal("duplicateNode"), id: nodeId, parentId: nodeId, index }),
   z.object({ op: z.literal("deleteNode"), id: nodeId }),
+  z.object({ op: z.literal("updateComponent"), id: nodeId, patch: z.record(z.string(), z.unknown()) }),
 ]) satisfies z.ZodType<EditorCommand>;
 const replySchema = z.object({ commands: z.array(commandSchema).max(COMMAND_LIMITS.commands) });
 
@@ -99,7 +102,7 @@ const selectorFor = (id: string) => `[data-ir-id=${JSON.stringify(id)}]`;
 
 // Pure. AI reply -> commands ([] = no fix this round), or AI_BAD_RESPONSE (bad JSON, bad shape, an op E1 does not
 // give the AI, or an id / parentId outside `allowed`).
-export function parseCommands(text: string, allowed: Set<string>): EditorCommand[] {
+export function parseCommands(text: string, allowed: Set<string>, components: Set<string> = new Set()): EditorCommand[] {
   const bad = (why: string) => new AppError(Codes.AI_BAD_RESPONSE, `fix reply rejected: ${why}`, { reply: text.slice(0, 200) });
   let raw: unknown;
   try {
@@ -112,8 +115,24 @@ export function parseCommands(text: string, allowed: Set<string>): EditorCommand
   for (const c of parsed.data.commands) {
     const outside = ["id" in c ? c.id : undefined, "parentId" in c ? c.parentId : undefined].find((id) => id !== undefined && !allowed.has(id));
     if (outside) throw bad(`${c.op} targets ${outside}, outside the section`);
+    if (c.op === "updateComponent" && !components.has(c.id)) throw bad(`updateComponent targets ${c.id}, not a component of the section`);
   }
   return parsed.data.commands;
+}
+
+// Pure. The section's components with only their AI-patchable config fields (no item/id lists), capped.
+export function componentContext(root: IRNodeV2, max = 50): { id: string; kind: InteractiveKind; config: Record<string, unknown> }[] {
+  const out: { id: string; kind: InteractiveKind; config: Record<string, unknown> }[] = [];
+  const walk = (n: IRNodeV2) => {
+    if (out.length >= max) return;
+    if (n.interactive) {
+      const spec = n.interactive as unknown as Record<string, unknown>;
+      out.push({ id: n.id, kind: n.interactive.kind, config: Object.fromEntries(PATCHABLE[n.interactive.kind].filter((k) => k in spec).map((k) => [k, spec[k]])) });
+    }
+    for (const c of n.children) walk(c);
+  };
+  walk(root);
+  return out;
 }
 
 type Tree = { id: string; children: Tree[] };
@@ -271,11 +290,12 @@ async function proposeCommands(ctx: FixCtx, t: FixTarget, best: Scored, bestDir:
           `A11Y_SNAPSHOT (clone)\n${evidence.a11y}`,
           `FOCUS_NODES ${JSON.stringify(focusDiff(evidence.focus, Math.floor(MAX_FOCUS_CHARS * base * scale)))}`,
           `CONTEXT ${JSON.stringify(context)}`,
+          `COMPONENTS ${JSON.stringify(componentContext(section.root, Math.floor(50 * base * scale)))}`, // scaled with the rest by fitRequest
         ].join("\n\n");
         return [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
       };
       const text = await ask(ctx, page, prompt, images);
-      return parseCommands(text, collectIds(section.root, new Set()));
+      return parseCommands(text, collectIds(section.root, new Set()), new Set(componentContext(section.root).map((x) => x.id)));
     });
   } finally {
     await server.close();

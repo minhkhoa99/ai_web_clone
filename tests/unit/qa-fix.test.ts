@@ -6,7 +6,7 @@ import { asTools } from "@/core/inspector";
 import { estimateTokens, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS } from "@/core/naming";
 import { prepareCommands } from "@/core/ir-command";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
-import { ask, focusDiff, parseCommands, type FixCtx } from "@/core/qa-fix";
+import { ask, componentContext, focusDiff, parseCommands, type FixCtx } from "@/core/qa-fix";
 
 vi.mock("@/core/gateway", async (orig) => ({ ...(await orig<typeof import("@/core/gateway")>()), generate: vi.fn() }));
 vi.mock("@/core/inspector", async (orig) => ({ ...(await orig<typeof import("@/core/inspector")>()), asTools: vi.fn() }));
@@ -128,4 +128,17 @@ test("ask: every generate call is fitted under MAX_REQUEST_TOKENS (images droppe
     expect(s.chars).toBe(300_000); // 150k tokens at full size -> halved once
   }
   expect(scales).toEqual([1, 0.5, 1, 0.5]);
+});
+
+test("AI fix: updateComponent only for a component of the section; item / convert / unwrap ops never reach the AI", () => {
+  const ok = parseCommands('{"commands":[{"op":"updateComponent","id":"car","patch":{"slidesPerView":{"1440":2}}}]}', new Set(["car", "x"]), new Set(["car"]));
+  expect(ok).toEqual([{ op: "updateComponent", id: "car", patch: { slidesPerView: { "1440": 2 } } }]);
+  expect(() => parseCommands('{"commands":[{"op":"updateComponent","id":"x","patch":{"speed":1}}]}', new Set(["car", "x"]), new Set(["car"]))).toThrow(/component/);
+  for (const op of ["addComponentItem", "removeComponentItem", "moveComponentItem", "convertToComponent", "unwrapComponent", "addCarouselSlide"])
+    expect(() => parseCommands(`{"commands":[{"op":"${op}","id":"car","itemId":"s","index":0}]}`, new Set(["car", "s"]), new Set(["car"]))).toThrow();
+  const root = { id: "car", tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [],
+    interactive: { kind: "carousel", source: "swiper", confidence: "config", viewport: "car", track: "car", slides: ["s"], active: 0, autoplay: false, interval: 5000, loop: false, direction: "horizontal", transition: "slide", speed: 300, slidesPerView: { "1440": 1 }, gap: {} } } as const;
+  const ctx = componentContext(root as never);
+  expect(ctx).toEqual([{ id: "car", kind: "carousel", config: expect.objectContaining({ speed: 300, slidesPerView: { "1440": 1 } }) }]);
+  expect(JSON.stringify(ctx)).not.toContain('"slides"');
 });
