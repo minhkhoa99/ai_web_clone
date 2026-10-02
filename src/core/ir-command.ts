@@ -493,6 +493,7 @@ function itemsAt(ir: IRV2, id: unknown, op: string, fail: Fail) {
   if (found.node.component?.role === "instance") fail(`${op} on component instance ${found.node.id}: sửa ở main hoặc detach trước`);
   const parents = new Map<string, string>(); // every item node lives inside the root
   for (const n of preorder(found.node)) {
+    // so an item edit never touches a placeholder: a shell-hosted component needs no syncSections / refs restore
     if (n.tag === "#section") fail(`component ${found.node.id} holds section placeholders`);
     for (const ch of n.children) parents.set(ch.id, n.id);
   }
@@ -508,7 +509,7 @@ function copyItem(nodes: IRNodeV2[], newIds: Iterator<string>, blank: boolean): 
   // never captured (no box), static inside (R12: no interactive), not an instance; parentIds are re-stamped by insert
   const copy = ({ box: _b, interactive: _i, component: _c, ...x }: IRNodeV2): IRNodeV2 => ({
     ...x, id: newIds.next().value as string,
-    attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => !STRIP_ON_COPY.has(k) && !(blank && (k === "src" || k === "srcset")))),
+    attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => !STRIP_ON_COPY.has(k) && !(blank && (k === "src" || k === "srcset")) && !(x.tag === "details" && k === "open"))), // added items start closed
     ...(x.tag === "#text" && { text: blank ? "" : x.text ?? "" }),
     children: x.children.map(copy),
   });
@@ -521,6 +522,10 @@ function applyItems(ir: IRV2, c: ItemCommand, fail: Fail): Step {
     const item = items.find((x) => x.id === c.itemId) ?? fail(`item ${String(c.itemId).slice(0, 200)} is not in ${id}`);
     const next = guard(() => withoutItem(spec, item.id), fail);
     const insert = item.nodes.map((n) => { const f = need(ir, n, fail); return { parentId: f.parent!.id, index: f.index, node: f.node }; });
+    // like deleteNode: the Undo (restoreItems -> checkSubtree) must be able to put it back
+    insert.forEach((x) => checkSubtree(x.node, fail));
+    // instanceIds would go stale (deleteNode prunes them); removing an instance is a tree edit after a detach
+    if (insert.some((x) => preorder(x.node).some((m) => m.component))) fail(`item ${item.id} holds component instance nodes: detach them first`);
     let out = ir;
     for (const n of item.nodes) out = removeNode(out, n, fail);
     return { ir: setSpec(out, id, next, fail), inverse: { op: "restoreItems", id, interactive: spec, remove: [], insert, order: [] } };

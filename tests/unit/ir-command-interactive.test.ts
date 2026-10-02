@@ -212,6 +212,9 @@ test("tabs sharing one parent: move / remove keep triggers among triggers and pa
 });
 
 test("<details> accordion: the container is the item (copied, removed and moved as one); ids follow preorder", () => {
+  const open = detailed();
+  node(open, "d2")!.attrs = { open: "" };
+  expect(node(run(open, [{ op: "addComponentItem", id: "acc", from: "sm2", index: 0 }]).ir, "new1")!.attrs).toEqual({}); // spec says open: false
   const added = roundTrip(detailed(), [{ op: "addComponentItem", id: "acc", from: "sm2", index: 0 }]);
   expect(node(added.ir, "acc")!.children.map((c) => c.id)).toEqual(["new1", "d1", "d2"]);
   expect(accItems(added.ir)[0]).toEqual({ trigger: "new2", panel: "new4", open: false });
@@ -240,6 +243,16 @@ test("item commands refuse bad input: unknown item / from, out-of-range index, k
   node(nested, "t1")!.children = [n("p1", "div", [], { parentId: "t1" })];
   node(nested, "tabs")!.children = node(nested, "tabs")!.children.filter((c) => c.id !== "p1");
   expect(() => run(nested, [{ op: "addComponentItem", id: "tabs", from: "t1", index: 0 }])).toThrow(/nested/);
+  // review fix 1: what removeComponentItem takes out, its Undo must be able to put back (E1 deleteNode limits)
+  const huge = texted();
+  node(huge, "s1")!.children = Array.from({ length: 500 }, (_, i) => n(`h${i}`, "span", [], { parentId: "s1" }));
+  expect(() => run(huge, [{ op: "removeComponentItem", id: "root", itemId: "s1" }])).toThrow(/command 0 \(removeComponentItem\): subtree limit/);
+  const heavy = texted(); // the 8 MB History step check counts the restoreItems payload
+  node(heavy, "s1t")!.text = "x".repeat(8 * 1024 * 1024);
+  expect(() => run(heavy, [{ op: "removeComponentItem", id: "root", itemId: "s1" }])).toThrow(/8 MB/);
+  const holding = texted();
+  node(holding, "s1")!.component = { id: "c", role: "instance", sourceId: "m", overrides: [] };
+  expect(() => run(holding, [{ op: "removeComponentItem", id: "root", itemId: "s1" }])).toThrow(/instance nodes: detach/);
   const instTrack = texted(); // the root is plain but the track is an instance node: still a structural edit of the instance
   node(instTrack, "tr")!.component = { id: "c", role: "instance", sourceId: "m", overrides: [] };
   for (const command of [{ op: "moveComponentItem", id: "root", itemId: "s0", index: 1 }, { op: "removeComponentItem", id: "root", itemId: "s0" }, { op: "addComponentItem", id: "root", index: 0 }] as EditorCommand[])
