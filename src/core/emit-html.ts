@@ -7,7 +7,7 @@ import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } f
 import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
 import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
-import { baseDecl, cfgOf, loopClones, roleIndex, type Role } from "./interactive";
+import { baseDecl, cfgOf, EMBED_HOSTS, embedSrc, loopClones, roleIndex, videoAttrs, type Role } from "./interactive";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -188,10 +188,16 @@ function makeCtx(ir: IR, opts: RenderOpts, fileByPage: Map<string, string>): Ctx
   };
 }
 
+// R9: a page with an allowlisted embed gets this meta CSP (also on export / file://; the files route header is unchanged).
+export const EMBED_CSP = `frame-src ${EMBED_HOSTS.map((h) => `https://${h}`).join(" ")}`;
+
 function renderPage(page: IR["pages"][number], ctx: Ctx): string {
   const base = ctx.opts.pageUrls[page.id];
+  const embeds = (x: IRNode | undefined): boolean =>
+    !!x && (!!x.embed || (x.tag === "#section" ? embeds(ctx.sections.get(x.attrs["data-section"] ?? "")?.root) : x.children.some(embeds)));
   const head = [
     '<meta charset="utf-8">',
+    ...(embeds(page.shell) ? [`<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`] : []),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escText(page.title)}</title>`,
     ...Object.entries(page.meta)
@@ -367,6 +373,13 @@ export function compileV2(input: IRV2): IR {
     const roles = rolesOfNode(n), c: Record<string, string | null> = {};
     if (n.interactive) Object.assign(c, { "data-c": n.interactive.kind, "data-c-cfg": cfgOf(n.interactive) });
     if (roles.length) c["data-c-role"] = roles.join(" ");
+    const video = n.interactive?.kind === "video" ? n.interactive : undefined;
+    if (video?.mode === "native") Object.assign(c, videoAttrs(video));
+    if (video?.mode === "embed") {
+      const src = embedSrc(n.attrs.src ?? "", video);
+      c.src = src ?? null; // not an allowlisted player: the iframe loses its src
+      if (src) out.embed = true;
+    }
     if (Object.keys(c).length) out.c = c;
     if (clones.has(n.id)) out.skip = true;
     if (n.interactive || members.has(n.id)) out.keepId = true;

@@ -1,28 +1,25 @@
-// AI Web Clone runtime (E2 §4): plain browser JS copied verbatim to out/js/runtime.js — no dependency, no bundling,
-// works on file://. Each [data-c] root is one component; data-c-cfg names its parts by data-ir-id. A component whose
-// config is broken is skipped with console.warn; the others still run.
-// Modes: ?qa=1 on the page (QA: capture state, no autoplay, no motion); runtime.js?edit=1 (editor canvas: only shows
-// the item the panel picks through postMessage — no autoplay, no input handlers).
+// AI Web Clone runtime (E2 §4), copied to out/js/runtime.js. One component per [data-c] root (broken: console.warn).
+// ?qa=1: capture state, no motion. runtime.js?edit=1 (canvas): shows the postMessage'd item, no handlers.
 (function () {
   "use strict";
   var me = document.currentScript;
   var MODE = /[?&]edit=1(&|$)/.test(me ? me.src : "") ? "edit" : /[?&]qa=1(&|$)/.test(location.search) ? "qa" : "live";
   var still = MODE !== "live" || !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-  var esc = function (s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&"); };
-  var byId = function (id) { return id ? document.querySelector('[data-ir-id="' + esc(id) + '"]') : null; };
+  var byId = function (id) { return id ? document.querySelector('[data-ir-id="' + CSS.escape(id) + '"]') : null; };
   var need = function (id) { var el = byId(id); if (!el) throw new Error("missing node " + id); return el; };
+  var attr = function (el, k, v) { el.setAttribute(k, v); };
   var on = function (el, type, fn) { if (MODE !== "edit") el.addEventListener(type, fn); };
   var bp = function () { return matchMedia("(max-width: 767.98px)").matches ? "375" : matchMedia("(max-width: 1439.98px)").matches ? "768" : "1440"; };
-  // a breakpoint value inherits from the next wider one, like the styles
+  // a bp value inherits from the next wider one
   function at(map, fallback) {
     var order = { "375": ["375", "768", "1440"], "768": ["768", "1440"], "1440": ["1440"] }[bp()];
     for (var k = 0; k < order.length; k++) if (map && map[order[k]] != null) return map[order[k]];
     return fallback;
   }
-  // R13: shown / hidden the way the capture had it ([hidden], display, visibility or opacity)
+  // R13: shown/hidden the way the capture had it
   function shown(el) { var cs = getComputedStyle(el); return !el.hasAttribute("hidden") && cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0"; }
   function show(el) { el.removeAttribute("hidden"); var cs = getComputedStyle(el); if (cs.display === "none") el.style.display = "block"; if (cs.visibility === "hidden") el.style.visibility = "visible"; if (cs.opacity === "0") el.style.opacity = "1"; }
-  function hide(el) { el.style.removeProperty("display"); el.style.removeProperty("visibility"); el.style.removeProperty("opacity"); if (shown(el)) el.setAttribute("hidden", ""); }
+  function hide(el) { el.style.display = el.style.visibility = el.style.opacity = ""; if (shown(el)) attr(el, "hidden", ""); }
   var kinds = {};
 
   kinds.carousel = function (root, c) {
@@ -31,24 +28,24 @@
     var prev = c.arrows ? byId(c.arrows.prev) : null, next = c.arrows ? byId(c.arrows.next) : null;
     var pag = c.pagination ? byId(c.pagination.container) : null, dots = [], dotOn = "", dotOff = "";
     var i = Math.min(c.active, n - 1), L = { step: 0, last: n - 1 }, hovered = false, timer = 0;
-    root.setAttribute("aria-roledescription", "carousel");
-    vp.setAttribute("aria-live", c.autoplay && !still ? "off" : "polite");
-    slides.forEach(function (s, k) { s.setAttribute("role", "group"); s.setAttribute("aria-roledescription", "slide"); s.setAttribute("aria-label", k + 1 + " / " + n); });
-    if (prev && !prev.hasAttribute("aria-label")) prev.setAttribute("aria-label", "Slide trước");
-    if (next && !next.hasAttribute("aria-label")) next.setAttribute("aria-label", "Slide sau");
+    attr(root, "aria-roledescription", "carousel");
+    attr(vp, "aria-live", c.autoplay && !still ? "off" : "polite");
+    slides.forEach(function (s, k) { attr(s, "role", "group"); attr(s, "aria-roledescription", "slide"); attr(s, "aria-label", k + 1 + " / " + n); });
+    if (prev && !prev.hasAttribute("aria-label")) attr(prev, "aria-label", "Slide trước");
+    if (next && !next.hasAttribute("aria-label")) attr(next, "aria-label", "Slide sau");
     if (pag && c.pagination.kind === "bullets") {
-      // reuse the captured bullets' classes: the active one and an idle one
-      var kids = Array.prototype.filter.call(pag.children, function (e) { return e.nodeType === 1; });
+      // captured bullet classes: active and idle
+      var kids = [].filter.call(pag.children, function (e) { return e.nodeType === 1; });
       var cur = kids[i] || kids[0], idle = kids.filter(function (e) { return e !== cur; })[0] || cur;
       dotOn = cur ? cur.getAttribute("class") || "" : ""; dotOff = idle ? idle.getAttribute("class") || "" : "";
-      // one captured bullet per slide: keep them (DOM and data-ir-id as captured); otherwise rebuild n from the idle one
+      // one captured bullet per slide: keep them; else rebuild n from the idle one
       var reuse = kids.length === n, proto = idle || document.createElement("button");
       if (!reuse) pag.textContent = "";
       for (var k = 0; k < n; k++) {
         var d = reuse ? kids[k] : proto.cloneNode(true);
-        if (!reuse) { d.removeAttribute("data-ir-id"); d.removeAttribute("data-c-role"); Array.prototype.forEach.call(d.querySelectorAll("[data-ir-id]"), function (x) { x.removeAttribute("data-ir-id"); }); }
-        if (d.tagName !== "BUTTON") { d.setAttribute("role", "button"); d.tabIndex = 0; }
-        d.setAttribute("aria-label", "Tới slide " + (k + 1));
+        if (!reuse) { d.removeAttribute("data-ir-id"); d.removeAttribute("data-c-role"); [].forEach.call(d.querySelectorAll("[data-ir-id]"), function (x) { x.removeAttribute("data-ir-id"); }); }
+        if (d.tagName !== "BUTTON") { attr(d, "role", "button"); d.tabIndex = 0; }
+        attr(d, "aria-label", "Tới slide " + (k + 1));
         if (!reuse) pag.appendChild(d);
         dots.push(d);
       }
@@ -66,7 +63,7 @@
       }
       return { step: w + gap, max: Math.max(0, n * (w + gap) - gap - box) };
     }
-    // i is always what is visible: past the last position that fits (slidesPerView > 1) there is nowhere to go
+    // i never passes the last position that fits
     function go(k, instant, auto) {
       var m = layout(), last = m.step > 0 ? Math.min(n - 1, Math.max(0, Math.ceil(m.max / m.step - 0.01))) : n - 1, quick = still || instant;
       i = c.loop ? ((k % (last + 1)) + last + 1) % (last + 1) : Math.max(0, Math.min(k, last));
@@ -82,15 +79,15 @@
       if (timer && !auto) { clearInterval(timer); timer = setInterval(tick, c.interval); } // manual move: a full interval again
     }
     function mark() {
-      root.setAttribute("data-c-active", String(i));
-      if (prev) prev.setAttribute("aria-disabled", String(!c.loop && i === 0)); // aria only: no UA :disabled look (QA pixels)
-      if (next) next.setAttribute("aria-disabled", String(!c.loop && i >= L.last));
-      dots.forEach(function (d, j) { d.setAttribute("class", j === i ? dotOn : dotOff); d.setAttribute("aria-current", String(j === i)); });
+      attr(root, "data-c-active", i);
+      if (prev) attr(prev, "aria-disabled", !c.loop && i === 0); // aria only: no UA :disabled look (QA pixels)
+      if (next) attr(next, "aria-disabled", !c.loop && i >= L.last);
+      dots.forEach(function (d, j) { attr(d, "class", j === i ? dotOn : dotOff); attr(d, "aria-current", j === i); });
       if (pag && c.pagination.kind === "fraction") pag.textContent = i + 1 + " / " + n;
     }
     function tick() { if (!hovered && !root.contains(document.activeElement) && !document.hidden) go(c.loop || i < L.last ? i + 1 : 0, false, true); }
     go(i, true);
-    // listeners and the autoplay timer only after the first layout worked: a broken component leaves nothing behind
+    // listeners/timer only after the first layout worked
     var step = function (by) { return function (e) { e.preventDefault(); go(i + by); }; };
     dots.forEach(function (d, k) {
       on(d, "click", function (e) { e.preventDefault(); go(k); });
@@ -98,14 +95,15 @@
     });
     if (prev) on(prev, "click", step(-1));
     if (next) on(next, "click", step(1));
-    // nested components: the innermost one handles a key / swipe and marks it (defaultPrevented); outer ones skip it
+    // nested: the innermost handles a key/swipe (defaultPrevented), outer ones skip it
     on(root, "keydown", function (e) {
       var back = vertical ? "ArrowUp" : "ArrowLeft", fwd = vertical ? "ArrowDown" : "ArrowRight", t = e.target;
       if (e.defaultPrevented || (e.key !== back && e.key !== fwd) || t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       step(e.key === fwd ? 1 : -1)(e);
     });
     var from = null;
-    if (MODE !== "edit") vp.style.touchAction = vertical ? "pan-x" : "pan-y"; // the page keeps scrolling the other axis
+    // transform mode: the page scrolls the other axis (native scroll keeps touch panning)
+    if (MODE !== "edit" && !native) vp.style.touchAction = vertical ? "pan-x" : "pan-y";
     on(vp, "pointerdown", function (e) { from = vertical ? e.clientY : e.clientX; });
     on(vp, "pointercancel", function () { from = null; });
     on(vp, "pointerup", function (e) {
@@ -119,7 +117,108 @@
       on(root, "mouseenter", function () { hovered = true; }); on(root, "mouseleave", function () { hovered = false; });
     }
     if (MODE !== "edit") addEventListener("resize", function () { go(i, true, true); });
-    return { show: function (k) { if (k < n) go(k, true); } };
+    return { show: function (k) { if (k < n) go(k, true); }, fit: function () { go(i, true, true); } };
+  };
+
+  // re-layout nested carousels laid out while hidden
+  function fit(el) { [].forEach.call(el.querySelectorAll("[data-c]"), function (r) { if (r.__aiwc && r.__aiwc.fit) r.__aiwc.fit(); }); }
+  function reveal(el) { show(el); fit(el); }
+
+  kinds.tabs = function (root, c) {
+    var list = c.tabs.map(function (x) { return [need(x.trigger), need(x.panel)]; }), n = list.length, i = Math.min(c.active, n - 1);
+    function go(k, focus) {
+      i = (k + n) % n;
+      list.forEach(function (x, j) {
+        attr(x[0], "role", "tab"); attr(x[0], "aria-selected", j === i); x[0].tabIndex = j === i ? 0 : -1;
+        attr(x[1], "role", "tabpanel"); j === i ? reveal(x[1]) : hide(x[1]);
+      });
+      attr(root, "data-c-active", i);
+      if (focus) list[i][0].focus();
+    }
+    go(i);
+    list.forEach(function (x, j) {
+      on(x[0], "click", function (e) { e.preventDefault(); go(j); });
+      on(x[0], "keydown", function (e) {
+        var k = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: n - 1 }[e.key];
+        if (k != null) { e.preventDefault(); go(k, true); }
+      });
+    });
+    return { show: function (k) { if (k < n) go(k); } };
+  };
+
+  // <details> stays native
+  kinds.accordion = function (root, c) {
+    var items = c.items.map(function (x) { var t = need(x.trigger), d = t.parentElement; return { t: t, p: need(x.panel), o: x.open, d: t.tagName === "SUMMARY" && d.tagName === "DETAILS" ? d : null }; });
+    function set(x, open) { if (x.d) x.d.open = open; else { open ? reveal(x.p) : hide(x.p); attr(x.t, "aria-expanded", open); } }
+    function others(j) { if (!c.multiple) items.forEach(function (o, k) { if (k !== j) set(o, false); }); }
+    if (MODE === "qa") items.forEach(function (x) { set(x, x.o); });
+    items.forEach(function (x, j) {
+      if (x.d) on(x.d, "toggle", function () { if (x.d.open) { others(j); fit(x.d); } });
+      else {
+        attr(x.t, "aria-expanded", shown(x.p));
+        on(x.t, "click", function (e) { e.preventDefault(); var open = !shown(x.p); if (open) others(j); set(x, open); });
+      }
+    });
+    return { show: function (j) { if (j < items.length) items.forEach(function (x, k) { set(x, k === j); }); } };
+  };
+
+  // triggers anywhere on the page; focus in, trapped, returned
+  var FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex='-1'])";
+  kinds.modal = function (root, c) {
+    var dlg = need(c.dialog), close = byId(c.closeButton), from = null, lock = "", de = document.documentElement;
+    var can = function (k) { return c.closeOn.indexOf(k) >= 0; };
+    if (!dlg.getAttribute("role")) attr(dlg, "role", "dialog");
+    attr(dlg, "aria-modal", "true");
+    if (!dlg.hasAttribute("tabindex")) dlg.tabIndex = -1;
+    function open(t) {
+      if (shown(dlg)) return;
+      from = t; reveal(dlg); attr(root, "data-c-open", "true");
+      if (MODE === "edit") return; // canvas: no lock/focus
+      lock = de.style.overflow; de.style.overflow = "hidden";
+      (dlg.querySelector(FOCUSABLE) || dlg).focus();
+    }
+    function shut() {
+      if (!shown(dlg)) return;
+      hide(dlg); de.style.overflow = lock; attr(root, "data-c-open", "false");
+      if (from) from.focus();
+      from = null;
+    }
+    c.triggers.map(need).forEach(function (t) { on(t, "click", function (e) { e.preventDefault(); open(t); }); });
+    if (close && can("button")) on(close, "click", function (e) { e.preventDefault(); shut(); });
+    if (can("backdrop")) on(dlg, "click", function (e) { if (e.target === dlg) shut(); });
+    on(document, "keydown", function (e) {
+      if (!shown(dlg)) return;
+      if (e.key === "Escape" && can("esc")) return shut();
+      if (e.key !== "Tab") return;
+      var f = dlg.querySelectorAll(FOCUSABLE), a = f[0], z = f[f.length - 1], at = document.activeElement;
+      if (!a || !dlg.contains(at) || at === (e.shiftKey ? a : z)) { e.preventDefault(); (a ? (e.shiftKey ? z : a) : dlg).focus(); }
+    });
+    return { show: function () { open(null); } };
+  };
+
+  // R2: panel may be outside root
+  kinds.dropdown = kinds.menu = function (root, c) {
+    var t = need(c.trigger), p = need(c.panel), timer = 0;
+    function set(open) { clearTimeout(timer); open ? reveal(p) : hide(p); attr(t, "aria-expanded", open); }
+    if (c.openOn === "hover") {
+      (root.contains(p) ? [root] : [root, p]).forEach(function (el) {
+        on(el, "mouseenter", function () { set(true); });
+        on(el, "mouseleave", function () { clearTimeout(timer); timer = setTimeout(set, 150, false); });
+      });
+      on(t, "focus", function () { set(true); });
+    } else on(t, "click", function (e) { e.preventDefault(); set(!shown(p)); });
+    on(document, "click", function (e) { if (shown(p) && !root.contains(e.target) && !p.contains(e.target)) set(false); });
+    on(document, "keydown", function (e) { if (e.key === "Escape" && shown(p)) { set(false); t.focus(); } });
+    attr(t, "aria-expanded", shown(p));
+    return { show: function () { set(true); } };
+  };
+
+  // embed: the iframe as emitted
+  kinds.video = function (root, c) {
+    var v = need(c.node);
+    if (c.mode !== "native" || v.tagName !== "VIDEO") return;
+    v.muted = c.muted || c.autoplay; v.loop = c.loop; v.controls = c.controls; v.autoplay = c.autoplay && !still;
+    v.autoplay ? v.play().catch(function () {}) : v.pause();
   };
 
   function init(root) {
@@ -127,7 +226,7 @@
     var id = root.getAttribute("data-ir-id") || "?";
     try {
       var kind = root.getAttribute("data-c"), c = JSON.parse(root.getAttribute("data-c-cfg") || "null");
-      if (!c || c.kind !== kind || !Object.prototype.hasOwnProperty.call(kinds, kind)) throw new Error("unknown component " + kind);
+      if (!c || c.kind !== kind || !kinds.hasOwnProperty(kind)) throw new Error("unknown component " + kind);
       root.__aiwc = kinds[kind](root, c) || {};
     } catch (e) {
       console.warn("aiwc runtime: component skipped", id, e && e.message);
@@ -138,9 +237,9 @@
   if (MODE === "edit") addEventListener("message", function (e) {
     var d = e.data, ok = d && d.type === "aiwc:show" && e.source === window.parent && Number.isInteger(d.index) && d.index >= 0;
     var root = ok ? byId(d.root) : null, api = root && root.hasAttribute("data-c") ? init(root) : null;
-    if (api && api.show) api.show(d.index); // show ignores an index past the last item
+    if (api && api.show) api.show(d.index); // show ignores an index past the end
   });
-  else Array.prototype.forEach.call(document.querySelectorAll("[data-c]"), init);
+  else [].forEach.call(document.querySelectorAll("[data-c]"), init);
 })();
 
 /* legacy:start */

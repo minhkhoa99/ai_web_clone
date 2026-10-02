@@ -246,3 +246,178 @@ test("?edit=1: an index that is not a non-negative integer below the item count 
     expect(await active(page)).toBe("1");
   });
 });
+
+const tabsRoot = () => n("tabs", "section", [
+  n("tl", "div", [n("tab0", "button", [t("a", "One")]), n("tab1", "button", [t("b", "Two")])]),
+  n("p0", "div", [t("c", "Panel one")]),
+  n("p1", "div", [t("d", "Panel two")], { attrs: { hidden: "" }, styles: { base: { display: "none" }, bp: {}, state: {}, pseudo: {} } }),
+], { interactive: { kind: "tabs", source: "aria", confidence: "guessed", tabs: [{ trigger: "tab0", panel: "p0" }, { trigger: "tab1", panel: "p1" }], active: 0 } });
+
+test("tabs: click and arrow keys select, aria-selected/tabindex follow, panels shown the way the capture hid them", async () => {
+  const { url } = await serve(tabsRoot());
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    expect(await page.isVisible('[data-ir-id="p1"]')).toBe(false);
+    await page.click('[data-ir-id="tab1"]');
+    expect(await page.isVisible('[data-ir-id="p1"]')).toBe(true);
+    expect(await page.isVisible('[data-ir-id="p0"]')).toBe(false);
+    expect(await page.getAttribute('[data-ir-id="tab1"]', "aria-selected")).toBe("true");
+    expect(await page.getAttribute('[data-ir-id="tab0"]', "tabindex")).toBe("-1");
+    await page.keyboard.press("Home");
+    expect(await page.isVisible('[data-ir-id="p0"]')).toBe(true);
+  });
+});
+
+test("accordion: <details> stays native (multiple=false closes the others); ARIA items toggle aria-expanded", async () => {
+  const det = (i: number) => n(`dt${i}`, "details", [n(`sm${i}`, "summary", [t(`smt${i}`, `Q${i}`)]), n(`an${i}`, "p", [t(`ant${i}`, `A${i}`)])]);
+  const native = n("acc", "section", [det(0), det(1)], { interactive: { kind: "accordion", source: "details", confidence: "guessed", multiple: false, items: [0, 1].map((i) => ({ trigger: `sm${i}`, panel: `an${i}`, open: false })) } });
+  const aria = n("acc2", "section", [n("q", "button", [t("qt", "Q")]), n("a", "div", [t("at", "A")], { styles: { base: { display: "none" }, bp: {}, state: {}, pseudo: {} } })],
+    { interactive: { kind: "accordion", source: "aria", confidence: "guessed", multiple: true, items: [{ trigger: "q", panel: "a", open: false }] } });
+  const { url } = await serve(native, aria);
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="sm0"]');
+    await page.click('[data-ir-id="sm1"]');
+    await expect.poll(() => page.$eval('[data-ir-id="dt0"]', (d) => (d as HTMLDetailsElement).open)).toBe(false);
+    await page.click('[data-ir-id="q"]');
+    expect(await page.isVisible('[data-ir-id="a"]')).toBe(true);
+    expect(await page.getAttribute('[data-ir-id="q"]', "aria-expanded")).toBe("true");
+  });
+});
+
+test("Review Focus 5 — modal: a trigger in another section opens it; focus moves in, stays in (Tab), Esc closes, scroll lock, focus returns", async () => {
+  const dialog = n("dlg", "div", [t("dt", "Body "), n("ok", "button", [t("okt", "OK")]), n("x", "button", [t("xt", "Đóng")])],
+    { attrs: { hidden: "" }, styles: { base: { display: "none" }, bp: {}, state: {}, pseudo: {} },
+      interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: ["open"], dialog: "dlg", closeOn: ["esc", "backdrop", "button"], closeButton: "x" } });
+  const { url } = await serve(n("head-sec", "section", [n("open", "button", [t("ot", "Open")])]), n("foot", "section", [dialog]));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="open"]');
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-ir-id"))).toBe("ok");
+    expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe("hidden");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab"); // wraps from the last focusable back to the first
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-ir-id"))).toBe("ok");
+    await page.keyboard.press("Shift+Tab"); // and backwards from the first to the last
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-ir-id"))).toBe("x");
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-ir-id"))).toBe("open");
+    expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe("");
+    expect(await page.getAttribute('[data-ir-id="dlg"]', "data-c-open")).toBe("false");
+    await page.click('[data-ir-id="open"]');
+    await page.click('[data-ir-id="x"]');
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+  });
+});
+
+test("dropdown: hover opens, closes 150 ms after leaving; click-kind opens on click, outside click and Esc close", async () => {
+  const hidden = { base: { visibility: "hidden" }, bp: {}, state: {}, pseudo: {} };
+  const hover = n("dd", "nav", [n("dt-a", "a", [t("x1", "Menu")], { attrs: { href: "#" } }), n("dp", "ul", [n("li", "li", [t("x2", "Item")])], { styles: hidden })],
+    { interactive: { kind: "menu", source: "aria", confidence: "observed", trigger: "dt-a", panel: "dp", openOn: "hover" } });
+  const click = n("dc", "div", [n("ct", "button", [t("x3", "Account")]), n("cp", "ul", [n("cli", "li", [t("x4", "Profile")])], { styles: hidden })],
+    { interactive: { kind: "dropdown", source: "aria", confidence: "guessed", trigger: "ct", panel: "cp", openOn: "click" } });
+  const { url } = await serve(hover, click);
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.hover('[data-ir-id="dt-a"]');
+    expect(await page.isVisible('[data-ir-id="dp"]')).toBe(true);
+    await page.mouse.move(1000, 800);
+    await expect.poll(() => page.isVisible('[data-ir-id="dp"]')).toBe(false);
+    await page.click('[data-ir-id="ct"]');
+    expect(await page.getAttribute('[data-ir-id="ct"]', "aria-expanded")).toBe("true");
+    await page.mouse.click(1000, 800);
+    expect(await page.isVisible('[data-ir-id="cp"]')).toBe(false);
+    await page.click('[data-ir-id="ct"]');
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="cp"]')).toBe(false);
+  });
+});
+
+test("video: native attributes follow the spec (autoplay forces muted); ?qa=1 keeps it paused", async () => {
+  const v = n("vid", "video", [], { attrs: { controls: "" }, interactive: { kind: "video", source: "native", confidence: "guessed", node: "vid", mode: "native", autoplay: true, muted: true, loop: true, controls: false } });
+  const { url } = await serve(n("vs", "section", [v]));
+  await withPage(handle, async (page) => {
+    await page.goto(`${url}?qa=1`);
+    const state = await page.$eval('[data-ir-id="vid"]', (el) => { const v = el as HTMLVideoElement; return { muted: v.muted, loop: v.loop, controls: v.controls, paused: v.paused }; });
+    expect(state).toEqual({ muted: true, loop: true, controls: false, paused: true });
+  });
+});
+
+test("native-scroll carousel (viewport === track): no touch-action, so touch keeps scrolling it natively", async () => {
+  const native = carouselRoot({ source: "scroll-snap", viewport: "tr" });
+  native.children[0]!.children[0]!.styles = { base: { display: "flex", width: "300px", "overflow-x": "auto" }, bp: {}, state: {}, pseudo: {} };
+  const { url } = await serve(native);
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    expect(await page.$eval('[data-ir-id="tr"]', (el) => (el as HTMLElement).style.touchAction)).toBe("");
+    await page.click('[data-ir-id="next"]');
+    await expect.poll(() => page.$eval('[data-ir-id="tr"]', (el) => el.scrollLeft)).toBe(300);
+  });
+});
+
+test("a carousel inside a hidden tab panel is laid out again when the panel opens", async () => {
+  const tabs = tabsRoot();
+  const inner = carouselRoot({}, "in-");
+  tabs.children[2]!.children.push(inner); // p1: hidden at start
+  inner.parentId = "p1";
+  const { url } = await serve(tabs);
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="tab1"]');
+    expect(await page.$eval('[data-ir-id="in-sl0"]', (el) => el.getBoundingClientRect().width)).toBe(300);
+    await page.click('[data-ir-id="in-next"]');
+    expect(await page.$eval('[data-ir-id="in-tr"]', (el) => (el as HTMLElement).style.transform)).toBe("translate3d(-300px, 0px, 0px)");
+  });
+});
+
+test("R2 dropdown: a hover panel outside the trigger root stays open while the pointer moves onto it; clicks inside it do not close it", async () => {
+  const hidden = { base: { visibility: "hidden" }, bp: {}, state: {}, pseudo: {} };
+  const trig = n("rt", "button", [t("rtt", "More")], { interactive: { kind: "dropdown", source: "aria", confidence: "guessed", trigger: "rt", panel: "rp", openOn: "hover" } });
+  const { url } = await serve(n("bar", "div", [trig, n("rp", "ul", [n("rli", "li", [t("rlt", "Item")])], { styles: hidden })]));
+  await withPage(handle, async (page) => {
+    await page.clock.install();
+    await page.goto(url);
+    await page.hover('[data-ir-id="rt"]');
+    await page.hover('[data-ir-id="rli"]');
+    await page.clock.runFor(500);
+    expect(await page.isVisible('[data-ir-id="rp"]')).toBe(true);
+    await page.click('[data-ir-id="rli"]');
+    expect(await page.isVisible('[data-ir-id="rp"]')).toBe(true);
+    await page.mouse.move(1000, 800);
+    await page.clock.runFor(100);
+    expect(await page.isVisible('[data-ir-id="rp"]')).toBe(true); // 150 ms delay
+    await page.clock.runFor(100);
+    expect(await page.isVisible('[data-ir-id="rp"]')).toBe(false);
+  });
+});
+
+test("?qa=1 keeps tabs/accordion/modal at the captured state; ?edit=1 shows the posted tab and opens the modal without handlers", async () => {
+  const acc = n("acc", "section", [n("qq", "button", [t("qqt", "Q")]), n("aa", "div", [t("aat", "A")])],
+    { interactive: { kind: "accordion", source: "aria", confidence: "guessed", multiple: true, items: [{ trigger: "qq", panel: "aa", open: true }] } });
+  const dlg = n("dlg", "div", [n("ok", "button", [t("okt", "OK")])], { styles: { base: { display: "none" }, bp: {}, state: {}, pseudo: {} },
+    interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: ["open"], dialog: "dlg", closeOn: ["esc"] } });
+  const { url, outDir } = await serve(tabsRoot(), acc, n("ms", "section", [n("open", "button", [t("ot", "Open")]), dlg]));
+  await withPage(handle, async (page) => {
+    await page.goto(`${url}?qa=1`);
+    expect(await page.isVisible('[data-ir-id="p0"]')).toBe(true);
+    expect(await page.isVisible('[data-ir-id="p1"]')).toBe(false);
+    expect(await page.isVisible('[data-ir-id="aa"]')).toBe(true);
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+  });
+  const file = join(outDir, "index.html");
+  await writeFile(file, (await readFile(file, "utf8")).replace('src="js/runtime.js"', 'src="js/runtime.js?edit=1"'));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="tab1"]');
+    await page.click('[data-ir-id="open"]');
+    expect(await page.isVisible('[data-ir-id="p1"]')).toBe(false);
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+    await page.evaluate(() => { window.postMessage({ type: "aiwc:show", root: "tabs", index: 1 }, "*"); window.postMessage({ type: "aiwc:show", root: "dlg", index: 0 }, "*"); });
+    await expect.poll(() => page.isVisible('[data-ir-id="p1"]')).toBe(true);
+    await expect.poll(() => page.isVisible('[data-ir-id="dlg"]')).toBe(true);
+    expect(await page.isVisible('[data-ir-id="p0"]')).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe(""); // no scroll lock in the canvas
+  });
+});

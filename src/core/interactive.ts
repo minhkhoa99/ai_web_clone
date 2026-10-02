@@ -28,6 +28,28 @@ export type Member = { root: string; spec: InteractiveSpec; role: Role };
 export const INTERACTIVE_LIMITS = { perPage: 50, items: 100, cfgBytes: 16 * 1024 } as const;
 export const EMBED_HOSTS = ["www.youtube-nocookie.com", "player.vimeo.com"] as const;
 
+// <video> flags from the spec ("" = present, null = drop the captured one); autoplay forces muted + playsinline.
+export function videoAttrs(spec: VideoSpec): Record<string, string | null> {
+  const flag = (on: boolean) => (on ? "" : null);
+  return { autoplay: flag(spec.autoplay), muted: flag(spec.muted || spec.autoplay), loop: flag(spec.loop), controls: flag(spec.controls), playsinline: flag(spec.autoplay) };
+}
+
+// E2 §4/§11: an embed keeps its iframe only for a YouTube / Vimeo player URL (https); YouTube is served from youtube-nocookie.
+export function embedSrc(raw: string, spec: VideoSpec): string | undefined {
+  let u: URL;
+  try { u = new URL(raw); } catch { return undefined; }
+  if (u.protocol !== "https:") return undefined;
+  const yt = /^(www\.|m\.)?youtube(-nocookie)?\.com$/.test(u.hostname) && /^\/embed\/[\w-]{1,64}$/.test(u.pathname);
+  const vimeo = u.hostname === "player.vimeo.com" && /^\/video\/\d{1,20}$/.test(u.pathname);
+  if (!yt && !vimeo) return undefined;
+  const out = new URL(`https://${yt ? EMBED_HOSTS[0] : EMBED_HOSTS[1]}${u.pathname}`);
+  if (spec.autoplay) out.searchParams.set("autoplay", "1");
+  if (spec.muted || spec.autoplay) out.searchParams.set(yt ? "mute" : "muted", "1");
+  if (spec.loop) out.searchParams.set("loop", "1");
+  if (!spec.controls) out.searchParams.set("controls", "0");
+  return out.href;
+}
+
 const invalid = (message: string): never => { throw new AppError(Codes.IR_PATCH_INVALID, message); };
 const id = z.string().min(1).max(200);
 const base = {

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { compileV2, HIDDEN_RULE, renderSite } from "@/core/emit-html";
+import { compileV2, EMBED_CSP, HIDDEN_RULE, renderSite } from "@/core/emit-html";
 import { grapesToCommands, irToGrapes, type GrapesComponent } from "@/core/grapes-adapter";
-import type { CarouselSpec } from "@/core/interactive";
+import { embedSrc, videoAttrs, type CarouselSpec, type VideoSpec } from "@/core/interactive";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
 
 const css = (base: Record<string, string> = {}) => ({ base, bp: {}, state: {}, pseudo: {} });
@@ -94,4 +94,42 @@ test("captured data-c / data-c-* attributes are dropped: only the interactive sp
   expect(files["index.html"]).not.toMatch(/data-c(-[a-z]+)?=/);
   expect(files["index.html"]).toContain('data-cat="keep"');
   expect(files["css/styles.css"]).not.toContain(HIDDEN_RULE);
+});
+
+const embed: VideoSpec = { kind: "video", source: "native", confidence: "guessed", node: "if", mode: "embed", autoplay: true, muted: true, loop: false, controls: true };
+test("embed: only allowlisted hosts, YouTube goes to youtube-nocookie; the page gets the frame-src meta CSP", () => {
+  expect(embedSrc("https://www.youtube.com/embed/abc123?rel=0", embed)).toBe("https://www.youtube-nocookie.com/embed/abc123?autoplay=1&mute=1");
+  expect(embedSrc("https://player.vimeo.com/video/42", { ...embed, autoplay: false, muted: false })).toBe("https://player.vimeo.com/video/42");
+  expect(embedSrc("https://evil.test/embed/abc", embed)).toBeUndefined();
+  const ir = site();
+  ir.sections[0]!.root.children.push({ id: "if", parentId: "root", tag: "iframe", type: "media", attrs: { src: "https://www.youtube.com/embed/abc123" }, styles: css(), children: [] });
+  ir.sections[0]!.root.children.at(-1)!.interactive = embed;
+  const html = renderSite(ir, opts)["index.html"]!;
+  expect(html).toContain('src="https://www.youtube-nocookie.com/embed/abc123?autoplay=1&amp;mute=1"');
+  expect(html).not.toContain("www.youtube.com");
+  expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`);
+  expect(renderSite(site(), opts)["index.html"]).not.toContain("Content-Security-Policy");
+});
+
+test("embed edge cases: non-https / look-alike hosts / other paths refused; loop and controls map to params; a refused embed loses its src", () => {
+  for (const raw of ["http://www.youtube.com/embed/abc", "https://www.youtube.com.evil.test/embed/abc", "https://www.youtube.com/watch?v=abc", "https://player.vimeo.com/video/42/../x", "javascript:alert(1)", "not a url"])
+    expect(embedSrc(raw, embed)).toBeUndefined();
+  expect(embedSrc("https://youtube.com/embed/a_b-1", { ...embed, autoplay: false, muted: false, loop: true, controls: false })).toBe("https://www.youtube-nocookie.com/embed/a_b-1?loop=1&controls=0");
+  expect(embedSrc("https://player.vimeo.com/video/42", embed)).toBe("https://player.vimeo.com/video/42?autoplay=1&muted=1");
+  const ir = site();
+  ir.sections[0]!.root.children.push({ id: "if", parentId: "root", tag: "iframe", type: "media", attrs: { src: "https://evil.test/embed/abc" }, styles: css(), children: [], interactive: embed });
+  const html = renderSite(ir, opts)["index.html"]!;
+  expect(html).not.toContain("evil.test");
+  expect(html).not.toContain("Content-Security-Policy");
+});
+
+test("native video: videoAttrs writes the spec flags (autoplay forces muted + playsinline) and drops captured ones the spec turns off", () => {
+  const vid: VideoSpec = { kind: "video", source: "native", confidence: "guessed", node: "v", mode: "native", autoplay: true, muted: false, loop: false, controls: false };
+  expect(videoAttrs(vid)).toEqual({ autoplay: "", muted: "", loop: null, controls: null, playsinline: "" });
+  const ir = site();
+  ir.sections[0]!.root.children.push({ id: "v", parentId: "root", tag: "video", type: "media", attrs: { controls: "", loop: "" }, styles: css(), children: [], interactive: { ...vid, muted: true } });
+  const tag = /<video[^>]*>/.exec(renderSite(ir, opts)["index.html"]!)![0];
+  expect(tag).toMatch(/ autoplay=""/);
+  expect(tag).toMatch(/ muted=""/);
+  expect(tag).not.toMatch(/ controls=| loop=/);
 });

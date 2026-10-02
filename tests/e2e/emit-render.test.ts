@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
@@ -87,7 +87,9 @@ async function loadCollectingErrors(page: Page, url: string): Promise<string[]> 
 test("emitted menu page: no console errors (http + file://), runtime toggles the menu", async () => {
   const outDir = join(tmp, "menu-out");
   await emitHtml(buildIR([menuCapture()]), { outDir, workspaceDir: tmp, assetMap: {}, pageUrls: { home: "https://x.test/" } });
-  expect((await stat(join(outDir, "js/runtime.js"))).size).toBeLessThanOrEqual(15 * 1024);
+  // same measure as tests/unit/runtime-size.test.ts: the legacy block is not counted until E2 Task 6 deletes it
+  const runtime = await readFile(join(outDir, "js/runtime.js"), "utf8");
+  expect(Buffer.byteLength(runtime.replace(/\/\* legacy:start \*\/[\s\S]*\/\* legacy:end \*\//, ""))).toBeLessThanOrEqual(15 * 1024);
   const base = await serve(outDir);
 
   await withPage(handle, async (page) => {
