@@ -39,11 +39,17 @@ function mapPath(path: string): [string, string] | undefined {
   const match = /^(attrs|styles\.base|styles\.bp\.(?:768|375)|styles\.state\.(?:hover|focus|active)|styles\.pseudo\.(?:before|after))\.(.+)$/.exec(path);
   return match && !["__proto__", "constructor", "prototype"].includes(match[2]!) ? [match[1]!, match[2]!] : undefined;
 }
+const INTERACTIVE_PATH = /^interactive(\.(?!__proto__|constructor|prototype)[a-zA-Z]+)?$/;
 // The one override-path rule: the resolver applies exactly the paths this accepts.
 export const isOverridePath = (path: string): boolean =>
-  path === "children" || fields.includes(path as typeof fields[number]) || mapPath(path) !== undefined;
+  path === "children" || INTERACTIVE_PATH.test(path) || fields.includes(path as typeof fields[number]) || mapPath(path) !== undefined;
 function overlay(out: IRNodeV2, instance: IRNodeV2, path: string): void {
   if (path === "children") return;
+  // E2 R12: a main never holds an interactive, so the instance's own spec is the whole value (ids are the instance's)
+  if (INTERACTIVE_PATH.test(path)) {
+    if (instance.interactive) out.interactive = structuredClone(instance.interactive); else delete out.interactive;
+    return;
+  }
   if (fields.includes(path as typeof fields[number])) {
     const key = path as typeof fields[number];
     Object.assign(out, { [key]: instance[key] });

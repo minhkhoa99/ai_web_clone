@@ -2,6 +2,7 @@ import type { CaptureNode, PageCapture } from "./capture";
 import type { Decl, StyleSet } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { buildFidelity, capFidelity } from "./fidelity";
+import type { InteractiveSpec } from "./interactive";
 import type { LegacyIR, LegacyIRNode, LegacyPage, LegacySection } from "./ir-legacy";
 
 export type NodeStyles = {
@@ -25,6 +26,7 @@ export type IRNodeV2 = {
   box?: Partial<Record<1440 | 768 | 375, [number, number, number, number]>>;
   component?: { id: string; role: "main" | "instance"; sourceId?: string; overrides?: string[] };
   behavior?: string;
+  interactive?: InteractiveSpec;
 };
 export type FidelityItem = {
   pageId: string;

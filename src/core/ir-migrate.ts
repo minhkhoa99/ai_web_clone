@@ -2,6 +2,7 @@ import { promoteLegacyComponents } from "./ir-component";
 import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
 import { capFidelity } from "./fidelity";
+import { checkInteractives } from "./interactive";
 import type { LegacyIR } from "./ir-legacy";
 import { toV2, type IRV2, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
@@ -37,7 +38,8 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
           (node.name !== undefined && typeof node.name !== "string") ||
           (node.text !== undefined && typeof node.text !== "string") ||
           (node.hidden !== undefined && typeof node.hidden !== "boolean") ||
-          (node.behavior !== undefined && typeof node.behavior !== "string")) return invalid("invalid v2 IR node");
+          (node.behavior !== undefined && typeof node.behavior !== "string") ||
+          (node.interactive !== undefined && !object(node.interactive))) return invalid("invalid v2 IR node");
       spend(budget, key, depth);
       if (seen.has(node.id)) return invalid(`duplicate node id: ${node.id}`);
       seen.add(node.id);
@@ -56,6 +58,7 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
       if (!object(component) || typeof component.id !== "string" || !Array.isArray(component.instanceIds)) return invalid("invalid v2 component");
       visitV2(component.root, 1, "components");
     }
+    checkInteractives(input as IRV2); // E2 §2 (R11): an invalid interactive is a corrupt document like any other
     return input as IRV2;
   }
   if (input.version !== undefined && input.version !== 1) throw new AppError(Codes.IR_VERSION_UNSUPPORTED, "unsupported IR version");
