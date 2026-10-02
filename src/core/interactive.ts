@@ -1,5 +1,6 @@
 // E2 §2: the interactive component model on IR v2 nodes. Pure (zod + plain data): no DOM, fs, Date or random.
 import { z } from "zod";
+import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import type { IRNodeV2, IRV2 } from "./ir-v2";
 
@@ -112,4 +113,44 @@ export function checkInteractives(ir: IRV2): void {
       if (new TextEncoder().encode(cfgOf(spec)).length > INTERACTIVE_LIMITS.cfgBytes) invalid(`data-c-cfg of ${root.id} exceeds 16 KB`);
     }
   }
+}
+
+// Every node a component spec references -> its memberships (nested components: a node may have several, E2 §4).
+export function roleIndex(ir: IRV2): Map<string, Member[]> {
+  const out = new Map<string, Member[]>();
+  const visit = (n: IRNodeV2): void => {
+    if (n.interactive) for (const [ref, role] of rolesOf(n.interactive)) out.set(ref, [...(out.get(ref) ?? []), { root: n.id, spec: n.interactive, role }]);
+    n.children.forEach(visit);
+  };
+  ir.pages.forEach((p) => visit(p.shell));
+  ir.sections.forEach((s) => visit(s.root));
+  return out;
+}
+
+// Loop clones (E2 §2): hidden children of a carousel track that are not slides. They stay in the document, never in the output.
+export function loopClones(ir: IRV2): Set<string> {
+  const out = new Set<string>();
+  const visit = (n: IRNodeV2): void => {
+    const spec = n.interactive;
+    if (spec?.kind === "carousel") {
+      const slides = new Set(spec.slides);
+      walk(n, (m) => { if (m.id === spec.track) for (const c of m.children) if (c.tag !== "#text" && c.hidden && !slides.has(c.id)) out.add(c.id); });
+    }
+    n.children.forEach(visit);
+  };
+  ir.pages.forEach((p) => visit(p.shell));
+  ir.sections.forEach((s) => visit(s.root));
+  return out;
+}
+
+// CSS the runtime relies on (E2 §4), only where the captured style differs. Panels need none (R13): they are
+// shown/hidden the way the capture hid them.
+export function baseDecl(spec: InteractiveSpec, roles: Role[], captured: Decl): Decl {
+  if (spec.kind !== "carousel") return {};
+  const want: Decl = {};
+  const fade = spec.transition === "fade";
+  if (roles.includes("viewport") && spec.source !== "scroll-snap") Object.assign(want, { "overflow-x": "hidden", "overflow-y": "hidden" });
+  if (roles.includes("track")) Object.assign(want, fade ? { display: "grid" } : { display: "flex", ...(spec.direction === "vertical" && { "flex-direction": "column" }) });
+  if (roles.includes("slide")) Object.assign(want, fade ? { "grid-area": "1 / 1" } : { "flex-shrink": "0" });
+  return Object.fromEntries(Object.entries(want).filter(([prop, value]) => captured[prop] !== value));
 }

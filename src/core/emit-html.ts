@@ -7,6 +7,7 @@ import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } f
 import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
 import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
+import { baseDecl, cfgOf, loopClones, roleIndex, type Role } from "./interactive";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -115,6 +116,7 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
   for (const [name, value] of Object.entries(node.attrs)) {
     if (name === "class" || name === "srcdoc" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
+    if (node.c && Object.hasOwn(node.c, name)) continue;
     if (isScriptValue(node.tag, name, value)) {
       if (name === "href") out += ` href="#"`;
       continue;
@@ -124,16 +126,18 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   const cls = new Set(node.cls);
   for (const state of STATES) if (node.states?.[state]) cls.add(`st-${node.states[state]}`);
   if (cls.size > 0) out += ` class="${escAttr([...cls].join(" "))}"`;
+  for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null) out += ` ${name}="${escAttr(value)}"`;
   if (node.behavior) {
     const kind = ctx.kinds.get(node.behavior);
     const behavior = kind && BEHAVIOR_ATTR[kind];
     out += behavior ? ` data-behavior="${behavior}" data-ix="${escAttr(node.behavior)}"` : ` data-behavior="unresolved"`;
   }
-  if (!ctx.opts.stripIds) out += ` data-ir-id="${escAttr(node.id)}"`;
+  if (!ctx.opts.stripIds || node.keepId) out += ` data-ir-id="${escAttr(node.id)}"`;
   return out;
 }
 
 function renderNode(node: IRNode, base: string | undefined, ctx: Ctx, out: string[]): void {
+  if (node.skip) return;
   if (node.tag === "#text") {
     out.push(escText(node.text ?? ""));
     return;
@@ -231,6 +235,9 @@ function tokenLookup(tokens: Record<string, string>): Map<string, string> {
   return byValue;
 }
 
+// The runtime hides inactive component parts with [hidden]: a captured display rule must not show them again.
+export const HIDDEN_RULE = "[data-c-role][hidden]{display:none!important}";
+
 function renderCss(ir: IR, ctx: Ctx): string {
   const base = ir.pages[0] ? ctx.opts.pageUrls[ir.pages[0].id] : undefined;
   const tokenOf = tokenLookup(ir.tokens);
@@ -281,6 +288,8 @@ function renderCss(ir: IR, ctx: Ctx): string {
     const body = rules.filter(Boolean);
     return body.length > 0 ? `${media}{\n${body.join("\n")}\n}` : "";
   };
+  const hasComponent = (n: IRNode): boolean => !!n.c?.["data-c"] || n.children.some(hasComponent);
+  if (ir.sections.some((s) => hasComponent(s.root)) || ir.pages.some((p) => hasComponent(p.shell))) lines.push(HIDDEN_RULE);
   lines.push(block(MEDIA_768, at768), block(MEDIA_375, at375));
   return lines.filter(Boolean).join("\n") + "\n";
 }
@@ -327,7 +336,13 @@ const stateKey = (id: string, state: string) => `${id}\u0000${state}`;
 export function compileV2(input: IRV2): IR {
   const ir = resolveComponents(input);
   const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
-  const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(n.styles), children: n.children.map(styled) });
+  const members = roleIndex(ir), clones = loopClones(ir);
+  const rolesOfNode = (n: IRNodeV2): Role[] => [...new Set((members.get(n.id) ?? []).map((m) => m.role))];
+  const withBase = (n: IRNodeV2): NodeStyles => {
+    const extra = Object.assign({}, ...(members.get(n.id) ?? []).map((m) => baseDecl(m.spec, [m.role], n.styles.base)));
+    return Object.keys(extra).length ? { ...n.styles, base: { ...n.styles.base, ...extra } } : n.styles;
+  };
+  const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(withBase(n)), children: n.children.map(styled) });
   const stateRoots: StyledNode[] = [];
   const presets = new Set<string>();
   const collect = (n: IRNodeV2): void => {
@@ -348,6 +363,12 @@ export function compileV2(input: IRV2): IR {
     if (n.text !== undefined) out.text = n.text;
     if (n.hidden !== undefined) out.hidden = n.hidden;
     if (n.behavior !== undefined) out.behavior = n.behavior;
+    const roles = rolesOfNode(n), c: Record<string, string | null> = {};
+    if (n.interactive) Object.assign(c, { "data-c": n.interactive.kind, "data-c-cfg": cfgOf(n.interactive) });
+    if (roles.length) c["data-c-role"] = roles.join(" ");
+    if (Object.keys(c).length) out.c = c;
+    if (clones.has(n.id)) out.skip = true;
+    if (n.interactive || members.has(n.id)) out.keepId = true;
     for (const state of STATES) {
       const name = classMap.get(stateKey(n.id, state))?.[0];
       if (name) out.states = { ...out.states, [state]: name };

@@ -37,7 +37,7 @@ export type GrapesJson = { components: unknown[]; styles?: unknown[] };
 
 const ID = "data-ir-id";
 // Not diffed / not shown: our id, GrapesJS-owned class/style/id, and markup the emitter drops anyway.
-const SKIP_ATTRS = new Set([ID, "class", "style", "id", "srcdoc"]);
+const SKIP_ATTRS = new Set([ID, "class", "style", "id", "srcdoc", "data-c", "data-c-cfg", "data-c-role"]);
 const MAX_NODES = 60_000; // 3x the capture node limit: room for edits, bounded work
 const MAX_DEPTH = 400;
 // GrapesJS omits a tagName equal to its type's default
@@ -72,7 +72,7 @@ const safeAttr = (tag: string, name: string, value: string) =>
 // The emitter's rule (an unsafe tag name or a script is never written), plus no <meta>/<base> in the canvas:
 // they would redirect or re-base the editor frame.
 const HIDDEN_TAGS = new Set(["script", "meta", "base"]);
-const shown = (n: IRNode) => n.tag === "#text" || n.tag === "#section" || (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(n.tag) && !HIDDEN_TAGS.has(n.tag.toLowerCase()));
+const shown = (n: IRNode) => !n.skip && (n.tag === "#text" || n.tag === "#section" || (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(n.tag) && !HIDDEN_TAGS.has(n.tag.toLowerCase())));
 const bodyOf = (shell: IRNode) => shell.children.find((c) => c.tag === "body") ?? shell;
 
 function pageOf<P extends { id: string }>(ir: { pages: P[] }, pageId: string): P {
@@ -98,8 +98,10 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
       return root && { ...root, name: section.layoutId ? `Layout chung · ${section.name}` : section.name };
     }
     if (!shown(node)) return null;
+    // the runtime's attributes ride along for the edit-mode canvas (R8); SKIP_ATTRS keeps them out of the diff
     const attributes: Record<string, string> = { [ID]: node.id };
     for (const [name, value] of Object.entries(node.attrs)) if (safeAttr(node.tag, name, value)) attributes[name] = rewrite(node, name, value, base);
+    for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null && name.startsWith("data-c")) attributes[name] = value;
     const svg = inSvg || node.tag === "svg";
     const components = node.children.map((c) => toComponent(c, svg, base)).filter((c) => c !== null);
     const isText = node.children.length > 0 && node.children.every((c) => c.tag === "#text");
