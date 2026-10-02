@@ -116,7 +116,8 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
   for (const [name, value] of Object.entries(node.attrs)) {
     if (name === "class" || name === "srcdoc" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
-    if (node.c && Object.hasOwn(node.c, name)) continue;
+    // only the IR `interactive` spec writes component attrs: captured data-c / data-c-* never reach the runtime
+    if (/^data-c(-|$)/i.test(name) || (node.c && Object.hasOwn(node.c, name))) continue;
     if (isScriptValue(node.tag, name, value)) {
       if (name === "href") out += ` href="#"`;
       continue;

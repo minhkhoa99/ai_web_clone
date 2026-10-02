@@ -84,3 +84,14 @@ test("nested components: a carousel root that is a tabs panel carries both, role
   expect(html).toMatch(/data-c-role="viewport track"[^>]*data-ir-id="tr"/);
   expect(html.match(/data-c-role=/g)).toHaveLength(6); // panel, tab, viewport track, slide x2, next
 });
+
+test("captured data-c / data-c-* attributes are dropped: only the interactive spec writes them", () => {
+  const ir = site();
+  const root = ir.sections[0]!.root;
+  delete root.interactive;
+  root.attrs = { "data-c": "carousel", "data-c-cfg": "{}", "data-c-role": "slide", "data-c-x": "1", "data-cat": "keep" };
+  const files = renderSite(ir, opts);
+  expect(files["index.html"]).not.toMatch(/data-c(-[a-z]+)?=/);
+  expect(files["index.html"]).toContain('data-cat="keep"');
+  expect(files["css/styles.css"]).not.toContain(HIDDEN_RULE);
+});
