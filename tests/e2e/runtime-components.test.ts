@@ -165,3 +165,84 @@ test("fade: only the active slide is opaque", async () => {
     expect([await op("sl0"), await op("sl1"), await op("sl2")]).toEqual(["0", "1", "0"]);
   });
 });
+
+test("slidesPerView 2: active never goes past the last position that fits (non-loop stops, loop wraps)", async () => {
+  const { url } = await serve(carouselRoot({ slidesPerView: { "1440": 2 } }), carouselRoot({ slidesPerView: { "1440": 2 }, loop: true }, "l-"));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    const tr = (id: string) => page.$eval(`[data-ir-id="${id}"]`, (el) => (el as HTMLElement).style.transform);
+    await page.click('[data-ir-id="next"]');
+    expect(await active(page)).toBe("1");
+    expect(await tr("tr")).toBe("translate3d(-150px, 0px, 0px)");
+    expect(await page.getAttribute('[data-ir-id="next"]', "aria-disabled")).toBe("true");
+    await page.click('[data-ir-id="next"]', { force: true }); // aria-disabled: Playwright waits for "enabled", a user can still click
+    expect(await active(page)).toBe("1");
+    await page.click('[data-ir-id="prev"]'); // no dead click
+    expect(await active(page)).toBe("0");
+    await page.click('[data-ir-id="l-next"]');
+    expect(await active(page, "l-root")).toBe("1");
+    await page.click('[data-ir-id="l-next"]');
+    expect(await active(page, "l-root")).toBe("0");
+    await page.click('[data-ir-id="l-prev"]');
+    expect(await active(page, "l-root")).toBe("1");
+    expect(await tr("l-tr")).toBe("translate3d(-150px, 0px, 0px)");
+  });
+});
+
+test("autoplay: stays paused while focus is inside after the mouse leaves; a manual move restarts the interval", async () => {
+  const { url } = await serve(carouselRoot({ autoplay: true, interval: 1000, loop: true }));
+  await withPage(handle, async (page) => {
+    await page.clock.install();
+    await page.goto(url);
+    await page.hover('[data-ir-id="vp"]');
+    await page.click('[data-ir-id="next"]'); // focus moves inside
+    expect(await active(page)).toBe("1");
+    await page.mouse.move(1000, 800);
+    await page.clock.runFor(3000);
+    expect(await active(page)).toBe("1");
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await page.clock.runFor(1100);
+    expect(await active(page)).toBe("2");
+    await page.clock.runFor(500);
+    await page.$eval('[data-ir-id="prev"]', (el) => (el as HTMLElement).click()); // no focus, no hover
+    expect(await active(page)).toBe("1");
+    await page.clock.runFor(700); // the old tick (500 ms later) is gone
+    expect(await active(page)).toBe("1");
+    await page.clock.runFor(400);
+    expect(await active(page)).toBe("2");
+  });
+});
+
+test("swipe: viewport touch-action keeps the other axis for the page; pointercancel drops the swipe; keys in a field are ignored", async () => {
+  const { url } = await serve(carouselRoot());
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    expect(await page.$eval('[data-ir-id="vp"]', (el) => (el as HTMLElement).style.touchAction)).toBe("pan-y");
+    await page.$eval('[data-ir-id="vp"]', (vp) => {
+      const fire = (type: string, x: number) => vp.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: 20, bubbles: true, cancelable: true }));
+      fire("pointerdown", 250); fire("pointercancel", 250); fire("pointerup", 50);
+    });
+    expect(await active(page)).toBe("0");
+    await page.$eval('[data-ir-id="sl0"]', (s) => s.appendChild(document.createElement("input")));
+    await page.focus('[data-ir-id="sl0"] input');
+    await page.keyboard.press("ArrowRight");
+    expect(await active(page)).toBe("0");
+  });
+});
+
+test("?edit=1: an index that is not a non-negative integer below the item count is ignored", async () => {
+  const { url, outDir } = await serve(carouselRoot());
+  const file = join(outDir, "index.html");
+  await writeFile(file, (await readFile(file, "utf8")).replace('src="js/runtime.js"', 'src="js/runtime.js?edit=1"'));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.evaluate(() => { for (const index of [-1, 1.5, "2", null]) window.postMessage({ type: "aiwc:show", root: "root", index }, "*"); });
+    await page.waitForTimeout(100);
+    expect(await active(page)).toBeNull();
+    await page.evaluate(() => window.postMessage({ type: "aiwc:show", root: "root", index: 1 }, "*"));
+    await expect.poll(() => active(page)).toBe("1");
+    await page.evaluate(() => window.postMessage({ type: "aiwc:show", root: "root", index: 3 }, "*"));
+    await page.waitForTimeout(100);
+    expect(await active(page)).toBe("1");
+  });
+});

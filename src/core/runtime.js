@@ -30,7 +30,7 @@
     var vertical = c.direction === "vertical", fade = c.transition === "fade", native = vp === track;
     var prev = c.arrows ? byId(c.arrows.prev) : null, next = c.arrows ? byId(c.arrows.next) : null;
     var pag = c.pagination ? byId(c.pagination.container) : null, dots = [], dotOn = "", dotOff = "";
-    var i = Math.min(c.active, n - 1), L = { step: 0, max: 0, end: false }, hold = false;
+    var i = Math.min(c.active, n - 1), L = { step: 0, last: n - 1 }, hovered = false, timer = 0;
     root.setAttribute("aria-roledescription", "carousel");
     vp.setAttribute("aria-live", c.autoplay && !still ? "off" : "polite");
     slides.forEach(function (s, k) { s.setAttribute("role", "group"); s.setAttribute("aria-roledescription", "slide"); s.setAttribute("aria-label", k + 1 + " / " + n); });
@@ -44,15 +44,14 @@
       // one captured bullet per slide: keep them (DOM and data-ir-id as captured); otherwise rebuild n from the idle one
       var reuse = kids.length === n, proto = idle || document.createElement("button");
       if (!reuse) pag.textContent = "";
-      for (var k = 0; k < n; k++) (function (k) {
+      for (var k = 0; k < n; k++) {
         var d = reuse ? kids[k] : proto.cloneNode(true);
         if (!reuse) { d.removeAttribute("data-ir-id"); d.removeAttribute("data-c-role"); Array.prototype.forEach.call(d.querySelectorAll("[data-ir-id]"), function (x) { x.removeAttribute("data-ir-id"); }); }
-        if (d.tagName !== "BUTTON") { d.setAttribute("role", "button"); d.tabIndex = 0; on(d, "keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(k); } }); }
+        if (d.tagName !== "BUTTON") { d.setAttribute("role", "button"); d.tabIndex = 0; }
         d.setAttribute("aria-label", "Tới slide " + (k + 1));
-        on(d, "click", function (e) { e.preventDefault(); go(k); });
         if (!reuse) pag.appendChild(d);
         dots.push(d);
-      })(k);
+      }
     }
     function layout() {
       var per = fade ? 1 : at(c.slidesPerView, 1), gap = fade ? 0 : at(c.gap, 0);
@@ -67,47 +66,60 @@
       }
       return { step: w + gap, max: Math.max(0, n * (w + gap) - gap - box) };
     }
-    function go(k, instant) {
-      i = c.loop ? ((k % n) + n) % n : Math.max(0, Math.min(k, n - 1));
-      var m = layout(), quick = still || instant;
+    // i is always what is visible: past the last position that fits (slidesPerView > 1) there is nowhere to go
+    function go(k, instant, auto) {
+      var m = layout(), last = m.step > 0 ? Math.min(n - 1, Math.max(0, Math.ceil(m.max / m.step - 0.01))) : n - 1, quick = still || instant;
+      i = c.loop ? ((k % (last + 1)) + last + 1) % (last + 1) : Math.max(0, Math.min(k, last));
       var off = Math.min(native ? (vertical ? slides[i].offsetTop - slides[0].offsetTop : slides[i].offsetLeft - slides[0].offsetLeft) : i * m.step, m.max);
-      L = { step: m.step, max: m.max, end: off >= m.max - 0.5 };
+      L = { step: m.step, last: last };
       if (fade) slides.forEach(function (s, j) { s.style.transition = quick ? "none" : "opacity " + c.speed + "ms"; s.style.opacity = j === i ? "1" : "0"; s.style.pointerEvents = j === i ? "" : "none"; });
       else if (native) vp.scrollTo(vertical ? { top: off, behavior: quick ? "instant" : "smooth" } : { left: off, behavior: quick ? "instant" : "smooth" });
       else {
         track.style.transition = quick ? "none" : "transform " + c.speed + "ms ease";
         track.style.transform = vertical ? "translate3d(0px, " + -off + "px, 0px)" : "translate3d(" + -off + "px, 0px, 0px)";
       }
+      mark();
+      if (timer && !auto) { clearInterval(timer); timer = setInterval(tick, c.interval); } // manual move: a full interval again
+    }
+    function mark() {
       root.setAttribute("data-c-active", String(i));
       if (prev) prev.setAttribute("aria-disabled", String(!c.loop && i === 0)); // aria only: no UA :disabled look (QA pixels)
-      if (next) next.setAttribute("aria-disabled", String(!c.loop && L.end));
+      if (next) next.setAttribute("aria-disabled", String(!c.loop && i >= L.last));
       dots.forEach(function (d, j) { d.setAttribute("class", j === i ? dotOn : dotOff); d.setAttribute("aria-current", String(j === i)); });
       if (pag && c.pagination.kind === "fraction") pag.textContent = i + 1 + " / " + n;
     }
-    if (prev) on(prev, "click", function (e) { e.preventDefault(); go(i - 1); });
-    if (next) on(next, "click", function (e) { e.preventDefault(); go(i + 1); });
+    function tick() { if (!hovered && !root.contains(document.activeElement) && !document.hidden) go(c.loop || i < L.last ? i + 1 : 0, false, true); }
+    go(i, true);
+    // listeners and the autoplay timer only after the first layout worked: a broken component leaves nothing behind
+    var step = function (by) { return function (e) { e.preventDefault(); go(i + by); }; };
+    dots.forEach(function (d, k) {
+      on(d, "click", function (e) { e.preventDefault(); go(k); });
+      if (d.tagName !== "BUTTON") on(d, "keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(k); } });
+    });
+    if (prev) on(prev, "click", step(-1));
+    if (next) on(next, "click", step(1));
     // nested components: the innermost one handles a key / swipe and marks it (defaultPrevented); outer ones skip it
     on(root, "keydown", function (e) {
-      var back = vertical ? "ArrowUp" : "ArrowLeft", fwd = vertical ? "ArrowDown" : "ArrowRight";
-      if (e.defaultPrevented || (e.key !== back && e.key !== fwd)) return;
-      e.preventDefault(); go(e.key === fwd ? i + 1 : i - 1);
+      var back = vertical ? "ArrowUp" : "ArrowLeft", fwd = vertical ? "ArrowDown" : "ArrowRight", t = e.target;
+      if (e.defaultPrevented || (e.key !== back && e.key !== fwd) || t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      step(e.key === fwd ? 1 : -1)(e);
     });
     var from = null;
+    if (MODE !== "edit") vp.style.touchAction = vertical ? "pan-x" : "pan-y"; // the page keeps scrolling the other axis
     on(vp, "pointerdown", function (e) { from = vertical ? e.clientY : e.clientX; });
+    on(vp, "pointercancel", function () { from = null; });
     on(vp, "pointerup", function (e) {
       if (from === null) return;
       var d = (vertical ? e.clientY : e.clientX) - from; from = null;
-      if (Math.abs(d) > 40 && !e.defaultPrevented) { e.preventDefault(); go(d < 0 ? i + 1 : i - 1); }
+      if (Math.abs(d) > 40 && !e.defaultPrevented) step(d < 0 ? 1 : -1)(e);
     });
-    if (native) { var settle = 0; on(vp, "scroll", function () { clearTimeout(settle); settle = setTimeout(function () { var p = vertical ? vp.scrollTop : vp.scrollLeft; if (L.step) { i = Math.min(n - 1, Math.round(p / L.step)); root.setAttribute("data-c-active", String(i)); } }, 120); }); }
+    if (native) { var settle = 0; on(vp, "scroll", function () { clearTimeout(settle); settle = setTimeout(function () { var p = vertical ? vp.scrollTop : vp.scrollLeft; if (L.step) { i = Math.min(L.last, Math.round(p / L.step)); mark(); } }, 120); }); }
     if (c.autoplay && !still) {
-      setInterval(function () { if (!hold && !document.hidden) go(c.loop || !L.end ? i + 1 : 0); }, c.interval);
-      on(root, "mouseenter", function () { hold = true; }); on(root, "mouseleave", function () { hold = false; });
-      on(root, "focusin", function () { hold = true; }); on(root, "focusout", function () { hold = false; });
+      timer = setInterval(tick, c.interval);
+      on(root, "mouseenter", function () { hovered = true; }); on(root, "mouseleave", function () { hovered = false; });
     }
-    if (MODE !== "edit") addEventListener("resize", function () { go(i, true); });
-    go(i, true);
-    return { show: function (k) { go(k, true); } };
+    if (MODE !== "edit") addEventListener("resize", function () { go(i, true, true); });
+    return { show: function (k) { if (k < n) go(k, true); } };
   };
 
   function init(root) {
@@ -124,14 +136,15 @@
     return root.__aiwc;
   }
   if (MODE === "edit") addEventListener("message", function (e) {
-    var d = e.data, root = d && d.type === "aiwc:show" && e.source === window.parent ? byId(d.root) : null;
-    var api = root && root.hasAttribute("data-c") ? init(root) : null;
-    if (api && api.show) api.show(Number(d.index) || 0);
+    var d = e.data, ok = d && d.type === "aiwc:show" && e.source === window.parent && Number.isInteger(d.index) && d.index >= 0;
+    var root = ok ? byId(d.root) : null, api = root && root.hasAttribute("data-c") ? init(root) : null;
+    if (api && api.show) api.show(d.index); // show ignores an index past the last item
   });
   else Array.prototype.forEach.call(document.querySelectorAll("[data-c]"), init);
 })();
 
-// legacy [data-behavior] for E1 documents: removed in E2 Task 6
+/* legacy:start */
+// legacy [data-behavior] for E1 documents: removed in E2 Task 6 (with its exclusion in tests/unit/runtime-size.test.ts)
 (function () {
   var byId = function (id) { return id ? document.getElementById(id) : null; };
   var shown = function (el) { var cs = getComputedStyle(el); return cs.display !== "none" && cs.visibility !== "hidden"; };
@@ -197,3 +210,4 @@
   });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 })();
+/* legacy:end */
