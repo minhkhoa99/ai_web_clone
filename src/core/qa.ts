@@ -128,12 +128,14 @@ function dynamicBoxes(node: CaptureNode, out: Bbox[] = []): Bbox[] {
 
 const writePng = (path: string, png: PNG) => writeFileAtomic(path, PNG.sync.write(png));
 
-// Loads the clone at bp the way it is scored: lazy content scrolled in, animations frozen, fonts ready (10 s cap).
-// Only the clone's own loopback server is reachable: QA never waits on (or depends on) the live site.
+const withQa = (url: string) => `${url}${url.includes("?") ? "&" : "?"}qa=1`; // E2 §4: capture state, no autoplay, no motion
+
+// Loads the clone at bp the way it is scored (?qa=1): lazy content scrolled in, animations frozen, fonts ready (10 s
+// cap). Only the clone's own loopback server is reachable: QA never waits on (or depends on) the live site.
 export async function prepareClonePage(page: Page, url: string, bp: Bp): Promise<void> {
   await page.route("**/*", (r) => (sameOrigin(r.request().url(), url) ? r.fallback() : r.abort()));
   await page.setViewportSize({ width: bp, height: VIEWPORT_HEIGHT });
-  await page.goto(url, { waitUntil: "load" });
+  await page.goto(withQa(url), { waitUntil: "load" });
   await lazyLoadScroll(page); // same pass as capture, so lazy content is loaded like in the original shot
   await page.addStyleTag({ content: FREEZE_CSS });
   await evalWithTimeout(page, "Fonts ready", fontsReadyInPage, FONTS_READY_MS);

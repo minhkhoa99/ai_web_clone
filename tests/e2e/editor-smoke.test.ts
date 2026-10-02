@@ -89,7 +89,9 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   const pageId = qa.scores[0]!.pageId; // from the data (site1's page is "index"), never hard-coded
   const forced = qa.scores[0]!.sectionId;
   for (const s of qa.scores) if (s.sectionId === forced) s.score = 0.5;
-  await writeFile(qaPath, JSON.stringify(qa));
+  // E2 §5: one passed and one failed behaviour check on this page (a long reason must wrap, never scroll sideways)
+  const behavior = [{ pageId, nodeId: "n-carousel-ok", kind: "carousel", ok: true }, { pageId, nodeId: "n-modal-failed-with-a-long-node-id", kind: "modal", ok: false, reason: "không đóng được dialog (Esc / nút đóng)" }];
+  await writeFile(qaPath, JSON.stringify({ ...qa, behavior }));
   // site1 captures every interaction: mark one skipped for this page load only (ir.json is restored right after)
   const irPath = join(workspaceRoot, projectId, "ir.json");
   const irText = await readFile(irPath, "utf8");
@@ -197,6 +199,11 @@ test("preview: toolbar, mean match, panes fill the area, onion/swipe, heatmap ov
   expect(await skipped.locator(".check-status").innerText()).toBe("bỏ qua");
   expect(await skipped.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(144, 143, 160)"); // --c-text-3
   await parityShot(page, "preview-checklist");
+  const checks = page.locator('[data-ui="ui_qa_preview_behavior_list"] > li');
+  expect(await checks.allInnerTexts()).toEqual([expect.stringMatching(/carousel · n-carousel-ok\s*hành vi đạt/), expect.stringMatching(/modal · iled-with-a-long-node-id\s*không đóng được dialog/)]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "no sideways scroll at 375 (behaviour list)").toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // Fidelity (E1 §5): its own tab, counts = the API's items, page/status filters, node links only for present nodes
   const fidelity = ((await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { fidelity: FidelityItem[] }).fidelity;

@@ -462,7 +462,7 @@ test("a resumed fix over an adopted document: the fixed IR becomes the next revi
   expect(doc.fidelity.length).toBeGreaterThan(0);
   expect(JSON.parse(await readFile(join(ws, "ir.json"), "utf8"))).toEqual(doc);
   expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain("Fixed");
-  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [] }); // rescored after the fix
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [], behavior: [] }); // rescored after the fix (no component: no behaviour check)
   expect(await codeOf(store.commitCommands(id, 0, [{ op: "setText", id: top.id, text: "tab" }], "user"))).toBe("STALE_REVISION");
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
 });

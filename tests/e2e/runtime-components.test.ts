@@ -64,20 +64,22 @@ test("carousel: loop wraps both ways; bullets go to a slide; fraction shows n / 
 test("carousel: autoplay advances within 1.5 x interval, pauses on hover; reduced motion disables it", async () => {
   const { url } = await serve(carouselRoot({ autoplay: true, interval: 1000, loop: true }));
   await withPage(handle, async (page) => {
-    await page.clock.install();
+    await page.clock.install({ time: 0 }); await page.clock.pauseAt(1000); // paused: only runFor moves time (no flake under load)
     await page.goto(url);
     await page.clock.runFor(1500);
     expect(await active(page)).toBe("1");
     await page.hover('[data-ir-id="vp"]');
     await page.clock.runFor(3000);
     expect(await active(page)).toBe("1");
+    await page.clock.resume(); // the clock is the context's: later pages get natural time back
   });
   await withPage(handle, async (page) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.clock.install();
+    await page.clock.install({ time: 0 }); await page.clock.pauseAt(1000); // paused: only runFor moves time (no flake under load)
     await page.goto(url);
     await page.clock.runFor(5000);
     expect(await active(page)).toBe("0");
+    await page.clock.resume(); // the clock is the context's: later pages get natural time back
   });
 });
 
@@ -192,7 +194,7 @@ test("slidesPerView 2: active never goes past the last position that fits (non-l
 test("autoplay: stays paused while focus is inside after the mouse leaves; a manual move restarts the interval", async () => {
   const { url } = await serve(carouselRoot({ autoplay: true, interval: 1000, loop: true }));
   await withPage(handle, async (page) => {
-    await page.clock.install();
+    await page.clock.install({ time: 0 }); await page.clock.pauseAt(1000); // paused: only runFor moves time (no flake under load)
     await page.goto(url);
     await page.hover('[data-ir-id="vp"]');
     await page.click('[data-ir-id="next"]'); // focus moves inside
@@ -210,6 +212,7 @@ test("autoplay: stays paused while focus is inside after the mouse leaves; a man
     expect(await active(page)).toBe("1");
     await page.clock.runFor(400);
     expect(await active(page)).toBe("2");
+    await page.clock.resume(); // the clock is the context's: later pages get natural time back
   });
 });
 

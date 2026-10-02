@@ -22,10 +22,11 @@ import { migrateIR } from "./ir-migrate";
 import { upgradeDocument } from "./interactive-guess";
 import { documentStore } from "./ir-store";
 import type { FidelityItem } from "./ir-v2";
-import { refreshFidelity } from "./fidelity";
+import { refreshFidelity, type BehaviorResult } from "./fidelity";
 import { mapLimit } from "./limit";
 import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
+import { checkBehavior } from "./qa-behavior";
 import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
 import { clearRunSecrets, createSchema, emit, logDetail, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
@@ -47,8 +48,8 @@ const BUDGET_MSG = "token budget spent: no more AI calls in this run";
 type TaskRow = { id: string; phase: string; key: string; status: TaskStatus; attempts: number; error_code: string | null; output_path: string | null };
 type ProjectRow = { url: string; mode: "single" | "crawl"; config_json: string };
 type PageRef = { pageId: string; url: string };
-// qa.json: the last scores; stale once the IR was edited after scoring
-export type QaFile = { scores: SectionScore[]; stale?: true };
+// qa.json: the last scores + behaviour QA (E2 §5); stale once the IR was edited after scoring
+export type QaFile = { scores: SectionScore[]; behavior?: BehaviorResult[]; stale?: true };
 
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
 const rawMessageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -208,6 +209,7 @@ export type JobDeps = {
   nameSections?: typeof nameSections;
   fixAll?: typeof fixAll;
   scoreSections?: typeof scoreSections;
+  checkBehavior?: typeof checkBehavior;
 };
 export type RunOpts = { credentials?: { user: string; pass: string }; deps?: JobDeps };
 
@@ -394,10 +396,13 @@ export async function previewDocument(db: DatabaseSync, projectId: string): Prom
   return { doc, fidelity: stored ?? refreshFidelity(doc.fidelity ?? [], doc, captures) };
 }
 
-// Scores every section x bp of out/ and writes qa.json (tmp -> rename).
+// Scores every section x bp of out/, then the behaviour pass of the same qa task (R3), and writes qa.json (tmp -> rename).
 async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
-  const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir: join(run.ws, "out"), ir, captures: await loadCaptures(run) });
-  await writeJsonAtomic(join(run.ws, "qa.json"), { scores } satisfies QaFile);
+  const outDir = join(run.ws, "out");
+  const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir, ir, captures: await loadCaptures(run) });
+  const behavior = await run.deps.checkBehavior(run.handle, { outDir, ir });
+  if (behavior.length) log(run, "info", `QA hành vi: ${behavior.filter((b) => b.ok).length}/${behavior.length} component đạt`);
+  await writeJsonAtomic(join(run.ws, "qa.json"), { scores, behavior } satisfies QaFile);
   return scores;
 }
 
@@ -674,7 +679,7 @@ function setPaused(db: DatabaseSync, projectId: string): void {
 export async function runProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): Promise<void> {
   const { url, cfg } = loadProject(db, projectId);
   const ws = workspaceOf(projectId);
-  const deps = { openBrowser, capturePage, nameSections, fixAll, scoreSections, ...opts.deps };
+  const deps = { openBrowser, capturePage, nameSections, fixAll, scoreSections, checkBehavior, ...opts.deps };
   const { user, pass } = opts.credentials ?? {};
   setRunSecrets(projectId, [user ?? "", pass ?? ""]);
   setStatus(db, projectId, "running");

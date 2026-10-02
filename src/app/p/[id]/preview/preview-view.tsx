@@ -34,6 +34,7 @@ type Data = {
   interactions: { id: string; pageId: string; kind: string; trigger: string; status: string }[];
   coverage: { page: string; captured: number; failed: number; skipped: number }[];
   fixes: Fix[];
+  behavior: { pageId: string; nodeId: string; kind: string; ok: boolean; reason?: string }[]; // E2 §5, [] when stale
   fidelity: FidelityItem[]; // E1 §5, <= 2000 items: its own report, never part of the pixel score
 };
 type Mode = "side" | "onion" | "swipe";
@@ -434,7 +435,7 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
                 </div>
               </div>
             ) : tab === "checklist" ? (
-              <Checklist data={data} rows={pageInteractions} />
+              <Checklist data={data} rows={pageInteractions} pageId={pageId} />
             ) : (
               <Fidelity projectId={projectId} data={data} loadedPage={pageId} present={present} onGo={scrollToNode} />
             )}
@@ -445,7 +446,8 @@ export function PreviewView({ projectId, threshold, status }: { projectId: strin
   );
 }
 
-function Checklist({ data, rows }: { data: Data; rows: Data["interactions"] }) {
+function Checklist({ data, rows, pageId }: { data: Data; rows: Data["interactions"]; pageId: string }) {
+  const behavior = data.behavior.filter((b) => b.pageId === pageId);
   const captured = rows.filter((i) => i.status === "captured").length;
   return (
     <div className="rail-panel" role="tabpanel" data-ui="ui_qa_preview_coverage_checklist">
@@ -478,6 +480,17 @@ function Checklist({ data, rows }: { data: Data; rows: Data["interactions"] }) {
             </li>
           ))}
         </ul>
+        {behavior.length > 0 && (
+          <ul className="checklist" data-ui="ui_qa_preview_behavior_list" aria-label="QA hành vi component">
+            {behavior.map((b) => (
+              <li key={`${b.pageId}:${b.nodeId}`} className={`check-row check-${b.ok ? "captured" : "failed"}`}>
+                <Icon name={b.ok ? "check" : "close"} />
+                <span className="check-label">{b.kind} · {b.nodeId.slice(-24)}</span>
+                <span className="t-label-sm check-status">{b.ok ? "hành vi đạt" : b.reason ?? "không đạt"}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

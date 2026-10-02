@@ -40,7 +40,7 @@ afterAll(async () => {
 // Answers `pages` right away; every other request hangs until the server closes.
 async function hangingServer(pages: Record<string, string> = {}): Promise<{ base: string; close(): Promise<void> }> {
   const server: Server = createServer((req, res) => {
-    const html = pages[req.url ?? ""];
+    const html = pages[(req.url ?? "").split("?")[0]!]; // the clone is loaded with ?qa=1
     if (html !== undefined) res.writeHead(200, { "content-type": "text/html" }).end(html);
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
