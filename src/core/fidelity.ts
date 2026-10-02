@@ -3,6 +3,7 @@
 import type { CaptureNode, PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
 import { findTrigger, indexById } from "./ir-build";
+import { roleIndex, type InteractiveKind, type InteractiveSpec } from "./interactive";
 import type { FidelityItem, IRNodeV2, IRV2 } from "./ir-v2";
 
 export const MAX_FIDELITY_ITEMS = 2_000; // per project; the last slot becomes a "… N more" summary
@@ -22,7 +23,7 @@ const RANK: Record<FidelityItem["status"], number> = { unsupported: 0, partial: 
 
 type Status = FidelityItem["status"];
 type Anchor = Pick<FidelityItem, "nodeId" | "sourceRef">;
-type Index = { nodes: Map<string, IRNodeV2>; behaviors: Map<string, string> };
+type Index = { nodes: Map<string, IRNodeV2>; behaviors: Map<string, string>; members: Set<string> };
 
 const clip = (s: string) => (s.length > MAX_NOTE ? `${s.slice(0, MAX_NOTE - 1)}…` : s);
 // host + path only: query strings / fragments may carry tokens.
@@ -36,9 +37,10 @@ function safeUrl(raw: string): string {
 }
 
 function indexIR(ir: IRV2): Index {
-  const index: Index = { nodes: new Map(), behaviors: new Map() };
+  const index: Index = { nodes: new Map(), behaviors: new Map(), members: new Set(roleIndex(ir).keys()) };
   const visit = (node: IRNodeV2): void => {
     index.nodes.set(node.id, node);
+    if (node.interactive) index.members.add(node.id);
     if (node.behavior && !index.behaviors.has(node.behavior)) index.behaviors.set(node.behavior, node.id);
     node.children.forEach(visit);
   };
@@ -115,7 +117,7 @@ function pageFidelity(c: PageCapture, index: Index): FidelityItem[] {
   if (!inv) {
     add("capture-inventory", "partial", "Capture cũ: chưa đủ dữ liệu capture để xác nhận script, iframe, canvas và phần bị bỏ khi quét");
   } else {
-    if (inv.scripts > 0) add("script", "unsupported", `${inv.scripts} nguồn JS (script / inline on*) không chạy trong clone; chỉ có runtime chung toggle/tabs/modal/carousel`);
+    if (inv.scripts > 0) add("script", "unsupported", `${inv.scripts} nguồn JS (script / inline on*) không chạy trong clone; component có cấu trúc chạy bằng runtime của tool`);
     if (inv.skippedNodes > 0) add("capture-skipped", "unsupported", `${inv.skippedNodes} phần tử template/noscript bị bỏ khi quét`);
     if (inv.iframes > frames) add("iframe", "partial", `${inv.iframes - frames} iframe/embed không có trong snapshot`);
     if (inv.canvases > canvasOrder) add("canvas", "unsupported", `${inv.canvases - canvasOrder} canvas không có trong snapshot`);
@@ -158,6 +160,7 @@ function pageFidelity(c: PageCapture, index: Index): FidelityItem[] {
     const props = Object.keys(it.styleDelta ?? {});
     const listed = props.slice(0, 5).join(", ");
     const node = anchor.nodeId ? index.nodes.get(anchor.nodeId) : undefined;
+    if ((it.kind === "carousel" || REVEAL.has(it.kind)) && anchor.nodeId && index.members.has(anchor.nodeId)) continue; // the component item covers it
     if (it.kind === "carousel" || REVEAL.has(it.kind)) {
       const bound = index.behaviors.get(it.id);
       if (!bound) addNode(it.kind, "unsupported", anchor, `Tương tác ${it.kind} không gắn được vào node trong clone`);
@@ -198,8 +201,50 @@ export function capFidelity(items: FidelityItem[]): FidelityItem[] {
   ];
 }
 
+export const COMPONENT_FEATURE = "component";
+export const COMPONENT_NOTE = "component-note";
+export type BehaviorResult = { pageId: string; nodeId: string; kind: InteractiveKind; ok: boolean; reason?: string };
+const KIND_LABEL: Record<InteractiveKind, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
+const CONFIDENCE_LABEL: Record<InteractiveSpec["confidence"], string> = {
+  config: "đọc từ cấu hình thư viện", observed: "quan sát trên trang gốc", guessed: "suy từ cấu trúc — Clone lại để đọc cấu hình thật", manual: "gắn tay, chưa kiểm chứng",
+};
+
+// E2 §3: one item per component, re-derived from the document on every refresh. A component the user unwrapped keeps
+// an unsupported item (from `before`) until its interactive comes back (Undo).
+export function componentFidelity(ir: IRV2, before: FidelityItem[]): FidelityItem[] {
+  const out: FidelityItem[] = [], live = new Set<string>(), nodes = new Map<string, IRNodeV2>();
+  const notes = new Set((ir.fidelity ?? []).concat(before).filter((x) => x.feature === COMPONENT_NOTE && x.status !== "supported").map((x) => x.nodeId));
+  const visit = (pageId: string) => (node: IRNodeV2): void => {
+    nodes.set(node.id, node);
+    const spec = node.interactive;
+    if (spec) {
+      live.add(node.id);
+      const status = spec.confidence === "config" && !notes.has(node.id) ? "supported" : "partial";
+      out.push({ pageId, feature: COMPONENT_FEATURE, status, nodeId: node.id, sourceRef: node.id, note: clip(`${KIND_LABEL[spec.kind]} · nguồn ${spec.source} · ${CONFIDENCE_LABEL[spec.confidence]}`) });
+    }
+    node.children.forEach(visit(pageId));
+  };
+  ir.pages.forEach((p) => visit(p.id)(p.shell));
+  ir.sections.forEach((s) => visit(s.pageId)(s.root));
+  for (const x of before) {
+    if (x.feature !== COMPONENT_FEATURE || !x.nodeId || live.has(x.nodeId) || !nodes.has(x.nodeId)) continue;
+    out.push({ pageId: x.pageId, feature: COMPONENT_FEATURE, status: "unsupported", nodeId: x.nodeId, sourceRef: x.sourceRef ?? x.nodeId, note: "Đã bỏ hành vi theo yêu cầu (Bỏ hành vi); giữ HTML tĩnh" });
+  }
+  return out;
+}
+
+// E2 §5 (R5): applied when the Preview reads a fresh qa.json; never stored.
+export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): FidelityItem[] {
+  const byNode = new Map(results.map((r) => [`${r.pageId}|${r.nodeId}`, r]));
+  return items.map((x): FidelityItem => {
+    const r = x.feature === COMPONENT_FEATURE && x.status !== "unsupported" ? byNode.get(`${x.pageId}|${x.nodeId}`) : undefined;
+    if (!r) return x;
+    return r.ok ? { ...x, status: "supported", note: clip(`${x.note} · đã kiểm chứng hành vi trên bản clone`) } : { ...x, status: "partial", note: clip(`${x.note} · QA hành vi không đạt: ${r.reason ?? "không rõ"}`) };
+  });
+}
+
 export function buildFidelity(captures: PageCapture[], ir: IRV2): FidelityItem[] {
-  return capFidelity(analyze(captures, ir));
+  return capFidelity([...analyze(captures, ir), ...componentFidelity(ir, [])]);
 }
 
 // After an edit: capture-derived items are re-derived for the captured pages against the new document; everything
@@ -208,7 +253,7 @@ export function refreshFidelity(before: FidelityItem[], after: IRV2, captures: P
   const { nodes } = indexIR(after);
   const captured = new Set(captures.map((c) => c.pageId));
   const kept = before
-    .filter((x) => x.feature !== OVERFLOW && !(captured.has(x.pageId) && ANALYZER.has(x.feature)))
+    .filter((x) => x.feature !== OVERFLOW && x.feature !== COMPONENT_FEATURE && !(captured.has(x.pageId) && ANALYZER.has(x.feature)))
     .map((x) => {
       if (x.nodeId === undefined || nodes.has(x.nodeId)) return x;
       const { nodeId, ...rest } = x;
@@ -216,7 +261,7 @@ export function refreshFidelity(before: FidelityItem[], after: IRV2, captures: P
     });
   const seen = new Set<string>();
   const out: FidelityItem[] = [];
-  for (const x of [...analyze(captures, after), ...kept]) {
+  for (const x of [...analyze(captures, after), ...componentFidelity(after, before), ...kept]) {
     const key = JSON.stringify([x.pageId, x.feature, x.status, x.nodeId, x.breakpoint, x.sourceRef, x.note]);
     if (!seen.has(key)) seen.add(key), out.push(x);
   }
