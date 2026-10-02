@@ -1,5 +1,137 @@
-// AI Web Clone runtime: plain browser JS, copied verbatim to out/js/runtime.js (no bundling, works on file://).
-// One delegated click handler drives [data-behavior] = toggle | tabs | modal | carousel (sticky is CSS-only).
+// AI Web Clone runtime (E2 §4): plain browser JS copied verbatim to out/js/runtime.js — no dependency, no bundling,
+// works on file://. Each [data-c] root is one component; data-c-cfg names its parts by data-ir-id. A component whose
+// config is broken is skipped with console.warn; the others still run.
+// Modes: ?qa=1 on the page (QA: capture state, no autoplay, no motion); runtime.js?edit=1 (editor canvas: only shows
+// the item the panel picks through postMessage — no autoplay, no input handlers).
+(function () {
+  "use strict";
+  var me = document.currentScript;
+  var MODE = /[?&]edit=1(&|$)/.test(me ? me.src : "") ? "edit" : /[?&]qa=1(&|$)/.test(location.search) ? "qa" : "live";
+  var still = MODE !== "live" || !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var esc = function (s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&"); };
+  var byId = function (id) { return id ? document.querySelector('[data-ir-id="' + esc(id) + '"]') : null; };
+  var need = function (id) { var el = byId(id); if (!el) throw new Error("missing node " + id); return el; };
+  var on = function (el, type, fn) { if (MODE !== "edit") el.addEventListener(type, fn); };
+  var bp = function () { return matchMedia("(max-width: 767.98px)").matches ? "375" : matchMedia("(max-width: 1439.98px)").matches ? "768" : "1440"; };
+  // a breakpoint value inherits from the next wider one, like the styles
+  function at(map, fallback) {
+    var order = { "375": ["375", "768", "1440"], "768": ["768", "1440"], "1440": ["1440"] }[bp()];
+    for (var k = 0; k < order.length; k++) if (map && map[order[k]] != null) return map[order[k]];
+    return fallback;
+  }
+  // R13: shown / hidden the way the capture had it ([hidden], display, visibility or opacity)
+  function shown(el) { var cs = getComputedStyle(el); return !el.hasAttribute("hidden") && cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0"; }
+  function show(el) { el.removeAttribute("hidden"); var cs = getComputedStyle(el); if (cs.display === "none") el.style.display = "block"; if (cs.visibility === "hidden") el.style.visibility = "visible"; if (cs.opacity === "0") el.style.opacity = "1"; }
+  function hide(el) { el.style.removeProperty("display"); el.style.removeProperty("visibility"); el.style.removeProperty("opacity"); if (shown(el)) el.setAttribute("hidden", ""); }
+  var kinds = {};
+
+  kinds.carousel = function (root, c) {
+    var vp = need(c.viewport), track = need(c.track), slides = c.slides.map(need), n = slides.length;
+    var vertical = c.direction === "vertical", fade = c.transition === "fade", native = vp === track;
+    var prev = c.arrows ? byId(c.arrows.prev) : null, next = c.arrows ? byId(c.arrows.next) : null;
+    var pag = c.pagination ? byId(c.pagination.container) : null, dots = [], dotOn = "", dotOff = "";
+    var i = Math.min(c.active, n - 1), L = { step: 0, max: 0, end: false }, hold = false;
+    root.setAttribute("aria-roledescription", "carousel");
+    vp.setAttribute("aria-live", c.autoplay && !still ? "off" : "polite");
+    slides.forEach(function (s, k) { s.setAttribute("role", "group"); s.setAttribute("aria-roledescription", "slide"); s.setAttribute("aria-label", k + 1 + " / " + n); });
+    if (prev && !prev.hasAttribute("aria-label")) prev.setAttribute("aria-label", "Slide trước");
+    if (next && !next.hasAttribute("aria-label")) next.setAttribute("aria-label", "Slide sau");
+    if (pag && c.pagination.kind === "bullets") {
+      // reuse the captured bullets' classes: the active one and an idle one
+      var kids = Array.prototype.filter.call(pag.children, function (e) { return e.nodeType === 1; });
+      var cur = kids[i] || kids[0], idle = kids.filter(function (e) { return e !== cur; })[0] || cur;
+      dotOn = cur ? cur.getAttribute("class") || "" : ""; dotOff = idle ? idle.getAttribute("class") || "" : "";
+      // one captured bullet per slide: keep them (DOM and data-ir-id as captured); otherwise rebuild n from the idle one
+      var reuse = kids.length === n, proto = idle || document.createElement("button");
+      if (!reuse) pag.textContent = "";
+      for (var k = 0; k < n; k++) (function (k) {
+        var d = reuse ? kids[k] : proto.cloneNode(true);
+        if (!reuse) { d.removeAttribute("data-ir-id"); d.removeAttribute("data-c-role"); Array.prototype.forEach.call(d.querySelectorAll("[data-ir-id]"), function (x) { x.removeAttribute("data-ir-id"); }); }
+        if (d.tagName !== "BUTTON") { d.setAttribute("role", "button"); d.tabIndex = 0; on(d, "keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(k); } }); }
+        d.setAttribute("aria-label", "Tới slide " + (k + 1));
+        on(d, "click", function (e) { e.preventDefault(); go(k); });
+        if (!reuse) pag.appendChild(d);
+        dots.push(d);
+      })(k);
+    }
+    function layout() {
+      var per = fade ? 1 : at(c.slidesPerView, 1), gap = fade ? 0 : at(c.gap, 0);
+      var box = vertical ? vp.clientHeight : vp.clientWidth, w = (box - gap * (per - 1)) / per;
+      if (!fade) {
+        track.style.columnGap = track.style.rowGap = "0px";
+        slides.forEach(function (s, k) {
+          s.style.flex = "0 0 " + w + "px";
+          s.style[vertical ? "height" : "width"] = w + "px";
+          s.style[vertical ? "marginBottom" : "marginRight"] = (k < n - 1 ? gap : 0) + "px";
+        });
+      }
+      return { step: w + gap, max: Math.max(0, n * (w + gap) - gap - box) };
+    }
+    function go(k, instant) {
+      i = c.loop ? ((k % n) + n) % n : Math.max(0, Math.min(k, n - 1));
+      var m = layout(), quick = still || instant;
+      var off = Math.min(native ? (vertical ? slides[i].offsetTop - slides[0].offsetTop : slides[i].offsetLeft - slides[0].offsetLeft) : i * m.step, m.max);
+      L = { step: m.step, max: m.max, end: off >= m.max - 0.5 };
+      if (fade) slides.forEach(function (s, j) { s.style.transition = quick ? "none" : "opacity " + c.speed + "ms"; s.style.opacity = j === i ? "1" : "0"; s.style.pointerEvents = j === i ? "" : "none"; });
+      else if (native) vp.scrollTo(vertical ? { top: off, behavior: quick ? "instant" : "smooth" } : { left: off, behavior: quick ? "instant" : "smooth" });
+      else {
+        track.style.transition = quick ? "none" : "transform " + c.speed + "ms ease";
+        track.style.transform = vertical ? "translate3d(0px, " + -off + "px, 0px)" : "translate3d(" + -off + "px, 0px, 0px)";
+      }
+      root.setAttribute("data-c-active", String(i));
+      if (prev) prev.setAttribute("aria-disabled", String(!c.loop && i === 0)); // aria only: no UA :disabled look (QA pixels)
+      if (next) next.setAttribute("aria-disabled", String(!c.loop && L.end));
+      dots.forEach(function (d, j) { d.setAttribute("class", j === i ? dotOn : dotOff); d.setAttribute("aria-current", String(j === i)); });
+      if (pag && c.pagination.kind === "fraction") pag.textContent = i + 1 + " / " + n;
+    }
+    if (prev) on(prev, "click", function (e) { e.preventDefault(); go(i - 1); });
+    if (next) on(next, "click", function (e) { e.preventDefault(); go(i + 1); });
+    // nested components: the innermost one handles a key / swipe and marks it (defaultPrevented); outer ones skip it
+    on(root, "keydown", function (e) {
+      var back = vertical ? "ArrowUp" : "ArrowLeft", fwd = vertical ? "ArrowDown" : "ArrowRight";
+      if (e.defaultPrevented || (e.key !== back && e.key !== fwd)) return;
+      e.preventDefault(); go(e.key === fwd ? i + 1 : i - 1);
+    });
+    var from = null;
+    on(vp, "pointerdown", function (e) { from = vertical ? e.clientY : e.clientX; });
+    on(vp, "pointerup", function (e) {
+      if (from === null) return;
+      var d = (vertical ? e.clientY : e.clientX) - from; from = null;
+      if (Math.abs(d) > 40 && !e.defaultPrevented) { e.preventDefault(); go(d < 0 ? i + 1 : i - 1); }
+    });
+    if (native) { var settle = 0; on(vp, "scroll", function () { clearTimeout(settle); settle = setTimeout(function () { var p = vertical ? vp.scrollTop : vp.scrollLeft; if (L.step) { i = Math.min(n - 1, Math.round(p / L.step)); root.setAttribute("data-c-active", String(i)); } }, 120); }); }
+    if (c.autoplay && !still) {
+      setInterval(function () { if (!hold && !document.hidden) go(c.loop || !L.end ? i + 1 : 0); }, c.interval);
+      on(root, "mouseenter", function () { hold = true; }); on(root, "mouseleave", function () { hold = false; });
+      on(root, "focusin", function () { hold = true; }); on(root, "focusout", function () { hold = false; });
+    }
+    if (MODE !== "edit") addEventListener("resize", function () { go(i, true); });
+    go(i, true);
+    return { show: function (k) { go(k, true); } };
+  };
+
+  function init(root) {
+    if (root.__aiwc) return root.__aiwc;
+    var id = root.getAttribute("data-ir-id") || "?";
+    try {
+      var kind = root.getAttribute("data-c"), c = JSON.parse(root.getAttribute("data-c-cfg") || "null");
+      if (!c || c.kind !== kind || !Object.prototype.hasOwnProperty.call(kinds, kind)) throw new Error("unknown component " + kind);
+      root.__aiwc = kinds[kind](root, c) || {};
+    } catch (e) {
+      console.warn("aiwc runtime: component skipped", id, e && e.message);
+      root.__aiwc = {};
+    }
+    return root.__aiwc;
+  }
+  if (MODE === "edit") addEventListener("message", function (e) {
+    var d = e.data, root = d && d.type === "aiwc:show" && e.source === window.parent ? byId(d.root) : null;
+    var api = root && root.hasAttribute("data-c") ? init(root) : null;
+    if (api && api.show) api.show(Number(d.index) || 0);
+  });
+  else Array.prototype.forEach.call(document.querySelectorAll("[data-c]"), init);
+})();
+
+// legacy [data-behavior] for E1 documents: removed in E2 Task 6
 (function () {
   var byId = function (id) { return id ? document.getElementById(id) : null; };
   var shown = function (el) { var cs = getComputedStyle(el); return cs.display !== "none" && cs.visibility !== "hidden"; };

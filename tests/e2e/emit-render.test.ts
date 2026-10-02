@@ -87,7 +87,7 @@ async function loadCollectingErrors(page: Page, url: string): Promise<string[]> 
 test("emitted menu page: no console errors (http + file://), runtime toggles the menu", async () => {
   const outDir = join(tmp, "menu-out");
   await emitHtml(buildIR([menuCapture()]), { outDir, workspaceDir: tmp, assetMap: {}, pageUrls: { home: "https://x.test/" } });
-  expect((await stat(join(outDir, "js/runtime.js"))).size).toBeLessThan(3_500);
+  expect((await stat(join(outDir, "js/runtime.js"))).size).toBeLessThanOrEqual(15 * 1024);
   const base = await serve(outDir);
 
   await withPage(handle, async (page) => {
