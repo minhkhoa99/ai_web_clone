@@ -103,6 +103,38 @@ export function parseSpec(value: unknown): InteractiveSpec {
   return spec;
 }
 
+// E2 §6 updateComponent: only config fields per kind; role id lists change through the item commands.
+export const PATCHABLE: Record<InteractiveKind, readonly string[]> = {
+  carousel: ["active", "autoplay", "interval", "loop", "direction", "transition", "speed", "slidesPerView", "gap", "arrows", "pagination"],
+  tabs: ["active"], accordion: ["multiple", "items"], modal: ["closeOn", "closeButton"], dropdown: ["openOn"], menu: ["openOn"], video: ["autoplay", "muted", "loop", "controls"],
+};
+const OPTIONAL = new Set(["arrows", "pagination", "closeButton"]); // null = drop
+export function patchSpec(spec: InteractiveSpec, patch: Record<string, unknown>): InteractiveSpec {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch) || !Object.keys(patch).length) invalid("patch must be a non-empty object");
+  const next: Record<string, unknown> = { ...spec };
+  for (const [key, value] of Object.entries(patch)) {
+    if (!PATCHABLE[spec.kind].includes(key)) invalid(`field not allowed on ${spec.kind}: ${key.slice(0, 40)}`);
+    if (value === null && OPTIONAL.has(key)) delete next[key]; else next[key] = value;
+  }
+  if (spec.kind === "accordion" && Array.isArray(next.items)) {
+    const items = next.items as { trigger?: unknown; panel?: unknown }[];
+    if (items.length !== spec.items.length || items.some((x, i) => x?.trigger !== spec.items[i]!.trigger || x?.panel !== spec.items[i]!.panel)) invalid("accordion items: only `open` can change (use add/remove/moveComponentItem)");
+  }
+  return parseSpec(next);
+}
+const DEFAULTS: Record<InteractiveKind, Record<string, unknown>> = {
+  carousel: { active: 0, autoplay: false, interval: 5000, loop: false, direction: "horizontal", transition: "slide", speed: 300, slidesPerView: { "1440": 1 }, gap: { "1440": 0 } },
+  tabs: { active: 0 }, accordion: { multiple: true }, modal: { closeOn: ["esc", "backdrop"] }, dropdown: { openOn: "click" }, menu: { openOn: "click" },
+  video: { mode: "native", autoplay: false, muted: false, loop: false, controls: true },
+};
+// E2 §6 convertToComponent: the user's roles over safe defaults, marked manual; parseSpec validates like a load.
+export function specFromRoles(kind: InteractiveKind, roles: Record<string, unknown>): InteractiveSpec {
+  if (!roles || typeof roles !== "object" || Array.isArray(roles)) invalid("roles must be an object");
+  if (!Object.hasOwn(DEFAULTS, kind)) invalid(`unknown kind: ${String(kind).slice(0, 40)}`);
+  const items = kind === "accordion" && Array.isArray(roles.items) ? { items: (roles.items as unknown[]).map((x) => (x && typeof x === "object" ? { open: false, ...x } : x)) } : {};
+  return parseSpec({ ...DEFAULTS[kind], ...roles, ...items, kind, source: "manual", confidence: "manual" });
+}
+
 export function cfgOf(spec: InteractiveSpec): string {
   const { source: _source, confidence: _confidence, ...cfg } = spec as InteractiveSpec & { poster?: string };
   delete (cfg as { poster?: string }).poster; // a URL: written as the video's own attribute through the asset map

@@ -280,3 +280,14 @@ test("Gộp layout (legacy promote URL) is a promoteLayout command: baseRevision
   expect([invalid.status, (await invalid.json()).code]).toEqual([400, "IR_PATCH_INVALID"]);
   expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(0);
 });
+
+test("commands route accepts the E2 component ops; private restoreSpec is refused as an unknown op", async () => {
+  const id = await seed();
+  const doc = await projectDocuments(getDb()).loadDocument(id);
+  const bad = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "restoreSpec", id: "x" }] });
+  expect(bad.status).toBe(400);
+  expect(((await bad.json()) as { code: string }).code).toBe("VALIDATION"); // zod: unknown op
+  const root = doc.sections[0]!.root.id;
+  const shape = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "unwrapComponent", id: root }] });
+  expect(((await shape.json()) as { code: string }).code).toBe("IR_PATCH_INVALID"); // accepted by zod, refused by the core: no component there
+});

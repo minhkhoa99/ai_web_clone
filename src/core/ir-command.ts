@@ -4,6 +4,7 @@
 import type { Decl } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { promoteLayout, syncSections } from "./ir";
+import { checkInteractives, patchSpec, roleIndex, specFromRoles, type InteractiveKind, type InteractiveSpec, type Role } from "./interactive";
 import { detachComponent, isOverridePath, overridingInstance, resetOverride } from "./ir-component";
 import { typeOf, type IRNodeV2, type IRV2, type NodeStyles, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
@@ -30,6 +31,9 @@ type Edit =
   | { op: "promoteLayout"; sectionIds: string[] }
   | { op: "resetOverride"; instanceId: string; path?: string }
   | { op: "detachComponent"; instanceId: string }
+  | { op: "updateComponent"; id: string; patch: Record<string, unknown> }
+  | { op: "convertToComponent"; id: string; kind: InteractiveKind; roles: Record<string, unknown> }
+  | { op: "unwrapComponent"; id: string }
   | { op: "moveNode"; id: string; parentId: string; index: number }
   | { op: "deleteNode"; id: string };
 export type EditorCommand =
@@ -50,7 +54,8 @@ export type HistoryCommand =
   | Plain
   | { op: "restoreRefs"; command: Plain; refs: Refs }
   | { op: "restoreLayout"; sectionIds: string[]; layoutId?: string; placeholders: [string, string][]; refs: Refs } // placeholder id -> old section
-  | { op: "restoreComponent"; command: ComponentEdit; node: IRNodeV2; instanceIds?: string[][] }; // the subtree before (+ refs on detach)
+  | { op: "restoreComponent"; command: ComponentEdit; node: IRNodeV2; instanceIds?: string[][] } // the subtree before (+ refs on detach)
+  | { op: "restoreSpec"; id: string; interactive?: InteractiveSpec; overrides?: string[] }; // the spec + instance overrides before
 
 type Fail = (message: string) => never;
 type Tree = { kind: "sections" | "pages" | "components"; index: number };
@@ -285,6 +290,7 @@ function pageTrees(ir: IRV2, t: Tree): IRNodeV2[] {
   return [...ir.pages.filter((p) => p.id === pageId).map((p) => p.shell), ...ir.sections.filter((s) => s.pageId === pageId).map((s) => s.root)];
 }
 function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode" | "moveNode" | "deleteNode" | "duplicateNode" }>, fail: Fail): Step & { tree: Tree } {
+  if (c.op !== "restoreNode") guardRoles(ir, c, fail); // an Undo of a delete puts the node back where it was
   if (c.op === "createNode" || c.op === "restoreNode") {
     if (c.op === "createNode") checkNewNode(c.node, fail);
     else checkSubtree(c.node, fail);
@@ -316,8 +322,8 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
     if (source.some((n) => n.component)) fail("component nodes cannot be duplicated yet");
     if (!Array.isArray(c.newIds) || c.newIds.length !== source.length) fail("newIds must match the copied subtree");
     const next = c.newIds.values();
-    // a copy was never captured: no box; parentIds are re-stamped by insert
-    const copy = ({ box: _box, ...n }: IRNodeV2): IRNodeV2 => ({ ...n, id: next.next().value as string, children: n.children.map(copy) });
+    // a copy was never captured: no box; R12: a copy is static (no interactive); parentIds are re-stamped by insert
+    const copy = ({ box: _box, interactive: _interactive, ...n }: IRNodeV2): IRNodeV2 => ({ ...n, id: next.next().value as string, children: n.children.map(copy) });
     const created = copy(node);
     return { ...insert(ir, c.parentId, c.index, created, fail), inverse: { op: "deleteNode", id: created.id }, created: created.id };
   }
@@ -418,6 +424,56 @@ function restoreComponent(ir: IRV2, c: Extract<HistoryCommand, { op: "restoreCom
   if (c.instanceIds) next = { ...next, components: next.components.map((m, i) => ({ ...m, instanceIds: c.instanceIds![i]! })) };
   return { ir: next, inverse: c.command };
 }
+// --- interactive components (E2 §6): the spec on a page node; ids never change here (item commands do that) ---
+type SpecEdit = Extract<Edit, { op: "updateComponent" | "convertToComponent" | "unwrapComponent" }>;
+function applySpec(ir: IRV2, c: SpecEdit | Extract<HistoryCommand, { op: "restoreSpec" }>, fail: Fail): Step {
+  const found = need(ir, c.id, fail);
+  if (found.tree.kind === "components") fail(`${c.op} on a component main: edit a page node (main components are not supported in E2)`);
+  const old = found.node, ref = old.component;
+  let interactive: InteractiveSpec | undefined, overrides = ref?.overrides;
+  if (c.op === "restoreSpec") {
+    if (c.overrides !== undefined && (!Array.isArray(c.overrides) || !c.overrides.every((p) => typeof p === "string" && isOverridePath(p)))) fail("invalid spec restore");
+    interactive = c.interactive; overrides = c.overrides; // checkInteractives validates the restored spec
+  } else if (c.op === "updateComponent") {
+    if (!old.interactive) return fail(`node ${old.id} has no interactive`);
+    interactive = guard(() => patchSpec(old.interactive!, c.patch), fail);
+    if (ref?.role === "instance") overrides = [...new Set([...(ref.overrides ?? []), ...Object.keys(c.patch).map((k) => `interactive.${k}`)])];
+  } else if (c.op === "convertToComponent") {
+    if (old.interactive) return fail(`node ${old.id} already holds a ${old.interactive.kind}`);
+    if (old.tag === "#text" || old.tag === "#section") fail(`a ${old.tag} node cannot hold a component`);
+    interactive = guard(() => specFromRoles(c.kind, c.roles), fail);
+    if (ref?.role === "instance") overrides = [...new Set([...(ref.overrides ?? []), "interactive"])];
+  } else {
+    if (!old.interactive) return fail(`node ${old.id} has no interactive`);
+    overrides = ref?.overrides?.filter((p) => p !== "interactive" && !p.startsWith("interactive."));
+  }
+  const { interactive: _was, component: _ref, ...rest } = old;
+  const component = ref && (({ overrides: _o, ...r }: NonNullable<IRNodeV2["component"]>) => (overrides ? { ...r, overrides } : r))(ref);
+  const node: IRNodeV2 = { ...rest, ...(interactive && { interactive }), ...(component && { component }) };
+  const inverse: HistoryCommand = { op: "restoreSpec", id: old.id, ...(old.interactive && { interactive: old.interactive }), ...(ref?.overrides && { overrides: ref.overrides }) };
+  return { ir: withRoot(ir, found.tree, update(rootOf(ir, found.tree), old.id, () => node)!), inverse };
+}
+
+// E2 §2: a node holding a role (slide, trigger, panel…) leaves only with its component (removeComponentItem /
+// unwrapComponent); the whole component (its root inside the subtree) may go. A new child of a track would be a
+// slide the spec does not know: addComponentItem.
+const ROLE_LABEL: Record<Role, string> = { viewport: "viewport", track: "track", slide: "slide", prev: "nút prev", next: "nút next", pagination: "pagination", tab: "tab", panel: "panel", trigger: "trigger", dialog: "dialog", close: "nút đóng", video: "video" };
+function guardRoles(ir: IRV2, c: Extract<Plain, { op: "createNode" | "moveNode" | "deleteNode" | "duplicateNode" }>, fail: Fail): void {
+  const members = roleIndex(ir);
+  if (!members.size) return;
+  if (c.op === "createNode" || c.op === "duplicateNode") {
+    const track = (members.get(c.parentId) ?? []).find((m) => m.role === "track");
+    if (track) fail(`node ${c.parentId} là track của carousel ${track.root}: dùng addComponentItem`);
+    return; // a duplicate leaves its source in place; the copy is static (R12)
+  }
+  const subtree = new Set(preorder(need(ir, c.id, fail).node).map((x) => x.id));
+  for (const id of subtree) for (const m of members.get(id) ?? []) {
+    if (subtree.has(m.root)) continue;
+    fail(`node ${id} đang là ${ROLE_LABEL[m.role]} của ${m.spec.kind} ${m.root}: dùng ${c.op === "moveNode" ? "moveComponentItem" : "removeComponentItem hoặc unwrapComponent"}`);
+  }
+}
+const holdsInteractive = (n: IRNodeV2): boolean => n.interactive !== undefined || n.children.some(holdsInteractive);
+
 const guard = <T>(run: () => T, fail: Fail): T => {
   try { return run(); } catch (e) { if (e instanceof AppError) return fail(e.message); throw e; }
 };
@@ -431,6 +487,7 @@ function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
     case "restoreLayout": return restoreLayout(ir, c, fail);
     case "resetOverride": case "detachComponent": return applyComponent(ir, c, fail);
     case "restoreComponent": return restoreComponent(ir, c, fail);
+    case "updateComponent": case "convertToComponent": case "unwrapComponent": case "restoreSpec": return applySpec(ir, c, fail);
     case "createNode": case "restoreNode": case "moveNode": case "deleteNode": case "duplicateNode": {
       const step = applyTree(ir, c, fail);
       const shell = step.tree.kind === "pages" ? syncSections(step.ir) : step.ir;
@@ -467,6 +524,9 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
       case "promoteLayout": normalized = { op: command.op, sectionIds: Array.isArray(command.sectionIds) ? [...command.sectionIds] : command.sectionIds }; break;
       case "resetOverride": normalized = { op: command.op, instanceId: command.instanceId, ...(command.path !== undefined && { path: command.path }) }; break;
       case "detachComponent": normalized = { op: command.op, instanceId: command.instanceId }; break;
+      case "updateComponent": normalized = { op: command.op, id: command.id, patch: isObject(command.patch) ? { ...command.patch } : command.patch }; break;
+      case "convertToComponent": normalized = { op: command.op, id: command.id, kind: command.kind, roles: isObject(command.roles) ? { ...command.roles } : command.roles }; break;
+      case "unwrapComponent": normalized = { op: command.op, id: command.id }; break;
       case "moveNode": normalized = { op: command.op, id: command.id, parentId: command.parentId, index: command.index }; break;
       case "deleteNode": normalized = { op: command.op, id: command.id }; break;
       case "createNode": normalized = { op: command.op, parentId: command.parentId, index: command.index, node: fromDraft(command.draft, allocateId, fail) }; break;
@@ -508,8 +568,11 @@ export function applyCommands(ir: IRV2, commands: readonly HistoryCommand[]): { 
   let current = ir;
   const inverse: HistoryCommand[] = [], createdIds: string[] = [];
   commands.forEach((command, i) => {
-    const step = applyOne(current, command, failer(i, command));
+    const fail = failer(i, command);
+    const step = applyOne(current, command, fail);
     current = step.ir;
+    // E2 §2: validated after every command, so no step (tree, prop, layout or History payload) leaves a broken component
+    if (treesOf(current).some((t) => holdsInteractive(rootOf(current, t)))) guard(() => checkInteractives(current), fail);
     inverse.unshift(step.inverse);
     if (step.created) createdIds.push(step.created);
   });
