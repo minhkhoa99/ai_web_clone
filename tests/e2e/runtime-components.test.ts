@@ -421,3 +421,112 @@ test("?qa=1 keeps tabs/accordion/modal at the captured state; ?edit=1 shows the 
     expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe(""); // no scroll lock in the canvas
   });
 });
+
+const none = () => ({ base: { display: "none" }, bp: {}, state: {}, pseudo: {} });
+const focused = (page: Page) => page.evaluate(() => document.activeElement?.getAttribute("data-ir-id"));
+
+test("fix 1: a tab panel that is itself a carousel root is laid out again when it opens", async () => {
+  const tabs = tabsRoot();
+  const car = carouselRoot({}, "pc-");
+  car.attrs = { hidden: "" };
+  car.styles = none();
+  tabs.children[2] = car; // panel p1 replaced by the carousel root
+  car.parentId = "tabs";
+  (tabs.interactive as { tabs: { trigger: string; panel: string }[] }).tabs[1]!.panel = "pc-root";
+  const { url } = await serve(tabs);
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="tab1"]');
+    expect(await page.$eval('[data-ir-id="pc-sl0"]', (el) => el.getBoundingClientRect().width)).toBe(300);
+  });
+});
+
+test("fix 3: hidden inputs, display:none and disabled controls are never focus targets in a modal", async () => {
+  const dlg = n("dlg", "div", [
+    n("csrf", "input", [], { attrs: { type: "hidden", name: "csrf" } }),
+    n("gone", "button", [t("gt", "Gone")], { styles: none() }),
+    n("off", "button", [t("oft", "Off")], { attrs: { disabled: "" } }),
+    n("ok", "button", [t("okt", "OK")]), n("x", "button", [t("xt", "X")]),
+  ], { styles: none(), interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: ["open"], dialog: "dlg", closeOn: ["esc"] } });
+  const { url } = await serve(n("ms", "section", [n("open", "button", [t("ot", "Open")]), dlg]));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="open"]');
+    expect(await focused(page)).toBe("ok");
+    await page.keyboard.press("Shift+Tab");
+    expect(await focused(page)).toBe("x");
+    await page.keyboard.press("Tab");
+    expect(await focused(page)).toBe("ok");
+  });
+});
+
+test("fix 4: stacked modals — Esc closes only the top one; the scroll lock is restored when the last one closes", async () => {
+  const modal = (id: string, trigger: string, kids: ReturnType<typeof n>[]) => n(id, "div", kids,
+    { styles: none(), interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: [trigger], dialog: id, closeOn: ["esc"] } });
+  const b = modal("mb", "openB", [n("bok", "button", [t("bt", "B")])]);
+  const a = modal("ma", "openA", [n("openB", "button", [t("obt", "Open B")])]);
+  // B comes first in the document: its key listener runs before A's
+  const { url } = await serve(n("sb", "section", [b]), n("sa", "section", [n("openA", "button", [t("oat", "Open A")]), a]));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    expect(await page.getAttribute('[data-ir-id="openA"]', "aria-haspopup")).toBe("dialog");
+    await page.click('[data-ir-id="openA"]');
+    expect(await page.getAttribute('[data-ir-id="openA"]', "aria-expanded")).toBe("true");
+    await page.click('[data-ir-id="openB"]');
+    expect(await focused(page)).toBe("bok");
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="mb"]')).toBe(false);
+    expect(await page.isVisible('[data-ir-id="ma"]')).toBe(true);
+    expect(await focused(page)).toBe("openB");
+    expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe("hidden");
+    await page.keyboard.press("Tab"); // A is the top again: Tab stays inside A
+    expect(await focused(page)).toBe("openB");
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="ma"]')).toBe(false);
+    expect(await page.getAttribute('[data-ir-id="openA"]', "aria-expanded")).toBe("false");
+    expect(await focused(page)).toBe("openA");
+    expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe("");
+  });
+});
+
+test("minor: Esc on a dropdown inside a modal closes only the dropdown; a hover menu closes when focus leaves it", async () => {
+  const hidden = { base: { visibility: "hidden" }, bp: {}, state: {}, pseudo: {} };
+  const dd = n("dd", "div", [n("ddt", "button", [t("ddtt", "More")]), n("ddp", "ul", [n("ddi", "li", [t("ddit", "Item")])], { styles: hidden })],
+    { interactive: { kind: "dropdown", source: "aria", confidence: "guessed", trigger: "ddt", panel: "ddp", openOn: "click" } });
+  const dlg = n("dlg", "div", [dd], { styles: none(), interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: ["open"], dialog: "dlg", closeOn: ["esc"] } });
+  const hm = n("hm", "nav", [n("hmt", "button", [t("hmtt", "Menu")]), n("hmp", "ul", [n("hmi", "li", [t("hmit", "Item")])], { styles: hidden })],
+    { interactive: { kind: "menu", source: "aria", confidence: "guessed", trigger: "hmt", panel: "hmp", openOn: "hover" } });
+  const { url } = await serve(n("ms", "section", [n("open", "button", [t("ot", "Open")]), dlg]), n("hs", "section", [hm, n("after", "button", [t("aft", "After")])]));
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    await page.click('[data-ir-id="open"]');
+    await page.click('[data-ir-id="ddt"]');
+    expect(await page.isVisible('[data-ir-id="ddp"]')).toBe(true);
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="ddp"]')).toBe(false);
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(true);
+    await page.keyboard.press("Escape");
+    expect(await page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+    await page.mouse.move(1000, 700); // the pointer is not over the menu: only focus drives it
+    await page.focus('[data-ir-id="hmt"]');
+    expect(await page.isVisible('[data-ir-id="hmp"]')).toBe(true);
+    await page.focus('[data-ir-id="after"]');
+    expect(await page.isVisible('[data-ir-id="hmp"]')).toBe(false);
+    await page.focus('[data-ir-id="hmt"]');
+    await page.keyboard.press("Escape"); // focus goes back to the trigger without reopening the menu
+    expect(await page.isVisible('[data-ir-id="hmp"]')).toBe(false);
+    expect(await focused(page)).toBe("hmt");
+  });
+});
+
+test("minor: tabs get a tablist parent and aria-controls / aria-labelledby", async () => {
+  const { url } = await serve(tabsRoot());
+  await withPage(handle, async (page) => {
+    await page.goto(url);
+    expect(await page.getAttribute('[data-ir-id="tl"]', "role")).toBe("tablist");
+    expect(await page.getAttribute('[data-ir-id="tabs"]', "role")).toBeNull();
+    const panelId = await page.getAttribute('[data-ir-id="p1"]', "id");
+    expect(await page.getAttribute('[data-ir-id="tab1"]', "aria-controls")).toBe(panelId);
+    expect(await page.getAttribute('[data-ir-id="p1"]', "aria-labelledby")).toBe(await page.getAttribute('[data-ir-id="tab1"]', "id"));
+  });
+});

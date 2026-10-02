@@ -133,3 +133,21 @@ test("native video: videoAttrs writes the spec flags (autoplay forces muted + pl
   expect(tag).toMatch(/ muted=""/);
   expect(tag).not.toMatch(/ controls=| loop=/);
 });
+
+test("video spec on a wrapper root: the flags / embed src go on spec.node (role video), not on the root", () => {
+  const ir = site();
+  const frame = { id: "if", parentId: "vw", tag: "iframe", type: "media" as const, attrs: { src: "https://www.youtube.com/embed/abc123" }, styles: css(), children: [] };
+  const vid = { id: "vv", parentId: "vw", tag: "video", type: "media" as const, attrs: { controls: "" }, styles: css(), children: [] };
+  ir.sections[0]!.root.children.push(
+    { id: "vw", parentId: "root", tag: "div", type: "container", attrs: {}, styles: css(), children: [frame], interactive: embed },
+    { id: "nw", parentId: "root", tag: "div", type: "container", attrs: {}, styles: css(), children: [vid],
+      interactive: { ...embed, node: "vv", mode: "native", autoplay: false, muted: false, loop: true, controls: false } },
+  );
+  const html = renderSite(ir, opts)["index.html"]!;
+  expect(/<iframe[^>]*>/.exec(html)![0]).toContain('src="https://www.youtube-nocookie.com/embed/abc123?autoplay=1&amp;mute=1"');
+  expect(/<div[^>]*data-c="video"[^>]*>/.exec(html)![0]).not.toMatch(/ src=| autoplay=/);
+  expect(html).toContain(`content="${EMBED_CSP}"`);
+  const tag = /<video[^>]*>/.exec(html)![0];
+  expect(tag).toMatch(/ loop=""/);
+  expect(tag).not.toMatch(/ controls=/);
+});

@@ -1,5 +1,8 @@
-// AI Web Clone runtime (E2 §4), copied to out/js/runtime.js. One component per [data-c] root (broken: console.warn).
-// ?qa=1: capture state, no motion. runtime.js?edit=1 (canvas): shows the postMessage'd item, no handlers.
+// AI Web Clone runtime (E2 §4): plain browser JS copied verbatim to out/js/runtime.js — no dependency, no bundling,
+// works on file://. Each [data-c] root is one component; data-c-cfg names its parts by data-ir-id. A component whose
+// config is broken is skipped with console.warn; the others still run.
+// Modes: ?qa=1 on the page (QA: capture state, no autoplay, no motion); runtime.js?edit=1 (editor canvas: only shows
+// the item the panel picks through postMessage — no autoplay, no input handlers).
 (function () {
   "use strict";
   var me = document.currentScript;
@@ -8,15 +11,15 @@
   var byId = function (id) { return id ? document.querySelector('[data-ir-id="' + CSS.escape(id) + '"]') : null; };
   var need = function (id) { var el = byId(id); if (!el) throw new Error("missing node " + id); return el; };
   var attr = function (el, k, v) { el.setAttribute(k, v); };
-  var on = function (el, type, fn) { if (MODE !== "edit") el.addEventListener(type, fn); };
+  var on = function (el, type, fn, capture) { if (MODE !== "edit") el.addEventListener(type, fn, capture); };
   var bp = function () { return matchMedia("(max-width: 767.98px)").matches ? "375" : matchMedia("(max-width: 1439.98px)").matches ? "768" : "1440"; };
-  // a bp value inherits from the next wider one
+  // a breakpoint value inherits from the next wider one, like the styles
   function at(map, fallback) {
     var order = { "375": ["375", "768", "1440"], "768": ["768", "1440"], "1440": ["1440"] }[bp()];
     for (var k = 0; k < order.length; k++) if (map && map[order[k]] != null) return map[order[k]];
     return fallback;
   }
-  // R13: shown/hidden the way the capture had it
+  // R13: shown / hidden the way the capture had it ([hidden], display, visibility or opacity)
   function shown(el) { var cs = getComputedStyle(el); return !el.hasAttribute("hidden") && cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0"; }
   function show(el) { el.removeAttribute("hidden"); var cs = getComputedStyle(el); if (cs.display === "none") el.style.display = "block"; if (cs.visibility === "hidden") el.style.visibility = "visible"; if (cs.opacity === "0") el.style.opacity = "1"; }
   function hide(el) { el.style.display = el.style.visibility = el.style.opacity = ""; if (shown(el)) attr(el, "hidden", ""); }
@@ -34,11 +37,11 @@
     if (prev && !prev.hasAttribute("aria-label")) attr(prev, "aria-label", "Slide trước");
     if (next && !next.hasAttribute("aria-label")) attr(next, "aria-label", "Slide sau");
     if (pag && c.pagination.kind === "bullets") {
-      // captured bullet classes: active and idle
+      // reuse the captured bullets' classes: the active one and an idle one
       var kids = [].filter.call(pag.children, function (e) { return e.nodeType === 1; });
       var cur = kids[i] || kids[0], idle = kids.filter(function (e) { return e !== cur; })[0] || cur;
       dotOn = cur ? cur.getAttribute("class") || "" : ""; dotOff = idle ? idle.getAttribute("class") || "" : "";
-      // one captured bullet per slide: keep them; else rebuild n from the idle one
+      // one captured bullet per slide: keep them (DOM and data-ir-id as captured); otherwise rebuild n from the idle one
       var reuse = kids.length === n, proto = idle || document.createElement("button");
       if (!reuse) pag.textContent = "";
       for (var k = 0; k < n; k++) {
@@ -63,7 +66,7 @@
       }
       return { step: w + gap, max: Math.max(0, n * (w + gap) - gap - box) };
     }
-    // i never passes the last position that fits
+    // i is always what is visible: past the last position that fits (slidesPerView > 1) there is nowhere to go
     function go(k, instant, auto) {
       var m = layout(), last = m.step > 0 ? Math.min(n - 1, Math.max(0, Math.ceil(m.max / m.step - 0.01))) : n - 1, quick = still || instant;
       i = c.loop ? ((k % (last + 1)) + last + 1) % (last + 1) : Math.max(0, Math.min(k, last));
@@ -87,7 +90,7 @@
     }
     function tick() { if (!hovered && !root.contains(document.activeElement) && !document.hidden) go(c.loop || i < L.last ? i + 1 : 0, false, true); }
     go(i, true);
-    // listeners/timer only after the first layout worked
+    // listeners and the autoplay timer only after the first layout worked: a broken component leaves nothing behind
     var step = function (by) { return function (e) { e.preventDefault(); go(i + by); }; };
     dots.forEach(function (d, k) {
       on(d, "click", function (e) { e.preventDefault(); go(k); });
@@ -95,14 +98,15 @@
     });
     if (prev) on(prev, "click", step(-1));
     if (next) on(next, "click", step(1));
-    // nested: the innermost handles a key/swipe (defaultPrevented), outer ones skip it
+    // nested components: the innermost one handles a key / swipe and marks it (defaultPrevented); outer ones skip it
     on(root, "keydown", function (e) {
       var back = vertical ? "ArrowUp" : "ArrowLeft", fwd = vertical ? "ArrowDown" : "ArrowRight", t = e.target;
       if (e.defaultPrevented || (e.key !== back && e.key !== fwd) || t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       step(e.key === fwd ? 1 : -1)(e);
     });
     var from = null;
-    // transform mode: the page scrolls the other axis (native scroll keeps touch panning)
+    // transform mode: the page keeps scrolling the other axis; native scroll (viewport === track) keeps the browser's
+    // own touch panning, which touch-action would block
     if (MODE !== "edit" && !native) vp.style.touchAction = vertical ? "pan-x" : "pan-y";
     on(vp, "pointerdown", function (e) { from = vertical ? e.clientY : e.clientX; });
     on(vp, "pointercancel", function () { from = null; });
@@ -120,17 +124,27 @@
     return { show: function (k) { if (k < n) go(k, true); }, fit: function () { go(i, true, true); } };
   };
 
-  // re-layout nested carousels laid out while hidden
-  function fit(el) { [].forEach.call(el.querySelectorAll("[data-c]"), function (r) { if (r.__aiwc && r.__aiwc.fit) r.__aiwc.fit(); }); }
+  // A part just shown: carousels in it (or the part itself) that were laid out while hidden got zero-size slides; lay
+  // them out again now.
+  function fit(el) { [el].concat([].slice.call(el.querySelectorAll("[data-c]"))).forEach(function (r) { if (r.__aiwc && r.__aiwc.fit) r.__aiwc.fit(); }); }
   function reveal(el) { show(el); fit(el); }
+  // an id for aria-controls / aria-labelledby: the element's own, else one derived from its data-ir-id
+  var idOf = function (el) { return el.id || (el.id = "aiwc-" + el.getAttribute("data-ir-id")); };
 
   kinds.tabs = function (root, c) {
     var list = c.tabs.map(function (x) { return [need(x.trigger), need(x.panel)]; }), n = list.length, i = Math.min(c.active, n - 1);
+    // the tabs' common parent is the tablist (only when it holds no panel)
+    for (var tl = list[0][0].parentElement; tl && !list.every(function (x) { return tl.contains(x[0]); }); tl = tl.parentElement);
+    if (tl && !tl.getAttribute("role") && !list.some(function (x) { return tl.contains(x[1]); })) attr(tl, "role", "tablist");
+    list.forEach(function (x) {
+      attr(x[0], "role", "tab"); attr(x[0], "aria-controls", idOf(x[1]));
+      attr(x[1], "role", "tabpanel"); attr(x[1], "aria-labelledby", idOf(x[0]));
+    });
     function go(k, focus) {
       i = (k + n) % n;
       list.forEach(function (x, j) {
-        attr(x[0], "role", "tab"); attr(x[0], "aria-selected", j === i); x[0].tabIndex = j === i ? 0 : -1;
-        attr(x[1], "role", "tabpanel"); j === i ? reveal(x[1]) : hide(x[1]);
+        attr(x[0], "aria-selected", j === i); x[0].tabIndex = j === i ? 0 : -1;
+        j === i ? reveal(x[1]) : hide(x[1]);
       });
       attr(root, "data-c-active", i);
       if (focus) list[i][0].focus();
@@ -146,7 +160,8 @@
     return { show: function (k) { if (k < n) go(k); } };
   };
 
-  // <details> stays native
+  // <details> stays native (the browser opens it; multiple=false closes the others on toggle); other items toggle
+  // their panel and aria-expanded. ?qa=1 puts every item back to its captured open state.
   kinds.accordion = function (root, c) {
     var items = c.items.map(function (x) { var t = need(x.trigger), d = t.parentElement; return { t: t, p: need(x.panel), o: x.open, d: t.tagName === "SUMMARY" && d.tagName === "DETAILS" ? d : null }; });
     function set(x, open) { if (x.d) x.d.open = open; else { open ? reveal(x.p) : hide(x.p); attr(x.t, "aria-expanded", open); } }
@@ -162,58 +177,75 @@
     return { show: function (j) { if (j < items.length) items.forEach(function (x, k) { set(x, k === j); }); } };
   };
 
-  // triggers anywhere on the page; focus in, trapped, returned
-  var FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex='-1'])";
+  // Modal: triggers may sit anywhere on the page (Review Focus 5). Focus moves in, stays in (Tab wraps) and returns
+  // to the trigger on close. Open dialogs form one stack: only the top one handles Esc / Tab, and the page scroll lock
+  // is restored when the stack empties.
+  var FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
+  var focusables = function (el) { return [].filter.call(el.querySelectorAll(FOCUSABLE), function (x) { return x.getClientRects().length; }); };
+  var stack = [], lock = "", de = document.documentElement;
   kinds.modal = function (root, c) {
-    var dlg = need(c.dialog), close = byId(c.closeButton), from = null, lock = "", de = document.documentElement;
+    var dlg = need(c.dialog), close = byId(c.closeButton), triggers = c.triggers.map(need), from = null;
     var can = function (k) { return c.closeOn.indexOf(k) >= 0; };
     if (!dlg.getAttribute("role")) attr(dlg, "role", "dialog");
     attr(dlg, "aria-modal", "true");
     if (!dlg.hasAttribute("tabindex")) dlg.tabIndex = -1;
+    function state(open) { attr(root, "data-c-open", open); triggers.forEach(function (t) { attr(t, "aria-expanded", open); }); }
+    triggers.forEach(function (t) { attr(t, "aria-haspopup", "dialog"); });
+    state(shown(dlg));
+    if (shown(dlg) && MODE !== "edit") stack.push(dlg); // captured open
     function open(t) {
       if (shown(dlg)) return;
-      from = t; reveal(dlg); attr(root, "data-c-open", "true");
-      if (MODE === "edit") return; // canvas: no lock/focus
-      lock = de.style.overflow; de.style.overflow = "hidden";
-      (dlg.querySelector(FOCUSABLE) || dlg).focus();
+      from = t; reveal(dlg); state(true);
+      if (MODE === "edit") return; // editor canvas: no scroll lock, no focus move
+      if (!stack.length) { lock = de.style.overflow; de.style.overflow = "hidden"; }
+      stack.push(dlg);
+      (focusables(dlg)[0] || dlg).focus();
     }
     function shut() {
       if (!shown(dlg)) return;
-      hide(dlg); de.style.overflow = lock; attr(root, "data-c-open", "false");
+      hide(dlg); state(false);
+      var k = stack.indexOf(dlg);
+      if (k >= 0) { stack.splice(k, 1); if (!stack.length) de.style.overflow = lock; }
       if (from) from.focus();
       from = null;
     }
-    c.triggers.map(need).forEach(function (t) { on(t, "click", function (e) { e.preventDefault(); open(t); }); });
+    triggers.forEach(function (t) { on(t, "click", function (e) { e.preventDefault(); open(t); }); });
     if (close && can("button")) on(close, "click", function (e) { e.preventDefault(); shut(); });
     if (can("backdrop")) on(dlg, "click", function (e) { if (e.target === dlg) shut(); });
+    // a key another component already handled (an open dropdown's Esc, a nested dialog) is skipped
     on(document, "keydown", function (e) {
-      if (!shown(dlg)) return;
-      if (e.key === "Escape" && can("esc")) return shut();
+      if (e.defaultPrevented || stack[stack.length - 1] !== dlg) return;
+      if (e.key === "Escape" && can("esc")) { e.preventDefault(); return shut(); }
       if (e.key !== "Tab") return;
-      var f = dlg.querySelectorAll(FOCUSABLE), a = f[0], z = f[f.length - 1], at = document.activeElement;
+      var f = focusables(dlg), a = f[0], z = f[f.length - 1], at = document.activeElement;
       if (!a || !dlg.contains(at) || at === (e.shiftKey ? a : z)) { e.preventDefault(); (a ? (e.shiftKey ? z : a) : dlg).focus(); }
     });
     return { show: function () { open(null); } };
   };
 
-  // R2: panel may be outside root
+  // Dropdown / menu: openOn click or hover (hover closes 150 ms after the pointer leaves, or when focus leaves trigger
+  // and panel); outside click and Esc close it. R2: the panel may sit outside the root (root = trigger), so the panel
+  // counts as inside too.
   kinds.dropdown = kinds.menu = function (root, c) {
-    var t = need(c.trigger), p = need(c.panel), timer = 0;
+    var t = need(c.trigger), p = need(c.panel), timer = 0, over = false;
+    var inside = function (x) { return !!x && (root.contains(x) || p.contains(x)); };
     function set(open) { clearTimeout(timer); open ? reveal(p) : hide(p); attr(t, "aria-expanded", open); }
     if (c.openOn === "hover") {
       (root.contains(p) ? [root] : [root, p]).forEach(function (el) {
-        on(el, "mouseenter", function () { set(true); });
-        on(el, "mouseleave", function () { clearTimeout(timer); timer = setTimeout(set, 150, false); });
+        on(el, "mouseenter", function () { over = true; set(true); });
+        on(el, "mouseleave", function () { over = false; clearTimeout(timer); timer = setTimeout(set, 150, false); });
+        on(el, "focusout", function (e) { if (!over && !inside(e.relatedTarget)) set(false); });
       });
       on(t, "focus", function () { set(true); });
     } else on(t, "click", function (e) { e.preventDefault(); set(!shown(p)); });
-    on(document, "click", function (e) { if (shown(p) && !root.contains(e.target) && !p.contains(e.target)) set(false); });
-    on(document, "keydown", function (e) { if (e.key === "Escape" && shown(p)) { set(false); t.focus(); } });
+    on(document, "click", function (e) { if (shown(p) && !inside(e.target)) set(false); });
+    // capture phase: runs before an enclosing modal's Esc, which then skips the handled key
+    on(document, "keydown", function (e) { if (e.key === "Escape" && shown(p)) { e.preventDefault(); t.focus(); set(false); } }, true);
     attr(t, "aria-expanded", shown(p));
     return { show: function () { set(true); } };
   };
 
-  // embed: the iframe as emitted
+  // Video: native <video> gets the spec's flags (autoplay only when live, always muted); embed: the iframe as emitted.
   kinds.video = function (root, c) {
     var v = need(c.node);
     if (c.mode !== "native" || v.tagName !== "VIDEO") return;
@@ -237,7 +269,7 @@
   if (MODE === "edit") addEventListener("message", function (e) {
     var d = e.data, ok = d && d.type === "aiwc:show" && e.source === window.parent && Number.isInteger(d.index) && d.index >= 0;
     var root = ok ? byId(d.root) : null, api = root && root.hasAttribute("data-c") ? init(root) : null;
-    if (api && api.show) api.show(d.index); // show ignores an index past the end
+    if (api && api.show) api.show(d.index); // show ignores an index past the last item
   });
   else [].forEach.call(document.querySelectorAll("[data-c]"), init);
 })();

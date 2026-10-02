@@ -7,7 +7,7 @@ import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } f
 import { atomicWrite } from "./fsx";
 import type { Interaction } from "./interactions";
 import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
-import { baseDecl, cfgOf, EMBED_HOSTS, embedSrc, loopClones, roleIndex, videoAttrs, type Role } from "./interactive";
+import { baseDecl, cfgOf, EMBED_HOSTS, embedSrc, loopClones, roleIndex, videoAttrs, type Role, type VideoSpec } from "./interactive";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -373,7 +373,8 @@ export function compileV2(input: IRV2): IR {
     const roles = rolesOfNode(n), c: Record<string, string | null> = {};
     if (n.interactive) Object.assign(c, { "data-c": n.interactive.kind, "data-c-cfg": cfgOf(n.interactive) });
     if (roles.length) c["data-c-role"] = roles.join(" ");
-    const video = n.interactive?.kind === "video" ? n.interactive : undefined;
+    // the flags / embed src belong to the node with role video (spec.node), which may be a child of the root
+    const video = members.get(n.id)?.find((m) => m.role === "video")?.spec as VideoSpec | undefined;
     if (video?.mode === "native") Object.assign(c, videoAttrs(video));
     if (video?.mode === "embed") {
       const src = embedSrc(n.attrs.src ?? "", video);
