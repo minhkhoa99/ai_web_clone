@@ -12,6 +12,8 @@ export const NAMES = [
   // common
   "search", "refresh", "open_in_new", "content_copy", "visibility", "visibility_off", "expand_more", "chevron_right",
   "chevron_left", "close", "check", "remove", "more_vert", "arrow_forward", "undo", "redo", "save",
+  // editor Component panel (E2 §7: keyboard reorder)
+  "arrow_upward", "arrow_downward",
   // status
   "check_circle", "cancel", "pause_circle", "warning", "lock", "error", "schedule", "draft",
   // project actions

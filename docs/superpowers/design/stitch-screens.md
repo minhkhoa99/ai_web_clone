@@ -202,6 +202,14 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | GrapesJS | — | build |
 | `ui_editor_effects_panel` | `feat_editor` | `effects` | — | build |
 | `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
+| `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" ở rail phải khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_header` | `feat_editor`, `feat_interaction_scan` | E2 §7 kind · nguồn · độ tin cậy + Badge Fidelity; dòng nhắc "Clone lại để đọc cấu hình thật" khi `guessed` — `interactives[].spec`, `fidelity` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_items` | `feat_editor`, `feat_interaction_scan` | E2 §7 danh sách item (thumbnail cắt từ shot 1440 + tên), kéo thả + nút ↑↓, Nhân bản, Xoá; bấm item → canvas hiện item đó (`aiwc:show`) — `POST …/editor/commands` add/remove/moveComponentItem; `shot` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_item` | `feat_editor`, `feat_interaction_scan` | E2 §7 một item của danh sách — như trên | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_form` | `feat_editor`, `feat_interaction_scan` | E2 §7 form cấu hình theo kind (carousel/tabs/accordion/modal/dropdown/menu/video) — `updateComponent` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_unwrap` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Bỏ hành vi" — `unwrapComponent` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_convert` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Đánh dấu là component…" khi node không thuộc component — mở wizard | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_wizard` | `feat_editor`, `feat_interaction_scan` | E2 §7 wizard chọn kind + vai trò trong node đang chọn và con cháu (≤ 100) — `convertToComponent` | không có trong mockup, dùng token/component sẵn có | build |
 
 ## Drift — danh sách chính thức (59 id, không render, không implement)
 

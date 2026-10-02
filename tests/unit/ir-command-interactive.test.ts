@@ -61,10 +61,10 @@ test("convertToComponent (manual) validates like load; unwrapComponent removes i
 });
 
 test("Review Focus 3 — tree commands cannot break a component: slide / outside modal trigger refused by role, whole component fine", () => {
-  expect(() => run(fixture(), [{ op: "deleteNode", id: "s1" }])).toThrow(/slide.*removeComponentItem/);
+  expect(() => run(fixture(), [{ op: "deleteNode", id: "s1" }])).toThrow(/slide s1 thuộc carousel root — dùng nút Xoá trong panel Component hoặc Bỏ hành vi \(removeComponentItem/);
   expect(() => run(fixture(), [{ op: "deleteNode", id: "open" }])).toThrow(/trigger/);
-  expect(() => run(fixture(), [{ op: "moveNode", id: "s1", parentId: "tr", index: 0 }])).toThrow(/moveComponentItem/);
-  expect(() => run(fixture(), [{ op: "createNode", parentId: "tr", index: 0, draft: { tag: "div" } }])).toThrow(/addComponentItem/);
+  expect(() => run(fixture(), [{ op: "moveNode", id: "s1", parentId: "tr", index: 0 }])).toThrow(/nút Lên\/Xuống trong panel Component \(moveComponentItem/);
+  expect(() => run(fixture(), [{ op: "createNode", parentId: "tr", index: 0, draft: { tag: "div" } }])).toThrow(/nút Thêm trong panel Component \(addComponentItem/);
   expect(() => run(fixture(), [{ op: "deleteNode", id: "root" }])).not.toThrow();
   const copy = run(fixture(), [{ op: "duplicateNode", id: "root", parentId: "sec", index: 3 }]).ir;
   expect(node(copy, "new1")!.interactive).toBeUndefined(); // R12: a copy is static
@@ -88,7 +88,7 @@ test("redo replays the inverse of the inverse: update / convert / unwrap come ba
 test("updateComponent: optional fields take null to drop; accordion items only change `open`; commands are refused on mains", () => {
   const withArrows = run(withArrow(), [{ op: "updateComponent", id: "root", patch: { arrows: { next: "nx" } } }]).ir;
   expect((node(withArrows, "root")!.interactive as CarouselSpec).arrows).toEqual({ next: "nx" });
-  expect(() => applyCommands(withArrows, prepareCommands(withArrows, [{ op: "deleteNode", id: "nx" }], ids()))).toThrow(/nút next của carousel root/);
+  expect(() => applyCommands(withArrows, prepareCommands(withArrows, [{ op: "deleteNode", id: "nx" }], ids()))).toThrow(/nút next nx thuộc carousel root/);
   const dropped = applyCommands(withArrows, prepareCommands(withArrows, [{ op: "updateComponent", id: "root", patch: { arrows: null } }], ids())).ir;
   expect(node(dropped, "root")!.interactive).not.toHaveProperty("arrows");
   expect(() => run(fixture(), [{ op: "updateComponent", id: "root", patch: {} }])).toThrow(/non-empty/);

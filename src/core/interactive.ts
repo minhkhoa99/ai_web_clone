@@ -261,3 +261,34 @@ export function baseDecl(spec: InteractiveSpec, roles: Role[], captured: Decl): 
   if (roles.includes("slide")) Object.assign(want, fade ? { "grid-area": "1 / 1" } : { "flex-shrink": "0" });
   return Object.fromEntries(Object.entries(want).filter(([prop, value]) => captured[prop] !== value));
 }
+
+// E2 §7: what the Component panel shows for one page (shell + the sections its placeholders show, layouts included).
+export type PanelComponent = { rootId: string; spec: InteractiveSpec; members: string[]; items: { id: string; label: string; box?: [number, number, number, number] }[]; fidelity?: "supported" | "partial" | "unsupported"; instance: boolean };
+const KIND_ITEM: Partial<Record<InteractiveKind, string>> = { carousel: "Slide", tabs: "Tab", accordion: "Mục" };
+const firstText = (n: IRNodeV2): string | undefined => (n.tag === "#text" ? n.text?.trim() || undefined : n.children.map(firstText).find(Boolean));
+export function panelComponents(ir: IRV2, pageId: string): PanelComponent[] {
+  const page = ir.pages.find((p) => p.id === pageId);
+  if (!page) return [];
+  const sections = new Map(ir.sections.map((s) => [s.id, s.root]));
+  const nodes = new Map<string, IRNodeV2>(), parent = new Map<string, string>(), roots: IRNodeV2[] = [];
+  const visit = (n: IRNodeV2): void => {
+    const into = n.tag === "#section" ? sections.get(n.attrs["data-section"] ?? "") : undefined;
+    if (into) return visit(into);
+    nodes.set(n.id, n);
+    if (n.interactive) roots.push(n);
+    n.children.forEach((c) => { parent.set(c.id, n.id); visit(c); });
+  };
+  visit(page.shell);
+  return roots.map((root) => {
+    const spec = root.interactive!;
+    const items = spec.kind === "carousel" || spec.kind === "tabs" || spec.kind === "accordion" ? itemsOf(spec, (x) => parent.get(x), root.id) : [];
+    const fidelity = (ir.fidelity ?? []).find((x) => x.feature === "component" && x.nodeId === root.id)?.status; // fidelity.ts COMPONENT_FEATURE (it imports this file)
+    return {
+      rootId: root.id, spec, members: rolesOf(spec).map(([ref]) => ref), instance: root.component?.role === "instance", ...(fidelity && { fidelity }),
+      items: items.map((item, k) => {
+        const node = nodes.get(item.id), box = node?.box?.[1440];
+        return { id: item.id, label: node?.name ?? (node && firstText(node)?.slice(0, 40)) ?? `${KIND_ITEM[spec.kind]} ${k + 1}`, ...(box && { box }) };
+      }),
+    };
+  });
+}

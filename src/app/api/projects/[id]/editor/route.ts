@@ -1,4 +1,5 @@
 import { irToGrapes } from "@/core/grapes-adapter";
+import { panelComponents } from "@/core/interactive";
 import { loadEditable, projectDocuments } from "@/core/jobs";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, type IdCtx } from "@/app/_server/http";
@@ -24,6 +25,8 @@ export function GET(req: Request, { params }: IdCtx) {
     const pageId = new URL(req.url).searchParams.get("page") ?? ir.pages[0]?.id ?? "";
     if (!ir.pages.some((p) => p.id === pageId)) throw new ApiError(404, "NOT_FOUND", `page ${pageId} not found`);
     // the revision of the document shown (a Save diffs against exactly that revision)
-    return Response.json({ ...irToGrapes(ir, pageId, emit), ...(await store.historyState(id)), revision: doc.revision });
+    // + the Component panel's view of this page (E2 §7; `components` is GrapesJS') and the 1440 shot for item thumbnails
+    const shot = `/api/projects/${encodeURIComponent(id)}/files/pages/${encodeURIComponent(pageId)}/shots/1440.png`;
+    return Response.json({ ...irToGrapes(ir, pageId, emit), ...(await store.historyState(id)), revision: doc.revision, interactives: panelComponents(doc, pageId), shot });
   });
 }

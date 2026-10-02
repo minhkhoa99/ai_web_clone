@@ -30,13 +30,13 @@ afterAll(async () => {
 });
 
 const el = (tag: string, children: CaptureNode[] = [], text?: string): CaptureNode => ({ tag, attrs: {}, bbox: [0, 0, 100, 20], style: {}, children, ...(text ? { text } : {}) });
-async function seed(): Promise<string> {
+const defaultDom = () => el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
+async function seed(dom: CaptureNode = defaultDom()): Promise<string> {
   const db = getDb();
   const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
   created.push(id);
   await enqueue(db, id, ["http://x.test/"]);
   const ws = join(config.workspaceRoot, id);
-  const dom = el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("#text", [], "Body")])])]);
   const capture = {
     url: "http://x.test/", pageId: "home", capturedAt: "2026-09-24T00:00:00.000Z", title: "t", meta: {},
     cssom: { keyframes: [], fontFace: [], media: [], vars: {}, stateSelectors: [] },
@@ -302,4 +302,34 @@ test("commands route: item ops and carousel aliases pass zod (the core judges th
   }
   const bad = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "restoreItems", id: root }] });
   expect(((await bad.json()) as { code: string }).code).toBe("VALIDATION");
+});
+
+test("Lưu: a slide deleted on the canvas is refused (400 IR_PATCH_INVALID) naming the role and the panel action; nothing committed", async () => {
+  const slides = ["A", "B", "C"].map((t) => el("div", [el("#text", [], t)]));
+  const id = await seed(el("html", [el("head"), el("body", [el("header", [el("#text", [], "Top")]), el("main", [el("section", [el("div", [el("div", slides)])])])])]));
+  const doc = await projectDocuments(getDb()).loadDocument(id);
+  type N = IRV2["sections"][number]["root"];
+  const walk = (n: N): N[] => [n, ...n.children.flatMap(walk)];
+  const all = doc.sections.flatMap((s) => walk(s.root));
+  const slideNode = all.find((n) => n.children[0]?.text === "A")!;
+  const track = all.find((n) => n.children.includes(slideNode))!;
+  const viewport = all.find((n) => n.children.includes(track))!;
+  const root = all.find((n) => n.children.includes(viewport))!;
+  const convert = await post(commandsRoute, id, { baseRevision: doc.revision, commands: [{ op: "convertToComponent", id: root.id, kind: "carousel", roles: { viewport: viewport.id, track: track.id, slides: track.children.map((c) => c.id) } }] });
+  expect(convert.status).toBe(200);
+  const data = await editorData(id);
+  const drop = (cs: Comp[]): boolean => cs.some((c, i) => (c.attributes?.["data-ir-id"] === slideNode.id ? (cs.splice(i, 1), true) : drop(c.components ?? [])));
+  expect(drop(data.components)).toBe(true);
+  const res = await post(saveRoute, id, { baseRevision: data.revision, pageId: data.pageId, project: { components: data.components } });
+  const body = (await res.json()) as { code: string; message: string };
+  expect([res.status, body.code]).toEqual([400, "IR_PATCH_INVALID"]);
+  expect(body.message).toContain(`slide ${slideNode.id} thuộc carousel ${root.id} — dùng nút Xoá trong panel Component hoặc Bỏ hành vi`);
+  expect((await projectDocuments(getDb()).historyState(id)).revision).toBe(data.revision);
+});
+
+test("GET editor: the page's components for the panel and the 1440 capture shot", async () => {
+  const id = await seed();
+  const res = (await (await getEditor(id)).json()) as { interactives: unknown[]; shot: string; pageId: string };
+  expect(res.interactives).toEqual([]);
+  expect(res.shot).toBe(`/api/projects/${id}/files/pages/${res.pageId}/shots/1440.png`);
 });

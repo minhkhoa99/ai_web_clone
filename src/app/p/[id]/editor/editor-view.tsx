@@ -1,9 +1,11 @@
 "use client";
 import "grapesjs/dist/css/grapes.min.css";
-import type { Editor } from "grapesjs";
+import type { Component, Editor } from "grapesjs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { GrapesProject } from "@/core/grapes-adapter";
+import type { PanelComponent } from "@/core/interactive";
+import type { EditorCommand } from "@/core/ir-command";
 import { api, errorText } from "@/app/_ui/api";
 import { Badge } from "@/app/_ui/Badge";
 import { Button } from "@/app/_ui/Button";
@@ -12,14 +14,37 @@ import { Field } from "@/app/_ui/Field";
 import { ICONS, type IconName } from "@/app/_ui/icons.gen";
 import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
+import { ComponentPanel } from "./component-panel/component-panel";
+import type { PanelDocument } from "./component-panel/panel-model";
 
 const DEVICES = ["1440", "768", "375"] as const;
 type Device = (typeof DEVICES)[number];
 // A style edit at a device targets that breakpoint: the emitter's media (1440 = base; 768 = ≤1439.98px; 375 = ≤767.98px).
 const WIDTH_MEDIA: Record<Device, string> = { "1440": "", "768": "1439.98px", "375": "767.98px" };
-type EditorData = GrapesProject & { revision: number; canUndo: boolean; canRedo: boolean };
+type EditorData = GrapesProject & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string };
+type Selection = Pick<PanelDocument, "ancestors" | "outline">;
 type Saved = { revision: number; ops?: number; skipped?: string[] };
 const DEFAULT_EFFECT_MS = 600;
+const MAX_OUTLINE = 100;
+
+// The Component panel's view of a GrapesJS selection: the IR ids from the node up (ancestors[0] = the node) and the
+// node + its descendants (≤ 100) as the convert wizard's role choices.
+function selectionOf(cmp: Component): Selection {
+  const ancestors: string[] = [];
+  for (let at: Component | undefined = cmp; at; at = at.parent()) {
+    const irId = at.getAttributes()["data-ir-id"] as string | undefined;
+    if (irId) ancestors.push(irId);
+  }
+  const outline: Selection["outline"] = [];
+  const walk = (c: Component, depth: number) => {
+    const irId = c.getAttributes()["data-ir-id"] as string | undefined;
+    if (outline.length >= MAX_OUTLINE) return;
+    if (irId) outline.push({ id: irId, label: `${c.get("tagName") ?? "?"} ${(c.getEl()?.textContent ?? "").trim().slice(0, 30)}`.trim(), depth });
+    c.components().forEach((k: Component) => walk(k, depth + 1));
+  };
+  walk(cmp, 0);
+  return { ancestors, outline };
+}
 
 // GrapesJS panel buttons render Font Awesome classNames with no FA loaded (correctly — no icon CDN);
 // give the 4 panels we keep a real Material Symbols SVG + title instead (button.label accepts HTML).
@@ -47,12 +72,15 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
   const [stale, setStale] = useState(false); // a 409 named a newer revision: offer "Tải lại"
   const [saved, setSaved] = useState(false); // qa.json is stale from now on: offer the preview (Chạy lại QA)
   const [busy, setBusy] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null); // kept across the reload after a panel command
+  const [loading, setLoading] = useState(true); // until the reload lands, `project` (its revision) is the old one
   const holder = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
 
   useEffect(() => {
     let editor: Editor | undefined;
     let cancelled = false;
+    setLoading(true);
     (async () => {
       const [data, { default: grapesjs }] = await Promise.all([
         api<EditorData>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`),
@@ -72,6 +100,9 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
           blocks: data.sections.map((s) => ({ id: s.id, label: s.name, category: pathOf.get(s.pageId) ?? s.pageId, content: s.component })),
         },
         showDevices: false, // our own SegmentedControl "Thiết bị" is the single device selector
+        undoManager: { trackSelection: false }, // a selection is not an unsaved change (hasUndo gates the reloads)
+        // R8: the canvas runs the component runtime in edit mode (shows what the panel picks, no handlers / autoplay)
+        canvas: { scripts: [new URL(`/api/projects/${id}/files/out/js/runtime.js?edit=1`, window.location.href).href] },
         panels: {
           // drop the default 'commands'/'options' panels (sw-visibility, code view, fullscreen, preview: all
           // redundant with our own screens); keep 'views' (Style/Layer/Block/Trait Manager) with real icons.
@@ -97,16 +128,25 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
         base.href = baseHref;
         frame.document.head.prepend(base);
       });
+      // edit mode inits a component on its first show: lay carousels / tabs out at their captured item (the canvas CSS
+      // still holds the capture's track offset, which counted the loop clones the canvas no longer has)
+      editor.on("canvas:frame:load:body", ({ window: frame }: { window: Window }) => {
+        for (const c of data.interactives) if (c.spec.kind === "carousel" || c.spec.kind === "tabs") frame.postMessage({ type: "aiwc:show", root: c.rootId, index: c.spec.active }, "*");
+      });
       editor.setComponents(data.components);
       editor.getWrapper()?.addClass(data.bodyClasses);
       editor.UndoManager.clear(); // loading the page is not an edit: from here on hasUndo() = unsaved changes
       editor.setDevice(DEVICES[0]);
       editorRef.current = editor;
+      editor.on("component:selected", (cmp: Component) => { if (!cancelled) setSelection(selectionOf(cmp)); });
+      editor.on("component:deselected", () => { if (!cancelled && !editor?.getSelected()) setSelection(null); });
       setDevice(DEVICES[0]);
       setProject(data);
+      setLoading(false);
     })().catch((e: unknown) => {
       // a stale or mistyped ?page= falls back to the default page instead of failing the editor
       if (pageId !== "" && pageId === initialPage && errorText(e).startsWith("NOT_FOUND")) return setPageId("");
+      setLoading(false);
       setMsg(errorText(e));
     });
     return () => {
@@ -115,6 +155,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
       editorRef.current = null;
     };
   }, [id, pageId, version, initialPage]);
+  useEffect(() => setSelection(null), [pageId]);
 
   // One server change, then one reload from the server document. A 409 naming a revision: another tab (or job) changed
   // the project: never overwrite, ask for a reload.
@@ -175,6 +216,17 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
       return `${op === "undo" ? "Đã hoàn tác" : "Đã làm lại"} — điểm QA cần chạy lại`;
     });
 
+  // E2 §7: panel commands (one History step each), then the reload; a 409 goes through run() to the "Tải lại" banner.
+  const commands = (list: EditorCommand[]) =>
+    run("Đang cập nhật component…", async () => {
+      await requireSaved();
+      await api(`/api/projects/${id}/editor/commands`, { body: { baseRevision: project?.revision, commands: list } });
+      return "Đã cập nhật component — điểm QA cần chạy lại";
+    });
+  // edit-time only: the canvas runtime shows item `index` (-1: closes the modal / dropdown it opened)
+  const show = (root: string, index: number) =>
+    editorRef.current?.Canvas.getWindow()?.postMessage(index < 0 ? { type: "aiwc:hide", root } : { type: "aiwc:show", root, index }, "*");
+
   const applyEffect = () => {
     const selected = editorRef.current?.getSelected();
     if (!selected) return setMsg("Chọn một phần tử trên canvas trước.");
@@ -233,7 +285,20 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
         <div className="editor-shell panel" data-ui="ui_editor_canvas_chrome">
           <div ref={holder} />
         </div>
-        <aside className="stack">
+        <aside className="stack editor-rail">
+          {project && (
+            <fieldset className="cmp-fieldset" disabled={busy || loading}>
+              <ComponentPanel
+                document={{ components: project.interactives, ancestors: selection?.ancestors ?? [], outline: selection?.outline ?? [], shot: project.shot }}
+                selectedId={selection?.ancestors[0] ?? null}
+                revision={project.revision}
+                onCommands={(list) => {
+                  if (!busy && !loading) void commands(list);
+                }}
+                onShow={show}
+              />
+            </fieldset>
+          )}
           <Card title="Hiệu ứng" data-ui="ui_editor_effects_panel">
             <Field label="Keyframes">
               <select value={effect} onChange={(e) => setEffect(e.target.value)}>

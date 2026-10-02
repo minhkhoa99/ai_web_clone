@@ -163,3 +163,20 @@ test("a breakpoint override cannot defeat the carousel base rules (768 flex-shri
   expect(at768).not.toMatch(/display:block/);
   expect(at768).toMatch(/color:red/); // other overrides stay
 });
+
+test("canvas shows the spec's video flags and the rewritten embed src (not the captured ones); an untouched save diffs to no command", () => {
+  const ir = site();
+  ir.sections[0]!.root.children.push(
+    { id: "v", parentId: "root", tag: "video", type: "media", attrs: { controls: "", loop: "" }, styles: css(), children: [],
+      interactive: { kind: "video", source: "native", confidence: "guessed", node: "v", mode: "native", autoplay: true, muted: true, loop: false, controls: false } },
+    { id: "if", parentId: "root", tag: "iframe", type: "media", attrs: { src: "https://www.youtube.com/embed/abc123" }, styles: css(), children: [], interactive: embed },
+  );
+  const project = irToGrapes(compileV2(ir), "p1", opts);
+  const byId = (id: string) => project.components[0]!.components!.find((c: GrapesComponent) => c.attributes["data-ir-id"] === id)!.attributes;
+  expect(byId("v")).toMatchObject({ autoplay: "", muted: "", playsinline: "" });
+  expect(byId("v")).not.toHaveProperty("controls");
+  expect(byId("v")).not.toHaveProperty("loop");
+  expect(byId("if").src).toBe("https://www.youtube-nocookie.com/embed/abc123?autoplay=1&mute=1");
+  const json = JSON.parse(JSON.stringify({ components: project.components, styles: [] }));
+  expect(grapesToCommands(ir, "p1", json, opts)).toEqual([]);
+});

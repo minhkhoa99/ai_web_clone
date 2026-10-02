@@ -473,13 +473,13 @@ function guardRoles(ir: IRV2, c: Extract<Plain, { op: "createNode" | "moveNode" 
   if (!members.size) return;
   if (c.op === "createNode" || c.op === "duplicateNode") {
     const track = (members.get(c.parentId) ?? []).find((m) => m.role === "track");
-    if (track) fail(`node ${c.parentId} là track của carousel ${track.root}: dùng addComponentItem`);
+    if (track) fail(`node ${c.parentId} là track của carousel ${track.root} — dùng nút Thêm trong panel Component (addComponentItem)`);
     return; // a duplicate leaves its source in place; the copy is static (R12)
   }
   const subtree = new Set(preorder(need(ir, c.id, fail).node).map((x) => x.id));
   for (const id of subtree) for (const m of members.get(id) ?? []) {
     if (subtree.has(m.root)) continue;
-    fail(`node ${id} đang là ${ROLE_LABEL[m.role]} của ${m.spec.kind} ${m.root}: dùng ${c.op === "moveNode" ? "moveComponentItem" : "removeComponentItem hoặc unwrapComponent"}`);
+    fail(`${ROLE_LABEL[m.role]} ${id} thuộc ${m.spec.kind} ${m.root} — ${c.op === "moveNode" ? "dùng nút Lên/Xuống trong panel Component (moveComponentItem)" : "dùng nút Xoá trong panel Component hoặc Bỏ hành vi (removeComponentItem / unwrapComponent)"}`);
   }
 }
 const holdsInteractive = (n: IRNodeV2): boolean => n.interactive !== undefined || n.children.some(holdsInteractive);

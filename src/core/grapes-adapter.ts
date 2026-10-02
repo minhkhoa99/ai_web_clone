@@ -73,6 +73,8 @@ const safeAttr = (tag: string, name: string, value: string) =>
 // they would redirect or re-base the editor frame.
 const HIDDEN_TAGS = new Set(["script", "meta", "base"]);
 const shown = (n: IRNode) => !n.skip && (n.tag === "#text" || n.tag === "#section" || (/^[a-zA-Z][a-zA-Z0-9-]*$/.test(n.tag) && !HIDDEN_TAGS.has(n.tag.toLowerCase())));
+// an attribute the interactive spec writes (data-c*, video flags, embed src): the panel edits it, never the canvas
+const owned = (n: IRNode, name: string) => !!n.c && Object.hasOwn(n.c, name);
 const bodyOf = (shell: IRNode) => shell.children.find((c) => c.tag === "body") ?? shell;
 
 function pageOf<P extends { id: string }>(ir: { pages: P[] }, pageId: string): P {
@@ -98,10 +100,11 @@ export function irToGrapes(ir: IR, pageId: string, opts: RenderOpts): GrapesProj
       return root && { ...root, name: section.layoutId ? `Layout chung · ${section.name}` : section.name };
     }
     if (!shown(node)) return null;
-    // the runtime's attributes ride along for the edit-mode canvas (R8); SKIP_ATTRS keeps them out of the diff
+    // the runtime's attributes ride along for the edit-mode canvas (R8), and so do the spec-owned ones (video flags,
+    // rewritten embed src: shown as emitted, null = absent); `owned` keeps them all out of the diff
     const attributes: Record<string, string> = { [ID]: node.id };
-    for (const [name, value] of Object.entries(node.attrs)) if (safeAttr(node.tag, name, value)) attributes[name] = rewrite(node, name, value, base);
-    for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null && name.startsWith("data-c")) attributes[name] = value;
+    for (const [name, value] of Object.entries(node.attrs)) if (safeAttr(node.tag, name, value) && !owned(node, name)) attributes[name] = rewrite(node, name, value, base);
+    for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null) attributes[name] = value;
     const svg = inSvg || node.tag === "svg";
     const components = node.children.map((c) => toComponent(c, svg, base)).filter((c) => c !== null);
     const isText = node.children.length > 0 && node.children.every((c) => c.tag === "#text");
@@ -342,6 +345,7 @@ export function grapesToCommands(before: IRV2, pageId: string, json: GrapesJson,
     for (const [name, value] of Object.entries(attrsOf(c))) {
       if (!safeAttr(tag, name, value)) continue;
       const raw = src && Object.hasOwn(src.attrs, name) ? src.attrs[name] : undefined;
+      if (src && owned(src, name)) { if (raw !== undefined) attrs[name] = raw; continue; } // a copy keeps the raw attr
       attrs[name] = src && raw !== undefined && rewrite(src, name, raw, baseOf.get(src.id)) === value ? raw : value;
     }
     return attrs;
@@ -435,13 +439,13 @@ export function grapesToCommands(before: IRV2, pageId: string, json: GrapesJson,
     const attrs = attrsFrom(c, v, v.tag);
     const sent = attrsOf(c);
     for (const name of Object.keys(sent)) {
-      if (SKIP_ATTRS.has(name)) continue;
+      if (SKIP_ATTRS.has(name) || owned(v, name)) continue;
       const raw = attrs[name];
       if (raw === undefined || !isSafeAttr(v.tag, name, raw)) opts.skipped?.push(`${v.id.slice(0, 80)} [${name.slice(0, 40)}]`); // refused value: the old one stays
       else if (v.attrs[name] !== raw) out.push({ op: "setAttribute", id, name, value: raw });
     }
     for (const [name, value] of Object.entries(v.attrs)) {
-      if (safeAttr(v.tag, name, value) && !Object.hasOwn(sent, name)) out.push({ op: "setAttribute", id, name, value: null });
+      if (safeAttr(v.tag, name, value) && !Object.hasOwn(sent, name) && !owned(v, name)) out.push({ op: "setAttribute", id, name, value: null });
     }
     const shownNode = resolved.get(v.id);
     for (const [target, decl] of rulesOf(c)) {

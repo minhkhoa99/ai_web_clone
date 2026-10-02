@@ -751,6 +751,23 @@ select.full { width: 100%; min-height: 38px; }
 .editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
 @media (max-width: 1099px) { .editor-grid { grid-template-columns: minmax(0, 1fr); } }
 .editor-sections { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+/* E2 §7 Component panel (no mockup: existing tokens / _ui components) */
+.editor-rail { min-width: 0; }
+.cmp-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.cmp-fieldset:empty { display: none; }
+.cmp-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-sm); }
+.cmp-head p { flex-basis: 100%; margin: 0; }
+.cmp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.cmp-item { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, auto); align-items: center; gap: 4px; padding: 2px 4px; border-radius: var(--r-sm); }
+.cmp-item[draggable="true"] { cursor: grab; }
+.cmp-item.is-drag { opacity: 0.5; }
+.cmp-item:hover { background-color: var(--c-surface-high); }
+.cmp-item-pick { display: flex; align-items: center; gap: var(--s-sm); min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: var(--t-body-md); text-align: start; cursor: pointer; }
+.cmp-item-pick:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+.cmp-thumb { flex: none; border-radius: 4px; background-color: var(--c-surface-high); background-repeat: no-repeat; width: 48px; height: 32px; }
+.cmp-bp { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-sm); }
+.cmp-form input[type="number"], .cmp-form select, .cmp-wizard select { width: 100%; }
+.cmp-actions { display: flex; flex-wrap: wrap; gap: var(--s-sm); }
 .editor-shell { overflow: hidden; }
 /* GrapesJS theme on the Stitch tokens (spec §3.8) */
 .editor-shell .gjs-one-bg { background-color: var(--c-surface-low); }

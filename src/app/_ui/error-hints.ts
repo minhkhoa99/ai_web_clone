@@ -24,6 +24,7 @@ export const ERROR_HINTS: Record<string, string> = {
   PROJECT_BUSY: "Project đang chạy. Tạm dừng trước rồi thử lại.",
   QUEUE_FULL: "Hàng đợi đầy (1 chạy + 5 chờ). Chờ bớt rồi thử lại.",
   BAD_STATE: "Thao tác chưa hợp lệ ở trạng thái này (xem thông báo).",
+  IR_PATCH_INVALID: "Thay đổi không hợp lệ nên không được áp dụng; tài liệu giữ nguyên (xem lý do).",
 };
 
 export const hintFor = (code: string | null | undefined): string | undefined => (code && Object.hasOwn(ERROR_HINTS, code) ? ERROR_HINTS[code] : undefined);

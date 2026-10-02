@@ -422,6 +422,10 @@ test("?qa=1 keeps tabs/accordion/modal at the captured state; ?edit=1 shows the 
     await expect.poll(() => page.isVisible('[data-ir-id="dlg"]')).toBe(true);
     expect(await page.isVisible('[data-ir-id="p0"]')).toBe(false);
     expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe(""); // no scroll lock in the canvas
+    // the panel's selection left the modal: aiwc:hide closes it (a root never shown is ignored)
+    await page.evaluate(() => { window.postMessage({ type: "aiwc:hide", root: "acc" }, "*"); window.postMessage({ type: "aiwc:hide", root: "dlg" }, "*"); });
+    await expect.poll(() => page.isVisible('[data-ir-id="dlg"]')).toBe(false);
+    expect(await page.isVisible('[data-ir-id="aa"]')).toBe(true);
   });
 });
 

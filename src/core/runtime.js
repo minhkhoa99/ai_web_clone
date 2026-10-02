@@ -220,7 +220,7 @@
       var f = focusables(dlg), a = f[0], z = f[f.length - 1], at = document.activeElement;
       if (!a || !dlg.contains(at) || at === (e.shiftKey ? a : z)) { e.preventDefault(); (a ? (e.shiftKey ? z : a) : dlg).focus(); }
     });
-    return { show: function () { open(null); } };
+    return { show: function () { open(null); }, hide: shut };
   };
 
   // Dropdown / menu: openOn click or hover (hover closes 150 ms after the pointer leaves, or when focus leaves trigger
@@ -242,7 +242,7 @@
     // capture phase: runs before an enclosing modal's Esc, which then skips the handled key
     on(document, "keydown", function (e) { if (e.key === "Escape" && shown(p)) { e.preventDefault(); t.focus(); set(false); } }, true);
     attr(t, "aria-expanded", shown(p));
-    return { show: function () { set(true); } };
+    return { show: function () { set(true); }, hide: function () { set(false); } };
   };
 
   // Video: native <video> gets the spec's flags (autoplay only when live, always muted); embed: the iframe as emitted.
@@ -266,9 +266,12 @@
     }
     return root.__aiwc;
   }
+  // aiwc:hide (the panel's selection left the component) closes a shown modal / dropdown; a root never shown is left alone
   if (MODE === "edit") addEventListener("message", function (e) {
-    var d = e.data, ok = d && d.type === "aiwc:show" && e.source === window.parent && Number.isInteger(d.index) && d.index >= 0;
-    var root = ok ? byId(d.root) : null, api = root && root.hasAttribute("data-c") ? init(root) : null;
+    var d = e.data, from = d && e.source === window.parent, root = from && typeof d.root === "string" ? byId(d.root) : null;
+    if (d && d.type === "aiwc:hide") return root && root.__aiwc && root.__aiwc.hide && root.__aiwc.hide();
+    var ok = root && d.type === "aiwc:show" && Number.isInteger(d.index) && d.index >= 0;
+    var api = ok && root.hasAttribute("data-c") ? init(root) : null;
     if (api && api.show) api.show(d.index); // show ignores an index past the last item
   });
   else [].forEach.call(document.querySelectorAll("[data-c]"), init);
