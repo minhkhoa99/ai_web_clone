@@ -158,3 +158,12 @@ test("no capture-box notes for loop clones or text nodes a keyed parent left wit
   for (const s of spec.slides) nodes.get(s)!.children.forEach((t) => quiet.add(t.id));
   expect(ir.fidelity.filter((x) => x.feature === "capture-box" && quiet.has(x.nodeId ?? ""))).toEqual([]);
 });
+
+test("a fresh clone's captured SP1 modal interaction is noted as detected at clone time, never as migrated from v1", () => {
+  const dom = doc(el("header", {}, [el("button", { id: "open", "aria-haspopup": "dialog", "aria-controls": "dlg" }, [txt("Mở")])]), el("footer", {}, [el("div", { id: "dlg", role: "dialog", hidden: "" }, [txt("Hi")], [0, 0, 0, 0], { display: "none" })]));
+  const ir = buildIR([capture({ breakpoints: same(dom), interactions: [{ id: "i1", kind: "modal", trigger: "#open", status: "captured" }] })]);
+  const modal = [...walk(ir), ...ir.pages.flatMap((p) => { const out: IRNodeV2[] = []; const v = (n: IRNodeV2) => { out.push(n); n.children.forEach(v); }; v(p.shell); return out; })].find((n) => n.interactive?.kind === "modal")!;
+  const notes = ir.fidelity.filter((x) => x.feature === "component-note" && x.nodeId === modal.id).map((x) => x.note);
+  expect(notes.length).toBeGreaterThan(0);
+  expect(notes.every((note) => note.startsWith("Nhận diện khi clone"))).toBe(true);
+});

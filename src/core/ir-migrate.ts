@@ -22,7 +22,7 @@ function spend(budget: Budget, key: string, depth: number): void {
   if (count > MAX_CAPTURE_NODES || depth > MAX_TREE_DEPTH) invalid(`IR page limit exceeded (${MAX_CAPTURE_NODES} nodes, ${MAX_TREE_DEPTH} levels)`);
 }
 
-export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
+export function migrateIR(input: unknown, captures: PageCapture[], origin?: string): IRV2 {
   if (!object(input)) return invalid("IR must be an object");
   if (input.version === 2) {
     if (!Number.isSafeInteger(input.revision) || !Array.isArray(input.pages) || !Array.isArray(input.sections) ||
@@ -99,7 +99,7 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   }
   const ir = promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
   ir.fidelity = capFidelity(ir.fidelity); // promotion adds per-page component items after toV2's cap
-  const out = upgradeDocument(ir);
+  const out = upgradeDocument(ir, origin);
   // toV2 analyzed the behaviors the migration just replaced: re-derive the capture items against the components
   if (out !== ir) out.fidelity = refreshFidelity(out.fidelity, out, captures);
   return out;

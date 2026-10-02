@@ -8,7 +8,7 @@ import type { CapturedInteractive } from "./interactive-scan";
 import { selectorIds } from "./ir-build";
 import type { FidelityItem, IRV2 } from "./ir-v2";
 
-const ORIGIN = "Nhận diện khi clone";
+export const ORIGIN = "Nhận diện khi clone";
 const UNREPRODUCIBLE = new Set(["coverflow", "cube", "flip", "cards", "creative"]);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 type CarouselRecord = Extract<CapturedInteractive, { kind: "carousel" }>;

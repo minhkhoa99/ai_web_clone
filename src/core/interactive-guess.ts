@@ -252,7 +252,7 @@ const MIGRATED = "Chuyển từ hành vi cũ (v1)";
 
 // §9: every v1 `behavior` is dropped; one bound to a captured carousel/tab/accordion/modal/menu interaction becomes a
 // `guessed` interactive where the structure allows. No behavior anywhere -> the same object (idempotent, no History).
-export function migrateBehaviors(ir: IRV2): IRV2 {
+export function migrateBehaviors(ir: IRV2, origin = MIGRATED): IRV2 {
   const trees = [...ir.pages.map((p) => p.shell), ...ir.sections.map((s) => s.root), ...ir.components.map((c) => c.root)];
   const any = (n: IRNodeV2): boolean => n.behavior !== undefined || n.children.some(any);
   if (!trees.some(any)) return ir;
@@ -274,13 +274,14 @@ export function migrateBehaviors(ir: IRV2): IRV2 {
       const key = g && JSON.stringify([g.root, g.spec]); // every tab of one tablist guesses the same tabs
       if (g && !seen.has(key!)) { seen.add(key!); guesses.push(g); }
     }
-    if (guesses.length) out = placeGuesses(out, page.id, guesses, MIGRATED);
+    if (guesses.length) out = placeGuesses(out, page.id, guesses, origin);
   }
   return out;
 }
 
-export function upgradeDocument(ir: IRV2): IRV2 {
-  const out = migrateBehaviors(ir);
+// `origin` labels the Fidelity notes: buildIR runs this on a fresh clone, where nothing comes from v1
+export function upgradeDocument(ir: IRV2, origin?: string): IRV2 {
+  const out = migrateBehaviors(ir, origin);
   checkInteractives(out);
   return out;
 }
