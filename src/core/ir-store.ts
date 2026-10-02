@@ -26,6 +26,7 @@ export type StoreHooks = {
   captures?: (projectId: string) => Promise<PageCapture[]>; // the capture evidence Fidelity is re-derived from
   mirror?: (projectId: string, ir: IRV2) => Promise<void>; // writes the document file only (a Fidelity-only change); default: materialize
   onAdopt?: (projectId: string, ir: IRV2) => Promise<void>; // once, after the checkpoint became the document (serialized with output writes)
+  upgrade?: (ir: IRV2) => IRV2; // pure, idempotent (E2 §9): applied to every snapshot read, persisted by the next step
 };
 type State = { ir_json: string; revision: number; cursor: number; materialized_revision: number };
 type Change = { ir: IRV2; createdIds: string[]; cursor: number; step?: { forward: string; inverse: string } };
@@ -41,6 +42,7 @@ function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export function documentStore(db: DatabaseSync, materialize: Materialize, hooks: StoreHooks) {
+  const parse = (json: string): IRV2 => { const ir = JSON.parse(json) as IRV2; return hooks.upgrade ? hooks.upgrade(ir) : ir; };
   const stateOf = (id: string) =>
     db.prepare("SELECT ir_json,revision,cursor,materialized_revision FROM document_state WHERE project_id=?").get(id) as State | undefined;
   const stepAt = (id: string, seq: number) =>
@@ -69,7 +71,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
     serialized(id, async () => {
       const s = stateOf(id);
       if (!s || s.materialized_revision >= s.revision) return;
-      await materialize(id, JSON.parse(s.ir_json) as IRV2);
+      await materialize(id, parse(s.ir_json));
       // a newer step committed meanwhile: its own (queued) materialization marks it
       db.prepare("UPDATE document_state SET materialized_revision=? WHERE project_id=? AND revision=?").run(s.revision, id, s.revision);
     });
@@ -89,7 +91,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       assertIdle(id); // re-checked after the await above
       const s = stateOf(id)!;
       if (s.revision !== baseRevision) throw new AppError(Codes.STALE_REVISION, `document is at revision ${s.revision}, not ${baseRevision}`, { revision: s.revision });
-      const out = apply(JSON.parse(s.ir_json) as IRV2, s.cursor);
+      const out = apply(parse(s.ir_json), s.cursor);
       const revision = s.revision + 1;
       const fidelity = refreshFidelity(out.ir.fidelity ?? [], out.ir, captures);
       if (out.step) {
@@ -108,12 +110,12 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
   // The current document without adopting it: the snapshot once adopted, else the job's checkpoint.
   async function readDocument(id: string): Promise<IRV2> {
     const found = stateOf(id);
-    return found ? (JSON.parse(found.ir_json) as IRV2) : hooks.loadInitial(id);
+    return found ? parse(found.ir_json) : hooks.loadInitial(id);
   }
 
   async function loadDocument(id: string): Promise<IRV2> {
     if (!stateOf(id) && hooks.isBusy?.(id)) return readDocument(id); // a job may still rewrite ir.json: not adopted yet
-    return JSON.parse((stateOf(id) ?? (await ensureState(id))).ir_json) as IRV2;
+    return parse((stateOf(id) ?? (await ensureState(id))).ir_json);
   }
 
   return {
@@ -169,7 +171,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       const done = tx(db, () => {
         const s = stateOf(id);
         if (!s || (revision !== null && s.revision !== revision) || hooks.isBusy?.(id)) return null;
-        const ir = JSON.parse(s.ir_json) as IRV2;
+        const ir = parse(s.ir_json);
         const items = capFidelity(update(ir.fidelity ?? [], ir));
         const changed = JSON.stringify(items) !== JSON.stringify(ir.fidelity ?? []);
         if (changed) db.prepare("UPDATE document_state SET ir_json=? WHERE project_id=?").run(JSON.stringify({ ...ir, fidelity: items }), id);
@@ -181,7 +183,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
           if (!s || s.materialized_revision < s.revision) return; // a pending repair writes the whole document
           const behind = () => db.prepare("UPDATE document_state SET materialized_revision=? WHERE project_id=? AND revision=?").run(s.revision - 1, id, s.revision);
           if (hooks.isBusy?.(id)) return void behind(); // a job queued meanwhile owns ir.json: the next idle read repairs it
-          await (hooks.mirror ?? materialize)(id, JSON.parse(s.ir_json) as IRV2).catch((e: unknown) => {
+          await (hooks.mirror ?? materialize)(id, parse(s.ir_json)).catch((e: unknown) => {
             behind();
             throw Object.assign(new AppError(Codes.DOCUMENT_MATERIALIZE_FAILED, "Fidelity saved but ir.json could not be written; it is repaired on the next read", { revision: s.revision }), { cause: e });
           });

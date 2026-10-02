@@ -187,6 +187,16 @@ test("the first idle read adopts revision 0 once; later reads never reload or ch
   expect(written).toEqual([]); // the existing output is revision 0's
 });
 
+test("the upgrade hook (E2 §9) runs on every snapshot read; the next step persists it, no extra History row", async () => {
+  const upgrade = (ir: IRV2): IRV2 => (ir.tokens["--u"] ? ir : { ...ir, tokens: { ...ir.tokens, "--u": "1" } });
+  const { db, store } = setup(":memory:", { upgrade });
+  await store.loadDocument("p"); // adopted as loaded (loadInitial is not upgraded by the store)
+  expect((await store.readDocument("p")).tokens).toEqual({ "--u": "1" });
+  await store.commitCommands("p", 0, setText("new"), "user");
+  const stored = JSON.parse((db.prepare("SELECT ir_json FROM document_state WHERE project_id='p'").get() as { ir_json: string }).ir_json) as IRV2;
+  expect([stored.tokens, textOf(stored), historyRows(db, "p")]).toEqual([{ "--u": "1" }, "new", 1]);
+});
+
 test("invalid or oversized steps are refused before anything is written", async () => {
   const { db, store } = setup();
   expect(await codeOf(store.commitCommands("p", 0, [{ op: "setText", id: "missing", text: "x" }], "user"))).toBe("IR_PATCH_INVALID");

@@ -5,7 +5,6 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import { atomicWrite } from "./fsx";
-import type { Interaction } from "./interactions";
 import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
 import { baseDecl, cfgOf, EMBED_HOSTS, embedSrc, loopClones, roleIndex, videoAttrs, type Role, type VideoSpec } from "./interactive";
 import { resolveComponents } from "./ir-component";
@@ -22,14 +21,6 @@ export type RenderOpts = {
 export type EmitOpts = RenderOpts & { outDir: string; workspaceDir: string };
 
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-const BEHAVIOR_ATTR: Partial<Record<Interaction["kind"], string>> = {
-  menu: "toggle",
-  accordion: "toggle",
-  tab: "tabs",
-  modal: "modal",
-  carousel: "carousel",
-  sticky: "sticky",
-};
 const STATES = ["hover", "focus", "active"] as const;
 const FRAME_TAGS = new Set(["iframe", "frame", "embed", "object"]);
 const SAFE_ATTR_NAME = /^[^\s"'<>/=]+$/;
@@ -50,7 +41,6 @@ export const EFFECT_PRESETS: Record<string, string> = {
 type Ctx = {
   opts: RenderOpts;
   sections: Map<string, Section>;
-  kinds: Map<string, Interaction["kind"]>;
   pageFiles: Map<string, string>; // normalized page url -> local file
   assetKeys: string[]; // sorted assetMap keys, for relative-path fallback in CSS
 };
@@ -128,11 +118,6 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   for (const state of STATES) if (node.states?.[state]) cls.add(`st-${node.states[state]}`);
   if (cls.size > 0) out += ` class="${escAttr([...cls].join(" "))}"`;
   for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null) out += ` ${name}="${escAttr(value)}"`;
-  if (node.behavior) {
-    const kind = ctx.kinds.get(node.behavior);
-    const behavior = kind && BEHAVIOR_ATTR[kind];
-    out += behavior ? ` data-behavior="${behavior}" data-ix="${escAttr(node.behavior)}"` : ` data-behavior="unresolved"`;
-  }
   if (!ctx.opts.stripIds || node.keepId) out += ` data-ir-id="${escAttr(node.id)}"`;
   return out;
 }
@@ -182,7 +167,6 @@ function makeCtx(ir: IR, opts: RenderOpts, fileByPage: Map<string, string>): Ctx
   return {
     opts,
     sections: new Map(ir.sections.map((s) => [s.id, s])),
-    kinds: new Map(ir.interactions.map((it) => [it.id, it.kind])),
     pageFiles,
     assetKeys: Object.keys(opts.assetMap).sort(),
   };

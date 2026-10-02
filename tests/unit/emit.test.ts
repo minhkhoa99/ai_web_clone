@@ -160,7 +160,7 @@ test("hover state -> st- class on the node and a :hover rule from the state clas
   expect(files["css/styles.css"]).toContain(`.st-${hover}:hover{color:blue}`);
 });
 
-test("behavior: captured -> data-behavior kind + data-ix, failed -> unresolved", () => {
+test("menu interaction -> guessed dropdown component (data-c), failed -> nothing; data-behavior is gone", () => {
   const ir = buildIR([
     capture(
       "p1",
@@ -175,8 +175,10 @@ test("behavior: captured -> data-behavior kind + data-ix, failed -> unresolved",
     ),
   ]);
   const html = renderSite(ir, noUrls)["index.html"]!;
-  expect(html).toContain('<button id="menu" data-behavior="toggle" data-ix="ix-menu"');
-  expect(html).toContain('<div id="tabs" data-behavior="unresolved"');
+  expect(html).toMatch(/<nav[^>]* data-c="(menu|dropdown)" data-c-cfg="[^"]*"/);
+  expect(html).toMatch(/<button id="menu"[^>]* data-c-role="trigger"/);
+  expect(html).toMatch(/<div id="tabs"(?! data-c)/);
+  expect(html).not.toContain("data-behavior");
 });
 
 test("URL rewrite: assets -> relative, cloned page links -> local .html, others -> absolute", () => {

@@ -19,6 +19,7 @@ import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import type { LegacyIR } from "./ir-legacy";
 import { migrateIR } from "./ir-migrate";
+import { upgradeDocument } from "./interactive-guess";
 import { documentStore } from "./ir-store";
 import type { FidelityItem } from "./ir-v2";
 import { refreshFidelity } from "./fidelity";
@@ -368,6 +369,7 @@ export function projectDocuments(db: DatabaseSync) {
     // ponytail: each step parses the capture.json files twice (here and in materialize); cache per project if steps get slow
     captures: async (projectId) => loadCaptures(await editSource(db, projectId)),
     mirror: async (projectId, ir) => writeJsonAtomic(join(workspaceOf(projectId), "ir.json"), ir),
+    upgrade: upgradeDocument,
   });
 }
 
