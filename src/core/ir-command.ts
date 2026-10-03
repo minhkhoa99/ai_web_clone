@@ -468,14 +468,14 @@ function applySpec(ir: IRV2, c: SpecEdit | Extract<HistoryCommand, { op: "restor
 // unwrapComponent); the whole component (its root inside the subtree) may go. A new child of a track would be a
 // slide the spec does not know: addComponentItem.
 const ROLE_LABEL: Record<Role, string> = { viewport: "viewport", track: "track", slide: "slide", prev: "nút prev", next: "nút next", pagination: "pagination", tab: "tab", panel: "panel", trigger: "trigger", dialog: "dialog", close: "nút đóng", video: "video" };
+function guardTrack(members: ReturnType<typeof roleIndex>, parentId: string, fail: Fail): void {
+  const track = (members.get(parentId) ?? []).find((m) => m.role === "track");
+  if (track) fail(`node ${parentId} là track của carousel ${track.root} — dùng nút Thêm trong panel Component (addComponentItem)`);
+}
 function guardRoles(ir: IRV2, c: Extract<Plain, { op: "createNode" | "moveNode" | "deleteNode" | "duplicateNode" }>, fail: Fail): void {
   const members = roleIndex(ir);
   if (!members.size) return;
-  if (c.op === "createNode" || c.op === "duplicateNode") {
-    const track = (members.get(c.parentId) ?? []).find((m) => m.role === "track");
-    if (track) fail(`node ${c.parentId} là track của carousel ${track.root} — dùng nút Thêm trong panel Component (addComponentItem)`);
-    return; // a duplicate leaves its source in place; the copy is static (R12)
-  }
+  if (c.op === "createNode" || c.op === "duplicateNode") return guardTrack(members, c.parentId, fail); // a duplicate leaves its source in place; the copy is static (R12)
   const subtree = new Set(preorder(need(ir, c.id, fail).node).map((x) => x.id));
   for (const id of subtree) for (const m of members.get(id) ?? []) {
     if (subtree.has(m.root)) continue;
@@ -664,7 +664,14 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
         normalized = { op: command.op, id: command.id, ...(command.from !== undefined && { from: command.from }), index: command.index, newIds };
         break;
       }
-      case "moveNode": normalized = { op: command.op, id: command.id, parentId: command.parentId, index: command.index }; break;
+      case "moveNode": {
+        // forward only: an Undo (History, never prepared) puts a loop clone moved out of a track back in; a role node
+        // (a slide) gets guardRoles' moveComponentItem refusal instead
+        const members = roleIndex(current);
+        if (!members.has(command.id)) guardTrack(members, command.parentId, fail);
+        normalized = { op: command.op, id: command.id, parentId: command.parentId, index: command.index };
+        break;
+      }
       case "deleteNode": normalized = { op: command.op, id: command.id }; break;
       case "createNode": normalized = { op: command.op, parentId: command.parentId, index: command.index, node: fromDraft(command.draft, allocateId, fail) }; break;
       case "duplicateNode": {

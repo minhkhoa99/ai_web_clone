@@ -71,6 +71,17 @@ test("Review Focus 3 — tree commands cannot break a component: slide / outside
   expect(() => run(fixture(), [{ op: "setHidden", id: "s1", hidden: true }])).not.toThrow();
 });
 
+test("moveNode into a carousel track is refused (addComponentItem); a loop clone moved out comes back on Undo and leaves on Redo", () => {
+  expect(() => run(fixture(), [{ op: "moveNode", id: "t1", parentId: "tr", index: 0 }])).toThrow(/track của carousel root — dùng nút Thêm trong panel Component \(addComponentItem/);
+  const ir = fixture();
+  const tr = node(ir, "tr")!;
+  tr.children.push({ ...n("dup", "div"), parentId: "tr", hidden: true }); // a loop clone: in the track, not a slide
+  const out = run(ir, [{ op: "moveNode", id: "dup", parentId: "sec", index: 0 }]);
+  const back = applyCommands(out.ir, out.inverse); // Undo: moveNode back into the track (History path, no prepare)
+  expect(back.ir).toEqual(ir);
+  expect(applyCommands(back.ir, back.inverse).ir).toEqual(out.ir); // Redo
+});
+
 // --- edge cases ---
 const withArrow = (): IRV2 => { const ir = fixture(); const root = node(ir, "root")!; root.children.push({ ...n("nx", "button"), parentId: "root" }); return ir; };
 test("redo replays the inverse of the inverse: update / convert / unwrap come back exactly", () => {
