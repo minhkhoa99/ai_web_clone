@@ -209,8 +209,13 @@ export const COMPONENT_NOTE = "component-note";
 export type BehaviorResult = { pageId: string; nodeId: string; kind: InteractiveKind; ok: boolean; reason?: string };
 const KIND_LABEL: Record<InteractiveKind, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const CONFIDENCE_LABEL: Record<InteractiveSpec["confidence"], string> = {
-  config: "đọc từ cấu hình thư viện", observed: "quan sát trên trang gốc", guessed: "suy từ cấu trúc — Clone lại để đọc cấu hình thật", manual: "gắn tay, chưa kiểm chứng",
+  config: "đọc từ cấu hình thư viện", observed: "quan sát trên trang gốc", guessed: "suy từ cấu trúc", manual: "gắn tay, chưa kiểm chứng",
 };
+
+// E2 §7: only a library carousel has a config a re-clone can read (aria/details/native guesses have none)
+const LIBRARY = new Set(["swiper", "slick", "splide"]);
+const confidenceLabel = (spec: InteractiveSpec) =>
+  CONFIDENCE_LABEL[spec.confidence] + (spec.confidence === "guessed" && spec.kind === "carousel" && LIBRARY.has(spec.source) ? " — Clone lại để đọc cấu hình thật" : "");
 
 // E2 §3: one item per component, re-derived from the document on every refresh. A component the user unwrapped keeps
 // an unsupported item (from `before`) until its interactive comes back (Undo).
@@ -223,7 +228,7 @@ export function componentFidelity(ir: IRV2, before: FidelityItem[]): FidelityIte
     if (spec) {
       live.add(node.id);
       const status = spec.confidence === "config" && !notes.has(node.id) ? "supported" : "partial";
-      out.push({ pageId, feature: COMPONENT_FEATURE, status, nodeId: node.id, sourceRef: node.id, note: clip(`${KIND_LABEL[spec.kind]} · nguồn ${spec.source} · ${CONFIDENCE_LABEL[spec.confidence]}`) });
+      out.push({ pageId, feature: COMPONENT_FEATURE, status, nodeId: node.id, sourceRef: node.id, note: clip(`${KIND_LABEL[spec.kind]} · nguồn ${spec.source} · ${confidenceLabel(spec)}`) });
     }
     node.children.forEach(visit(pageId));
   };

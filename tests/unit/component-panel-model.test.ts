@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { componentFor, generatedId, moveCommand, NUMBER_RULES, numberValue, thumbStyle, type PanelDocument } from "@/app/p/[id]/editor/component-panel/panel-model";
+import { componentFor, generatedId, moveCommand, NUMBER_RULES, numberValue, recloneHint, thumbStyle, type PanelDocument } from "@/app/p/[id]/editor/component-panel/panel-model";
 import { parseSpec } from "@/core/interactive";
 import { panelComponents, type PanelComponent } from "@/core/interactive";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
@@ -82,4 +82,12 @@ test("panelComponents: the page's components (layout sections through their plac
   expect(d).toMatchObject({ rootId: "other", members: ["t", "pn"], items: [], instance: false });
   expect(d!.fidelity).toBeUndefined();
   expect(panelComponents(ir, "nope")).toEqual([]);
+});
+
+test("recloneHint: only a guessed swiper/slick/splide carousel (a re-clone can read its config), never aria/details/native guesses", () => {
+  expect(recloneHint(car.spec)).toBe(true);
+  expect(recloneHint({ ...car.spec, confidence: "config" } as PanelComponent["spec"])).toBe(false);
+  expect(recloneHint({ ...car.spec, source: "scroll-snap" } as PanelComponent["spec"])).toBe(false);
+  expect(recloneHint({ kind: "tabs", source: "aria", confidence: "guessed", tabs: [{ trigger: "a", panel: "b" }], active: 0 })).toBe(false);
+  expect(recloneHint({ kind: "accordion", source: "details", confidence: "guessed", multiple: true, items: [{ trigger: "a", panel: "b", open: false }] })).toBe(false);
 });

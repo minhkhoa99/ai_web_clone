@@ -14,6 +14,10 @@ export function componentFor(doc: PanelDocument, selectedId: string | null): Pan
   return undefined;
 }
 
+// E2 §7: "Clone lại để đọc cấu hình thật" only where a re-clone can read a library config (core fidelity says the same)
+export const recloneHint = (spec: PanelComponent["spec"]): boolean =>
+  spec.kind === "carousel" && spec.confidence === "guessed" && ["swiper", "slick", "splide"].includes(spec.source);
+
 export function moveCommand(c: PanelComponent, itemId: string, delta: -1 | 1): EditorCommand | undefined {
   const at = c.items.findIndex((x) => x.id === itemId), to = at + delta;
   return at < 0 || to < 0 || to >= c.items.length ? undefined : { op: "moveComponentItem", id: c.rootId, itemId, index: to };

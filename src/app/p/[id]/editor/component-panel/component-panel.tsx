@@ -7,7 +7,7 @@ import { IconButton } from "@/app/_ui/IconButton";
 import type { EditorCommand } from "@/core/ir-command";
 import { ComponentForm } from "./component-form";
 import { ConvertWizard } from "./convert-wizard";
-import { componentFor, generatedId, moveCommand, thumbStyle, type PanelDocument } from "./panel-model";
+import { componentFor, generatedId, moveCommand, recloneHint, thumbStyle, type PanelDocument } from "./panel-model";
 
 const KIND: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const CONF: Record<string, string> = { config: "cấu hình thư viện", observed: "quan sát", guessed: "suy đoán", manual: "gắn tay" };
@@ -43,7 +43,7 @@ export function ComponentPanel({ document: doc, selectedId, revision: _revision,
       <div className="cmp-head" data-ui="ui_editor_component_header">
         <strong>{KIND[c.spec.kind]}</strong> <span className="t-body-sm text-2">nguồn {c.spec.source} · {CONF[c.spec.confidence]}</span>
         {c.fidelity && <Badge tone={TONE[c.fidelity]}>{FID[c.fidelity]}</Badge>}
-        {c.spec.confidence === "guessed" && <p className="t-body-sm text-2">Clone lại để đọc cấu hình thật.</p>}
+        {recloneHint(c.spec) && <p className="t-body-sm text-2">Clone lại để đọc cấu hình thật.</p>}
       </div>
       {c.items.length > 0 && (
         <ol className="cmp-items" data-ui="ui_editor_component_items" aria-label="Các mục">

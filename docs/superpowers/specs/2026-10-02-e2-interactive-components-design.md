@@ -144,7 +144,7 @@ Ngoài hai chế độ này là chạy bình thường. Một component cấu h�
 
 React thuần trong `src/app/p/[id]/editor/component-panel/`. Không import GrapesJS; giao tiếp qua props `{ document, selectedId, revision, onCommands }`. Panel hiện ở rail phải khi node đang chọn nằm trong một `interactive`.
 
-- **Đầu panel:** kind, source, confidence, badge Fidelity; nếu confidence là `guessed` thì hiện dòng nhắc "Clone lại để đọc cấu hình thật".
+- **Đầu panel:** kind, source, confidence, badge Fidelity; nếu là carousel `guessed` có source `swiper`/`slick`/`splide` thì hiện dòng nhắc "Clone lại để đọc cấu hình thật" (Fidelity ghi cùng câu); component đoán từ aria/`details`/native không có cấu hình thư viện để đọc nên không nhắc.
 - **Danh sách item:** thumbnail lấy từ capture nếu có, kèm tên. Kéo thả để đổi thứ tự, có nút ↑↓ cho bàn phím. Có Thêm, Nhân bản, Xoá. Bấm item thì canvas chuyển sang item đó qua `postMessage` (chỉ là trạng thái khi sửa, không lưu).
 - **Form theo kind** (giá trị đổi thì gửi `updateComponent`):
   - carousel: autoplay + interval, loop, hướng, transition + speed, slidesPerView và gap cho Desktop/Tablet/Mobile, mũi tên, pagination bullets/fraction/tắt;

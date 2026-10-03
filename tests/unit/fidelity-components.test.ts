@@ -13,10 +13,14 @@ const ir = (spec?: InteractiveSpec, fidelity: FidelityItem[] = []): IRV2 => ({
   layouts: [], components: [], tokens: {}, cssom: { keyframes: [], fontFace: [], vars: {} }, interactions: [], fidelity,
 });
 
-test("config -> supported, observed/guessed/manual -> partial; guessed asks for a re-clone; a partial note keeps config partial", () => {
+test("config -> supported, observed/guessed/manual -> partial; a guessed library carousel asks for a re-clone; a partial note keeps config partial", () => {
   expect(componentFidelity(ir(tabs("config")), [])).toEqual([expect.objectContaining({ feature: COMPONENT_FEATURE, status: "supported", nodeId: "r", sourceRef: "r" })]);
   expect(componentFidelity(ir(tabs("observed")), [])[0]!.status).toBe("partial");
-  expect(componentFidelity(ir(tabs("guessed")), [])[0]!.note).toContain("Clone lại để đọc cấu hình thật");
+  // the re-clone hint only where a re-clone can read a library config: a guessed swiper/slick/splide carousel
+  expect(componentFidelity(ir(tabs("guessed")), [])[0]!.note).not.toContain("Clone lại");
+  const car = (source: InteractiveSpec["source"]): InteractiveSpec => ({ kind: "carousel", source, confidence: "guessed", viewport: "a", track: "a", slides: ["b"], active: 0, autoplay: false, interval: 5000, loop: false, direction: "horizontal", transition: "slide", speed: 300, slidesPerView: {}, gap: {} });
+  for (const source of ["swiper", "slick", "splide"] as const) expect(componentFidelity(ir(car(source)), [])[0]!.note).toContain("Clone lại để đọc cấu hình thật");
+  for (const source of ["scroll-snap", "generic"] as const) expect(componentFidelity(ir(car(source)), [])[0]!.note).not.toContain("Clone lại");
   const note: FidelityItem = { pageId: "p", feature: COMPONENT_NOTE, status: "partial", nodeId: "r", sourceRef: "r", note: "hiệu ứng coverflow không tái tạo" };
   expect(componentFidelity(ir(tabs("config"), [note]), [note])[0]!.status).toBe("partial");
 });
