@@ -100,9 +100,14 @@ const errorText = (e: unknown) => `error: ${e instanceof Error ? e.message : Str
 const pct = (score: number) => `${(score * 100).toFixed(1)}%`;
 const selectorFor = (id: string) => `[data-ir-id=${JSON.stringify(id)}]`;
 
+// E2 §8: the AI only tunes config (slidesPerView, gap, speed…); arrows / pagination / closeButton name role nodes —
+// structure, so the panel's alone (patchSpec still takes them).
+const NOT_FOR_AI = new Set(["arrows", "pagination", "closeButton"]);
+const aiPatchable = (kind: InteractiveKind) => PATCHABLE[kind].filter((k) => !NOT_FOR_AI.has(k));
+
 // Pure. AI reply -> commands ([] = no fix this round), or AI_BAD_RESPONSE (bad JSON, bad shape, an op E1 does not
 // give the AI, or an id / parentId outside `allowed`).
-export function parseCommands(text: string, allowed: Set<string>, components: Set<string> = new Set()): EditorCommand[] {
+export function parseCommands(text: string, allowed: Set<string>, components: Map<string, InteractiveKind> = new Map()): EditorCommand[] {
   const bad = (why: string) => new AppError(Codes.AI_BAD_RESPONSE, `fix reply rejected: ${why}`, { reply: text.slice(0, 200) });
   let raw: unknown;
   try {
@@ -115,7 +120,11 @@ export function parseCommands(text: string, allowed: Set<string>, components: Se
   for (const c of parsed.data.commands) {
     const outside = ["id" in c ? c.id : undefined, "parentId" in c ? c.parentId : undefined].find((id) => id !== undefined && !allowed.has(id));
     if (outside) throw bad(`${c.op} targets ${outside}, outside the section`);
-    if (c.op === "updateComponent" && !components.has(c.id)) throw bad(`updateComponent targets ${c.id}, not a component of the section`);
+    if (c.op !== "updateComponent") continue;
+    const kind = components.get(c.id);
+    if (!kind) throw bad(`updateComponent targets ${c.id}, not a component of the section`);
+    const field = Object.keys(c.patch).find((k) => !aiPatchable(kind).includes(k));
+    if (field) throw bad(`updateComponent field ${field.slice(0, 40)} is not patchable by the AI`);
   }
   return parsed.data.commands;
 }
@@ -127,7 +136,7 @@ export function componentContext(root: IRNodeV2, max = 50): { id: string; kind: 
     if (out.length >= max) return;
     if (n.interactive) {
       const spec = n.interactive as unknown as Record<string, unknown>;
-      out.push({ id: n.id, kind: n.interactive.kind, config: Object.fromEntries(PATCHABLE[n.interactive.kind].filter((k) => k in spec).map((k) => [k, spec[k]])) });
+      out.push({ id: n.id, kind: n.interactive.kind, config: Object.fromEntries(aiPatchable(n.interactive.kind).filter((k) => k in spec).map((k) => [k, spec[k]])) });
     }
     for (const c of n.children) walk(c);
   };
@@ -295,7 +304,7 @@ async function proposeCommands(ctx: FixCtx, t: FixTarget, best: Scored, bestDir:
         return [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: text }];
       };
       const text = await ask(ctx, page, prompt, images);
-      return parseCommands(text, collectIds(section.root, new Set()), new Set(componentContext(section.root).map((x) => x.id)));
+      return parseCommands(text, collectIds(section.root, new Set()), new Map(componentContext(section.root).map((x) => [x.id, x.kind])));
     });
   } finally {
     await server.close();

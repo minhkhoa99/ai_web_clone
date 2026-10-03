@@ -5,6 +5,7 @@ import { generate } from "@/core/gateway";
 import { asTools } from "@/core/inspector";
 import { estimateTokens, MAX_IMAGE_WIDTH, MAX_IMAGES_B64, MAX_REQUEST_TOKENS } from "@/core/naming";
 import { prepareCommands } from "@/core/ir-command";
+import { patchSpec } from "@/core/interactive";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
 import { ask, componentContext, focusDiff, parseCommands, type FixCtx } from "@/core/qa-fix";
 
@@ -131,14 +132,27 @@ test("ask: every generate call is fitted under MAX_REQUEST_TOKENS (images droppe
 });
 
 test("AI fix: updateComponent only for a component of the section; item / convert / unwrap ops never reach the AI", () => {
-  const ok = parseCommands('{"commands":[{"op":"updateComponent","id":"car","patch":{"slidesPerView":{"1440":2}}}]}', new Set(["car", "x"]), new Set(["car"]));
+  const ok = parseCommands('{"commands":[{"op":"updateComponent","id":"car","patch":{"slidesPerView":{"1440":2}}}]}', new Set(["car", "x"]), new Map([["car", "carousel"]]));
   expect(ok).toEqual([{ op: "updateComponent", id: "car", patch: { slidesPerView: { "1440": 2 } } }]);
-  expect(() => parseCommands('{"commands":[{"op":"updateComponent","id":"x","patch":{"speed":1}}]}', new Set(["car", "x"]), new Set(["car"]))).toThrow(/component/);
+  expect(() => parseCommands('{"commands":[{"op":"updateComponent","id":"x","patch":{"speed":1}}]}', new Set(["car", "x"]), new Map([["car", "carousel"]]))).toThrow(/component/);
   for (const op of ["addComponentItem", "removeComponentItem", "moveComponentItem", "convertToComponent", "unwrapComponent", "addCarouselSlide"])
-    expect(() => parseCommands(`{"commands":[{"op":"${op}","id":"car","itemId":"s","index":0}]}`, new Set(["car", "s"]), new Set(["car"]))).toThrow();
+    expect(() => parseCommands(`{"commands":[{"op":"${op}","id":"car","itemId":"s","index":0}]}`, new Set(["car", "s"]), new Map([["car", "carousel"]]))).toThrow();
   const root = { id: "car", tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [],
     interactive: { kind: "carousel", source: "swiper", confidence: "config", viewport: "car", track: "car", slides: ["s"], active: 0, autoplay: false, interval: 5000, loop: false, direction: "horizontal", transition: "slide", speed: 300, slidesPerView: { "1440": 1 }, gap: {} } } as const;
   const ctx = componentContext(root as never);
   expect(ctx).toEqual([{ id: "car", kind: "carousel", config: expect.objectContaining({ speed: 300, slidesPerView: { "1440": 1 } }) }]);
   expect(JSON.stringify(ctx)).not.toContain('"slides"');
+});
+
+test("AI fix: arrows / pagination / closeButton (role ids, not config — spec §8) are neither shown to nor patchable by the AI; the panel keeps them", () => {
+  const spec = { kind: "carousel", source: "swiper", confidence: "config", viewport: "car", track: "car", slides: ["s"], active: 0, autoplay: false, interval: 5000, loop: false, direction: "horizontal", transition: "slide", speed: 300, slidesPerView: { "1440": 1 }, gap: {}, arrows: { next: "nx" }, pagination: { container: "pg", kind: "bullets" } } as const;
+  const root = { id: "car", tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [], interactive: spec };
+  const ctx = componentContext(root as never);
+  expect(Object.keys(ctx[0]!.config)).not.toContain("arrows");
+  expect(Object.keys(ctx[0]!.config)).not.toContain("pagination");
+  for (const patch of ['{"arrows":null}', '{"pagination":{"container":"x","kind":"fraction"}}', '{"speed":200,"arrows":{"prev":"x"}}'])
+    expect(() => parseCommands(`{"commands":[{"op":"updateComponent","id":"car","patch":${patch}}]}`, new Set(["car", "x"]), new Map([["car", "carousel"]]))).toThrow(/not patchable by the AI/);
+  expect(patchSpec(spec as never, { arrows: null, pagination: null })).not.toHaveProperty("arrows"); // the panel still can
+  expect(() => parseCommands('{"commands":[{"op":"updateComponent","id":"dlg","patch":{"closeButton":"x"}}]}', new Set(["dlg", "x"]), new Map([["dlg", "modal"]]))).toThrow(/not patchable by the AI/);
+  expect(parseCommands('{"commands":[{"op":"updateComponent","id":"dlg","patch":{"closeOn":["esc"]}}]}', new Set(["dlg"]), new Map([["dlg", "modal"]]))).toHaveLength(1);
 });
