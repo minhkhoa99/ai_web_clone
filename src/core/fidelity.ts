@@ -257,7 +257,9 @@ export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): 
 
 // E2 §5: a component-note names the fields it calls defaulted / guessed / observed ("<origin>: a, b: giá trị mặc định;
 // …"). updateComponent setting one makes it a choice, not a guess: the field leaves the note, and a partial note with
-// nothing left (no field, no other limit such as an unreproduced effect) goes, so behaviour QA can lift the component. Fidelity is derived data: an Undo does not bring it back.
+// nothing left (no field, no other limit such as an unreproduced effect) goes, so behaviour QA can lift the component.
+// Fidelity is derived data: an Undo does not bring it back.
+// ponytail: parses the note text placeGuesses / fromRecord write; a structured `fields` on FidelityItem if notes multiply
 const NOTED = /^(.+?)(: giá trị mặc định| suy từ cấu trúc và bbox| quan sát trên trang gốc)$/;
 export function clearNotedFields(ir: IRV2, commands: readonly { op: string; id?: unknown; patch?: unknown }[]): IRV2 {
   const set = new Map<string, Set<string>>();
