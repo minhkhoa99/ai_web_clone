@@ -160,7 +160,8 @@ export async function checkBehavior(handle: BrowserHandle, opts: { outDir: strin
     for (const { page, roots } of work) {
       const url = `${server.url}/${files.get(page.id)}`;
       for (const [i, root] of roots.entries()) {
-        const base = { pageId: page.id, nodeId: root.id, kind: root.interactive!.kind };
+        const spec = root.interactive!;
+        const base: BehaviorResult = { pageId: page.id, nodeId: root.id, kind: spec.kind, ok: false, ...(spec.kind === "video" && spec.mode === "embed" && { embed: true as const }) };
         if (i >= limits.perPage) { results.push({ ...base, ok: false, reason: `vượt giới hạn ${limits.perPage} component/trang` }); continue; }
         opts.signal?.throwIfAborted();
         const reason = await checkOne(browser, url, root, limits.perCheckMs);

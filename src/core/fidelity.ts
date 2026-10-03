@@ -206,7 +206,7 @@ export function capFidelity(items: FidelityItem[]): FidelityItem[] {
 
 export const COMPONENT_FEATURE = "component";
 export const COMPONENT_NOTE = "component-note";
-export type BehaviorResult = { pageId: string; nodeId: string; kind: InteractiveKind; ok: boolean; reason?: string };
+export type BehaviorResult = { pageId: string; nodeId: string; kind: InteractiveKind; ok: boolean; reason?: string; embed?: true }; // embed: a video iframe, never lifted (§4)
 const KIND_LABEL: Record<InteractiveKind, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const CONFIDENCE_LABEL: Record<InteractiveSpec["confidence"], string> = {
   config: "đọc từ cấu hình thư viện", observed: "quan sát trên trang gốc", guessed: "suy từ cấu trúc", manual: "gắn tay, chưa kiểm chứng",
@@ -242,7 +242,8 @@ export function componentFidelity(ir: IRV2, before: FidelityItem[]): FidelityIte
 }
 
 // E2 §5 (R5): applied when the Preview reads a fresh qa.json; never stored. A passed check lifts the item to supported
-// unless a partial component-note remains (fields still guessed / defaulted): then it stays partial, noted as verified.
+// unless a partial component-note remains (fields still guessed / defaulted) or it is an embed (§4: always partial,
+// played by the embedding site): then it stays partial, noted as verified.
 export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): FidelityItem[] {
   const byNode = new Map(results.map((r) => [`${r.pageId}|${r.nodeId}`, r]));
   const noted = new Set(items.filter((x) => x.feature === COMPONENT_NOTE && x.status !== "supported").map((x) => `${x.pageId}|${x.nodeId}`));
@@ -250,7 +251,7 @@ export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): 
     const key = `${x.pageId}|${x.nodeId}`;
     const r = x.feature === COMPONENT_FEATURE && x.status !== "unsupported" ? byNode.get(key) : undefined;
     if (!r) return x;
-    return r.ok ? { ...x, status: noted.has(key) ? "partial" : "supported", note: clip(`${x.note} · đã kiểm chứng hành vi trên bản clone`) } : { ...x, status: "partial", note: clip(`${x.note} · QA hành vi không đạt: ${r.reason ?? "không rõ"}`) };
+    return r.ok ? { ...x, status: noted.has(key) || r.embed ? "partial" : "supported", note: clip(`${x.note} · đã kiểm chứng hành vi trên bản clone`) } : { ...x, status: "partial", note: clip(`${x.note} · QA hành vi không đạt: ${r.reason ?? "không rõ"}`) };
   });
 }
 

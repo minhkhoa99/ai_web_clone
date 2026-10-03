@@ -47,3 +47,12 @@ test("withBehavior: a passed check lifts the component item unless a partial not
   const bad = withBehavior(items, [{ pageId: "p", nodeId: "r", kind: "tabs", ok: false, reason: "panel 2 không hiện" }]);
   expect(bad.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status: "partial", note: expect.stringContaining("panel 2 không hiện") });
 });
+
+test("withBehavior: an embed video (manual, no note) stays partial after a passed check (spec §4); a native one is lifted", () => {
+  const video = (mode: "native" | "embed"): InteractiveSpec => ({ kind: "video", source: "manual", confidence: "manual", node: "a", mode, autoplay: false, muted: false, loop: false, controls: true });
+  for (const [mode, status] of [["embed", "partial"], ["native", "supported"]] as const) {
+    const items = componentFidelity(ir(video(mode)), []);
+    const out = withBehavior(items, [{ pageId: "p", nodeId: "r", kind: "video", ok: true, ...(mode === "embed" && { embed: true as const }) }]);
+    expect(out.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status, note: expect.stringContaining("đã kiểm chứng") });
+  }
+});

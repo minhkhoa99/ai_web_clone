@@ -109,4 +109,8 @@ test("behaviour QA passes for every site4 component and lifts its Fidelity item"
   const lifted = withBehavior(ir.fidelity, results).filter((x) => x.feature === "component");
   expect(lifted.length).toBeGreaterThanOrEqual(9);
   expect(lifted.every((x) => x.status === "supported" || x.note.includes("đã kiểm chứng"))).toBe(true);
+  // §4: the embed is checked (its iframe is on the allowlist) but its item stays partial
+  const embed = results.find((r) => r.kind === "video" && r.embed)!;
+  expect(embed.ok).toBe(true);
+  expect(lifted.find((x) => x.nodeId === embed.nodeId)!.status).toBe("partial");
 });
