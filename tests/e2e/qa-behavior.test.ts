@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openBrowser, withPage, type BrowserHandle } from "@/core/browser";
+import { config } from "@/core/config";
+import { openDb } from "@/core/db";
+import { createProject, enqueue, requeueRescore, runProject, type QaFile } from "@/core/jobs";
 import { emitHtml } from "@/core/emit-html";
 import { checkBehavior } from "@/core/qa-behavior";
 import { prepareClonePage } from "@/core/qa";
@@ -130,5 +133,43 @@ test("Review Focus 4 — prepareClonePage (scoring + fix inspector) loads ?qa=1:
     });
   } finally {
     await server.close();
+  }
+});
+
+// E2 §9 final review #1: a project cloned before E2 and never opened in the editor — its v2 ir.json still carries
+// the v1 `behavior`s, out/ is the old data-behavior output. "Chạy lại QA" upgrades the IR in memory; out/ must be
+// re-emitted from it before scoring, or the behaviour pass checks the new components against the old HTML.
+test("Chạy lại QA on a not-adopted pre-E2 project: out/ re-emitted from the upgraded IR first; the menu and modal pass", { timeout: 120_000 }, async () => {
+  const db = openDb(":memory:");
+  const id = createProject(db, { url: "http://x.test/", mode: "single", config: {} });
+  await enqueue(db, id, ["http://x.test/"]);
+  const ws = join(config.workspaceRoot, id);
+  try {
+    db.prepare("DELETE FROM tasks WHERE project_id=? AND phase='capture'").run(id); // no capture evidence needed here
+    db.prepare("UPDATE tasks SET status='done',attempts=1,output_path='x' WHERE project_id=?").run(id);
+    db.prepare("UPDATE projects SET status='completed' WHERE id=?").run(id);
+    const hidden = css({ display: "none" });
+    const ir = siteOf(
+      n("hdr", "header", [n("menu-btn", "button", [t("mb", "Menu")], { attrs: { "aria-expanded": "false", "aria-controls": "main-nav" } }),
+        n("nav", "nav", [t("nv", "Links")], { attrs: { id: "main-nav" }, styles: hidden })]),
+      n("mod", "section", [n("open", "button", [t("ob", "Open")], { attrs: { "aria-haspopup": "dialog", "data-modal": "#dialog" } }),
+        n("dlg", "div", [t("dt", "Dialog"), n("x", "button", [t("xb", "Close")], { attrs: { "data-close": "" } })], { attrs: { id: "dialog", role: "dialog" }, styles: hidden })]),
+    );
+    ir.interactions = [{ id: "ix-menu", kind: "menu", trigger: "#menu-btn", status: "captured", pageId: "home" }, { id: "ix-modal", kind: "modal", trigger: "#open", status: "captured", pageId: "home" }];
+    ir.sections[0]!.root.children[0]!.behavior = "ix-menu";
+    ir.sections[1]!.root.children[0]!.behavior = "ix-modal";
+    await writeFile(join(ws, "ir.json"), JSON.stringify(ir));
+    await emitHtml(ir, { outDir: join(ws, "out"), workspaceDir: ws, assetMap: {}, pageUrls: {} }); // no data-c: the old output
+    await writeFile(join(ws, "out", "js", "runtime.js"), "/* pre-E2 runtime */");
+    await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [] }));
+    requeueRescore(db, id);
+    await runProject(db, id, { deps: { scoreSections: async () => [] } });
+    const qa = JSON.parse(await readFile(join(ws, "qa.json"), "utf8")) as QaFile;
+    expect(qa.behavior!.map((b) => b.kind).sort()).toEqual(["menu", "modal"]);
+    expect(qa.behavior!.filter((b) => !b.ok)).toEqual([]);
+    expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain('data-c="menu"');
+    expect(JSON.stringify(JSON.parse(await readFile(join(ws, "ir.json"), "utf8")))).not.toContain('"behavior"'); // the checkpoint is the upgraded document
+  } finally {
+    await rm(ws, { recursive: true, force: true, maxRetries: 3 });
   }
 });

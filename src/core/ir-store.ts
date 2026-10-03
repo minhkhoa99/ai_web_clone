@@ -26,7 +26,7 @@ export type StoreHooks = {
   captures?: (projectId: string) => Promise<PageCapture[]>; // the capture evidence Fidelity is re-derived from
   mirror?: (projectId: string, ir: IRV2) => Promise<void>; // writes the document file only (a Fidelity-only change); default: materialize
   onAdopt?: (projectId: string, ir: IRV2) => Promise<void>; // once, after the checkpoint became the document (serialized with output writes)
-  upgrade?: (ir: IRV2) => IRV2; // pure, idempotent (E2 §9): applied to every snapshot read, persisted by the next step
+  upgrade?: (ir: IRV2) => IRV2; // pure, idempotent (E2 §9): applied to every snapshot read, committed once (commitUpgrade)
 };
 type State = { ir_json: string; revision: number; cursor: number; materialized_revision: number };
 type Change = { ir: IRV2; createdIds: string[]; cursor: number; step?: { forward: string; inverse: string } };
@@ -42,7 +42,12 @@ function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export function documentStore(db: DatabaseSync, materialize: Materialize, hooks: StoreHooks) {
-  const parse = (json: string): IRV2 => { const ir = JSON.parse(json) as IRV2; return hooks.upgrade ? hooks.upgrade(ir) : ir; };
+  // the snapshot through the upgrade hook; `pending`: the hook changed it (not stored yet: commitUpgrade)
+  const read = (json: string): { ir: IRV2; pending: boolean } => {
+    const stored = JSON.parse(json) as IRV2, ir = hooks.upgrade ? hooks.upgrade(stored) : stored;
+    return { ir, pending: ir !== stored && JSON.stringify(ir) !== json };
+  };
+  const parse = (json: string): IRV2 => read(json).ir;
   const stateOf = (id: string) =>
     db.prepare("SELECT ir_json,revision,cursor,materialized_revision FROM document_state WHERE project_id=?").get(id) as State | undefined;
   const stepAt = (id: string, seq: number) =>
@@ -54,7 +59,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
   const nothing = (code: "NOTHING_TO_UNDO" | "NOTHING_TO_REDO"): never => { throw new AppError(Codes[code], "the history has no step in that direction"); };
 
   // The first idle read adopts the job's checkpoint at its revision (0) with an empty history; its existing output is
-  // that revision's, so nothing is re-emitted. INSERT OR IGNORE keeps two concurrent first reads idempotent.
+  // that revision's, so nothing is re-emitted (onAdopt re-emits a checkpoint the loader converted). INSERT OR IGNORE keeps two concurrent first reads idempotent.
   async function ensureState(id: string): Promise<State> {
     const found = stateOf(id);
     if (found) return found;
@@ -62,8 +67,12 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
     assertIdle(id); // a job may have been queued during the await: it owns ir.json now
     const { changes } = db.prepare("INSERT OR IGNORE INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,?,?,0,?)")
       .run(id, JSON.stringify(ir), ir.revision, ir.revision);
-    // queued on the output chain: a job's own repair (ensureMaterialized(id, true)) waits for it before scoring
-    if (changes > 0 && hooks.onAdopt) await serialized(id, () => hooks.onAdopt!(id, ir));
+    // queued on the output chain: a job's own repair (ensureMaterialized(id, true)) waits for it before scoring. A
+    // failed onAdopt (it may re-emit a converted checkpoint's output) leaves the output behind: the next read repairs it.
+    if (changes > 0 && hooks.onAdopt) await serialized(id, () => hooks.onAdopt!(id, ir)).catch((e: unknown) => {
+      db.prepare("UPDATE document_state SET materialized_revision=revision-1 WHERE project_id=?").run(id);
+      throw e;
+    });
     return stateOf(id)!;
   }
 
@@ -81,9 +90,34 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       throw Object.assign(err, { cause: e });
     });
 
+  // E2 §9: a stored snapshot the upgrade hook changes (adopted before E2: v1 `behavior`s) is committed once like
+  // commitJob — revision+1 (open tabs get STALE_REVISION and reload), the History reset (its inverses were recorded
+  // against the pre-upgrade document: a restoreProps would drop `interactive`, a deleteNode stick on the role guard),
+  // Fidelity re-derived, then materialized (ir.json, out/ with data-c + the new runtime, graph, qa.json stale).
+  // Never while a job owns the project unless `job` is that job; a lost CAS means another writer already stored the
+  // upgrade; upgraded == stored -> nothing (idempotent: no loop). true = committed.
+  async function commitUpgrade(id: string, job: boolean): Promise<boolean> {
+    const s = stateOf(id);
+    if (!hooks.upgrade || !s || (!job && hooks.isBusy?.(id))) return false;
+    const { ir, pending } = read(s.ir_json);
+    if (!pending) return false;
+    const captures = (await hooks.captures?.(id).catch(() => undefined)) ?? [];
+    const revision = tx(db, () => {
+      if ((!job && hooks.isBusy?.(id)) || stateOf(id)?.revision !== s.revision) return null;
+      db.prepare("DELETE FROM document_history WHERE project_id=?").run(id);
+      const fidelity = refreshFidelity(ir.fidelity ?? [], ir, captures);
+      db.prepare("UPDATE document_state SET ir_json=?,revision=?,cursor=0 WHERE project_id=?").run(JSON.stringify({ ...ir, fidelity, revision: s.revision + 1 }), s.revision + 1, id);
+      return s.revision + 1;
+    }, true);
+    if (revision === null) return false;
+    await materializeOrThrow(id, { revision });
+    return true;
+  }
+
   async function change(id: string, baseRevision: number, source: EditSource, apply: (ir: IRV2, cursor: number) => Change): Promise<EditResult> {
     assertIdle(id);
     await ensureState(id);
+    await commitUpgrade(id, false); // a pending upgrade moves the revision: this step's base is then stale
     // unreadable captures never block an edit: items are then only carried (a dead node unlinked); the preview's
     // next read re-derives them (jobs.previewFidelity)
     const captures = (await hooks.captures?.(id).catch(() => undefined)) ?? [];
@@ -115,7 +149,9 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
 
   async function loadDocument(id: string): Promise<IRV2> {
     if (!stateOf(id) && hooks.isBusy?.(id)) return readDocument(id); // a job may still rewrite ir.json: not adopted yet
-    return parse((stateOf(id) ?? (await ensureState(id))).ir_json);
+    await ensureState(id);
+    await commitUpgrade(id, false);
+    return parse(stateOf(id)!.ir_json);
   }
 
   return {
@@ -171,7 +207,8 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       const done = tx(db, () => {
         const s = stateOf(id);
         if (!s || (revision !== null && s.revision !== revision) || hooks.isBusy?.(id)) return null;
-        const ir = parse(s.ir_json);
+        const { ir, pending } = read(s.ir_json);
+        if (pending) return null; // a pending upgrade is stored as its own revision (commitUpgrade), never in place
         const items = capFidelity(update(ir.fidelity ?? [], ir));
         const changed = JSON.stringify(items) !== JSON.stringify(ir.fidelity ?? []);
         if (changed) db.prepare("UPDATE document_state SET ir_json=? WHERE project_id=?").run(JSON.stringify({ ...ir, fidelity: items }), id);
@@ -192,9 +229,13 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       return done?.items ?? null;
     },
     // A queued/active job owns out/ (it re-emits it): no repair then, the output is served as the job left it —
-    // unless the caller is that job (`job`: it repairs out/ before scoring it).
-    ensureMaterialized: async (id: string, job = false): Promise<void> => {
-      if (job || !hooks.isBusy?.(id)) await materializeOrThrow(id);
+    // unless the caller is that job (`job`: it repairs out/ before scoring it). A pending upgrade is committed first
+    // (true: the document moved to a new revision, a job's cached IR is stale).
+    ensureMaterialized: async (id: string, job = false): Promise<boolean> => {
+      if (!job && hooks.isBusy?.(id)) return false;
+      const upgraded = await commitUpgrade(id, job);
+      await materializeOrThrow(id);
+      return upgraded;
     },
   };
 }

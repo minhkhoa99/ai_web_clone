@@ -345,26 +345,29 @@ async function materializeDocument(db: DatabaseSync, projectId: string, ir: IR):
   await emitOut(src, ir);
 }
 
+// The job's checkpoint (ir.json) through migrateIR: v2 is only validated (no capture evidence needed) and upgraded
+// (E2 §9), v1 is migrated — in memory, a plain read writes nothing. `converted`: the loader changed it (v1, or v2 with
+// pre-E2 behaviors), so ir.json, out/ (old data-behavior HTML, old runtime) and the graph are not this document's yet.
+async function readCheckpoint(src: EmitSource): Promise<{ ir: IR; converted: boolean }> {
+  const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
+  if ((raw as { version?: unknown } | null)?.version !== 2) return { ir: migrateIR(raw, await loadCaptures(src)), converted: true };
+  const ir = migrateIR(raw, []);
+  return { ir, converted: ir !== raw }; // upgradeDocument returns the same object when there is nothing to upgrade
+}
+
 export function projectDocuments(db: DatabaseSync) {
-  const migrated = new Set<string>(); // projects whose last loadInitial (this store) read a v1 checkpoint
+  const converted = new Set<string>(); // projects whose last loadInitial (this store) read a converted checkpoint
   return documentStore(db, (projectId, ir) => materializeDocument(db, projectId, ir), {
-    // v2 is only validated (no capture evidence needed); v1 is migrated in memory — a plain read writes nothing
     loadInitial: async (projectId) => {
-      const src = await editSource(db, projectId);
-      const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
-      migrated.delete(projectId);
-      if ((raw as { version?: unknown } | null)?.version === 2) return migrateIR(raw, []);
-      const ir = migrateIR(raw, await loadCaptures(src));
-      migrated.add(projectId);
-      return ir;
+      const read = await readCheckpoint(await editSource(db, projectId));
+      if (read.converted) converted.add(projectId); else converted.delete(projectId);
+      return read.ir;
     },
-    // Adopting a v1 checkpoint is the one-time migration (E1 §6): the QA scored on the v1 output goes stale until
-    // "Chạy lại QA", and ir.json becomes the v2 mirror (so it never counts as a migration again). out/ is unchanged.
+    // Adopting a converted checkpoint is its one-time migration (E1 §6, E2 §9), materialized like a step: the QA
+    // scored on the old output goes stale until "Chạy lại QA", ir.json becomes the v2 mirror (so it never converts
+    // again), out/ + the graph are re-emitted (data-c, the new runtime).
     onAdopt: async (projectId, ir) => {
-      if (!migrated.has(projectId)) return;
-      const ws = workspaceOf(projectId);
-      if (existsSync(join(ws, "qa.json"))) await markQaStale(ws);
-      await writeJsonAtomic(join(ws, "ir.json"), ir);
+      if (converted.has(projectId)) await materializeDocument(db, projectId, ir);
     },
     isBusy: isQueuedOrActive,
     onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
@@ -576,8 +579,13 @@ async function runQa(run: Run): Promise<boolean> {
   const rescore = tasks.some((t) => t.key === "rescore"); // the key is in the db: also right after an interrupt + resume
   emit(run.projectId, { type: "phase", phase: "qa" });
   for (const t of tasks) startTask(run.db, run.projectId, t);
-  await projectDocuments(run.db).ensureMaterialized(run.projectId, true); // an adopted document's failed step: out/ repaired first
-  const scores = await scoreAll(run, await loadIr(run));
+  // adopted: a failed step's out/ repaired first, a pre-E2 snapshot committed upgraded (a new revision: re-read)
+  if (await projectDocuments(run.db).ensureMaterialized(run.projectId, true)) run.ir = undefined;
+  const ir = await loadIr(run);
+  // not adopted: a converted checkpoint (E2 §9) gets its ir.json and out/ first — both QA passes score the document's
+  // own output (data-c, the new runtime), never the old one
+  if ((await readCheckpoint(run)).converted && !(await checkpointIr(run, ir))) await emitOut(run, ir);
+  const scores = await scoreAll(run, run.ir!);
   const minBy = new Map<string, number>();
   for (const s of scores) {
     const k = `${s.pageId}:${s.sectionId}`;

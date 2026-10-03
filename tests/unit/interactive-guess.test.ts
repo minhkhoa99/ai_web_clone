@@ -95,17 +95,22 @@ test("R2: two sibling dropdowns sharing a parent both become components (second 
   expect(again.fidelity.some((x) => x.status === "unsupported" && x.note.includes("trùng node gốc"))).toBe(true);
 });
 
-test("the store upgrades an adopted document on read: no History row, same revision", async () => {
+test("the store commits an adopted pre-E2 document upgraded once on load (E2 §9): revision+1, History reset; a second load changes nothing", async () => {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE document_state(project_id TEXT PRIMARY KEY, ir_json TEXT NOT NULL, revision INTEGER NOT NULL, cursor INTEGER NOT NULL, materialized_revision INTEGER NOT NULL); CREATE TABLE document_history(project_id TEXT NOT NULL, seq INTEGER NOT NULL, forward_json TEXT NOT NULL, inverse_json TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), PRIMARY KEY(project_id,seq));");
   const ir = site2();
   ir.interactions = [{ id: "ix-tab", kind: "tab", trigger: "#t1", status: "captured", pageId: "p" }];
   ir.sections.find((s) => s.root.id === "tabs")!.root.children[0]!.children[0]!.behavior = "ix-tab";
-  db.prepare("INSERT INTO document_state VALUES('x', ?, 3, 0, 3)").run(JSON.stringify({ ...ir, revision: 3 })); // as change() stores it
-  const store = documentStore(db, async () => {}, { loadInitial: async () => ir, upgrade: upgradeDocument });
+  db.prepare("INSERT INTO document_state VALUES('x', ?, 3, 1, 3)").run(JSON.stringify({ ...ir, revision: 3 })); // as change() stored it pre-E2
+  db.prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES('x',1,'[]','[]','user')").run();
+  const written: number[] = [];
+  const store = documentStore(db, async (_id, doc) => void written.push(doc.revision), { loadInitial: async () => ir, upgrade: upgradeDocument });
   const doc = await store.loadDocument("x");
-  expect(doc.revision).toBe(3);
+  expect(doc.revision).toBe(4);
   expect(JSON.stringify(doc)).not.toContain('"behavior"');
+  expect(find(doc, "tabs")!.interactive).toMatchObject({ kind: "tabs" });
   expect((db.prepare("SELECT COUNT(*) c FROM document_history").get() as { c: number }).c).toBe(0);
+  expect((await store.loadDocument("x")).revision).toBe(4);
+  expect(written).toEqual([4]);
 });
