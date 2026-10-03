@@ -16,6 +16,7 @@ import { emitHtml, pageFileNames, type RenderOpts } from "./emit-html";
 import { AppError, Codes, type Code } from "./errors";
 import { writeFileAtomic } from "./fsx";
 import { generate, type ChatMessage, type GenerateOptions } from "./gateway";
+import { clearNotedFields } from "./fidelity";
 import { contextForFix, writeGraph } from "./graph";
 import { asTools, readStyle, snapshotA11y } from "./inspector";
 import { applyCommands, COMMAND_LIMITS, prepareCommands, type EditorCommand, type NodeDraft, type NormalizedCommand } from "./ir-command";
@@ -323,7 +324,7 @@ function refused<T>(run: () => T): T | undefined {
 // Server-side ID allocation once per round: the same normalized batch is applied to the candidate and reapplied to
 // the latest shared IR, so a created node keeps its id between the two.
 const prepare = (ir: IRV2, commands: EditorCommand[]) => refused(() => prepareCommands(ir, commands, randomUUID));
-const tryApply = (ir: IRV2, commands: NormalizedCommand[]) => refused(() => applyCommands(ir, commands).ir);
+const tryApply = (ir: IRV2, commands: NormalizedCommand[]) => refused(() => clearNotedFields(applyCommands(ir, commands).ir, commands)); // E2 §5: a field the AI set is no longer noted
 
 export async function fixSection(ctx: FixCtx, sectionId: string, pageId: string, stop: FixStop = { budget: false }): Promise<FixResult> {
   const t = { sectionId, pageId };

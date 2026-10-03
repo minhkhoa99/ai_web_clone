@@ -11,7 +11,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { PageCapture } from "./capture";
 import { tx } from "./db";
 import { AppError, Codes } from "./errors";
-import { capFidelity, refreshFidelity } from "./fidelity";
+import { capFidelity, clearNotedFields, refreshFidelity } from "./fidelity";
 import { applyCommands, prepareCommands, type EditorCommand, type HistoryCommand } from "./ir-command";
 import type { FidelityItem, IRV2 } from "./ir-v2";
 
@@ -150,7 +150,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       change(id, baseRevision, source, (ir, cursor) => {
         const forward = prepareCommands(ir, commands, randomUUID);
         const done = applyCommands(ir, forward); // refuses a step over 8 MB (forward + inverse)
-        return { ir: done.ir, createdIds: done.createdIds, cursor: cursor + 1, step: { forward: JSON.stringify(forward), inverse: JSON.stringify(done.inverse) } };
+        return { ir: clearNotedFields(done.ir, forward), createdIds: done.createdIds, cursor: cursor + 1, step: { forward: JSON.stringify(forward), inverse: JSON.stringify(done.inverse) } };
       }),
     undoDocument: (id: string, baseRevision: number) =>
       change(id, baseRevision, "user", (ir, cursor) => {

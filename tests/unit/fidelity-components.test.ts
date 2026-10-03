@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { COMPONENT_FEATURE, COMPONENT_NOTE, componentFidelity, refreshFidelity, withBehavior } from "@/core/fidelity";
+import { clearNotedFields, COMPONENT_FEATURE, COMPONENT_NOTE, componentFidelity, refreshFidelity, withBehavior } from "@/core/fidelity";
 import type { InteractiveSpec } from "@/core/interactive";
 import type { FidelityItem, IRNodeV2, IRV2 } from "@/core/ir-v2";
 
@@ -55,4 +55,23 @@ test("withBehavior: an embed video (manual, no note) stays partial after a passe
     const out = withBehavior(items, [{ pageId: "p", nodeId: "r", kind: "video", ok: true, ...(mode === "embed" && { embed: true as const }) }]);
     expect(out.find((x) => x.feature === COMPONENT_FEATURE)).toMatchObject({ status, note: expect.stringContaining("đã kiểm chứng") });
   }
+});
+
+test("clearNotedFields: updateComponent setting a noted (defaulted / guessed / observed) field drops it from the note; no noted field left -> the note goes", () => {
+  const note = (text: string, nodeId = "r"): FidelityItem => ({ pageId: "p", feature: COMPONENT_NOTE, status: "partial", nodeId, sourceRef: nodeId, note: text });
+  const doc = ir(tabs("guessed"), [
+    note("Nhận diện khi clone: autoplay, interval, speed: giá trị mặc định; hiệu ứng cube không tái tạo; dùng trượt"),
+    note("Nhận diện khi clone: loop, speed, slidesPerView, gap suy từ cấu trúc và bbox; autoplay/interval quan sát trên trang gốc", "q"),
+    { pageId: "p", feature: COMPONENT_NOTE, status: "supported", nodeId: "r", note: "Bỏ 2 slide clone do loop" },
+  ]);
+  const set = (id: string, patch: Record<string, unknown>) => ({ op: "updateComponent", id, patch });
+  const once = clearNotedFields(doc, [set("r", { interval: 3000, autoplay: true }), set("q", { autoplay: false })]);
+  expect(once.fidelity.map((x) => x.note)).toEqual([
+    "Nhận diện khi clone: speed: giá trị mặc định; hiệu ứng cube không tái tạo; dùng trượt",
+    "Nhận diện khi clone: loop, speed, slidesPerView, gap suy từ cấu trúc và bbox; interval quan sát trên trang gốc",
+    "Bỏ 2 slide clone do loop",
+  ]);
+  const all = clearNotedFields(ir(tabs("guessed"), [note("Chuyển từ hành vi cũ (v1): closeOn: giá trị mặc định")]), [set("r", { closeOn: ["esc"] })]);
+  expect(all.fidelity).toEqual([]); // nothing noted is left: behaviour QA may lift the component
+  expect(clearNotedFields(doc, [{ op: "setText", id: "r" }, set("other", { speed: 1 })])).toBe(doc); // untouched
 });

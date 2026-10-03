@@ -197,6 +197,18 @@ test("the upgrade hook (E2 §9) runs on every snapshot read; the next step persi
   expect([stored.tokens, textOf(stored), historyRows(db, "p")]).toEqual([{ "--u": "1" }, "new", 1]);
 });
 
+test("updateComponent through the store drops the noted field from its component-note (E2 §5); Undo keeps it dropped (Fidelity is never undone)", async () => {
+  const doc = fixture();
+  doc.sections[0]!.root.children.push(n("dd", "div", [n("tg", "button"), n("pn", "div")], { interactive: { kind: "dropdown", source: "aria", confidence: "guessed", trigger: "tg", panel: "pn", openOn: "click" } }));
+  doc.fidelity = [{ pageId: "pg", feature: "component-note", status: "partial", nodeId: "dd", sourceRef: "dd", note: "Nhận diện khi clone: openOn: giá trị mặc định" }];
+  const { store } = setup(":memory:", { loadInitial: async () => doc });
+  await store.commitCommands("p", 0, [{ op: "updateComponent", id: "dd", patch: { openOn: "hover" } }], "user");
+  const notes = (d: IRV2) => d.fidelity.filter((x) => x.feature === "component-note");
+  expect(notes(await store.loadDocument("p"))).toEqual([]);
+  await store.undoDocument("p", 1);
+  expect(notes(await store.loadDocument("p"))).toEqual([]);
+});
+
 test("invalid or oversized steps are refused before anything is written", async () => {
   const { db, store } = setup();
   expect(await codeOf(store.commitCommands("p", 0, [{ op: "setText", id: "missing", text: "x" }], "user"))).toBe("IR_PATCH_INVALID");

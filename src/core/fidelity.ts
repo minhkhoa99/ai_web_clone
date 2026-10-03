@@ -255,6 +255,34 @@ export function withBehavior(items: FidelityItem[], results: BehaviorResult[]): 
   });
 }
 
+// E2 §5: a component-note names the fields it calls defaulted / guessed / observed ("<origin>: a, b: giá trị mặc định;
+// …"). updateComponent setting one makes it a choice, not a guess: the field leaves the note, and a partial note with
+// nothing left (no field, no other limit such as an unreproduced effect) goes, so behaviour QA can lift the component. Fidelity is derived data: an Undo does not bring it back.
+const NOTED = /^(.+?)(: giá trị mặc định| suy từ cấu trúc và bbox| quan sát trên trang gốc)$/;
+export function clearNotedFields(ir: IRV2, commands: readonly { op: string; id?: unknown; patch?: unknown }[]): IRV2 {
+  const set = new Map<string, Set<string>>();
+  for (const { op, id, patch } of commands)
+    if (op === "updateComponent" && typeof id === "string" && patch && typeof patch === "object") set.set(id, new Set([...(set.get(id) ?? []), ...Object.keys(patch)]));
+  let changed = false;
+  const fidelity = (ir.fidelity ?? []).flatMap((x): FidelityItem[] => {
+    const fields = x.nodeId !== undefined && x.feature === COMPONENT_NOTE && x.status === "partial" ? set.get(x.nodeId) : undefined;
+    const at = x.note.indexOf(": ");
+    if (!fields || at < 0) return [x];
+    const segments = x.note.slice(at + 2).split("; ").flatMap((seg) => {
+      const m = NOTED.exec(seg);
+      if (!m) return [seg];
+      const sep = m[1]!.includes("/") ? "/" : ", ";
+      const left = m[1]!.split(sep).filter((f) => !fields.has(f));
+      return left.length ? [left.join(sep) + m[2]] : [];
+    });
+    const note = `${x.note.slice(0, at + 2)}${segments.join("; ")}`;
+    if (note === x.note) return [x];
+    changed = true;
+    return segments.length ? [{ ...x, note }] : []; // nothing noted and nothing else said: the note goes
+  });
+  return changed ? { ...ir, fidelity } : ir;
+}
+
 export function buildFidelity(captures: PageCapture[], ir: IRV2): FidelityItem[] {
   return capFidelity([...analyze(captures, ir), ...componentFidelity(ir, [])]);
 }
