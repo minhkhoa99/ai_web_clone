@@ -132,3 +132,11 @@ Next: E2 (Component detection + CarouselComponent + runtime) — start with supe
 - Task 14 Ruling: v1 project rescored before first editor open gets scores marked stale once at adoption (spec literal) accepted — cost: one extra rescore
 - Task 14 Ruling: unreadable ir.json (corrupt / v1 with corrupt capture) → Preview shows no pages + one Fidelity "không đọc được" item accepted — cost: less info than old raw read
 - Ruling: promoteLayout/restoreComponent undo payloads bounded by 8 MB step cap only, not 500/20 (real sections exceed 500) — spec §2 deviation — cost if wrong: larger history rows
+
+## E2 IN PROGRESS (2026-10-02)
+Spec 0f71994, plan 6ce8116, branch e2-interactive-components. Ledger: .superpowers/sdd/2026-10-02-e2-interactive-components/progress.md (resume at first task without "complete").
+
+## E2 DONE (2026-10-03) — branch e2-interactive-components, HEAD 9946028
+34 commits on top of main 0f71994 (spec) — not pushed/merged. Unit 436/436, full e2e 212/212 (x2 at 8d24684) + 53 targeted after final fixes, build 0 warnings.
+Rulings: spec §14 of docs/superpowers/specs/2026-10-02-e2-interactive-components-design.md. Graph NOT synced (graphify docs --update needs an LLM API key).
+Next: E3 (Figma-like visual editor) — start with superpowers:brainstorming. Deferred minors: see spec §14 / final review triage (non-blocking).
