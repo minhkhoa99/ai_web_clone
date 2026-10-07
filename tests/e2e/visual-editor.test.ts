@@ -422,3 +422,42 @@ test("E3a inline text: a multi-line paste stays on one line; Shift+Enter keeps a
   expect(await outHtml()).toContain(`>${before}</p>`);
   await page.close();
 });
+
+test("E3a panels: upload replaces an <img> (uploads map, out/assets), alt saved; Component tab shows the E2 panel; Hiệu ứng applies a preset", { timeout: 240_000 }, async () => {
+  const page = await open();
+  // the canvas's classes are the emitter's hashes: find the fixture's lazy <img> by its alt, then follow its IR id
+  const irId = await canvas(page).locator('img[alt="lazy"]').getAttribute("data-ir-id");
+  const img = canvas(page).locator(`img[data-ir-id="${irId}"]`);
+  await img.scrollIntoViewIfNeeded();
+  await img.click();
+  await page.getByRole("tab", { name: "Style" }).click();
+  await expect.poll(() => page.locator('[data-ui="ui_editor_image_panel"]').isVisible()).toBe(true);
+  await page.locator('[data-ui="ui_editor_upload"] input[type="file"]').setInputFiles(fileURLToPath(new URL("../fixtures/site4/poster.png", import.meta.url)));
+  await saved(page);
+  await expect.poll(() => img.getAttribute("src"), { timeout: 30_000 }).toMatch(/assets\/[0-9a-f]{64}\.png$/);
+  const rel = (await img.getAttribute("src"))!.replace(/^.*?(assets\/)/, "$1");
+  expect(await outHtml()).toContain(`src="${rel}"`);
+  expect((await fetch(`${app!.base}/api/projects/${projectId}/files/out/${rel}`)).status).toBe(200);
+  expect(await page.locator('[data-ui="ui_editor_asset_grid"] button').count()).toBeGreaterThan(0);
+  await expectUi(page, ["ui_editor_element_card", "ui_editor_image_panel", "ui_editor_asset_grid", "ui_editor_upload"]);
+  expect(await noSideScroll(page)).toBe(true);
+  await expectIconButtonsLabelled(page);
+  await expectNoDrift(page);
+  const alt = page.getByRole("textbox", { name: "Alt" });
+  await alt.fill("Ảnh mới");
+  await alt.press("Enter");
+  await saved(page);
+  await expect.poll(() => outHtml(), { timeout: 30_000 }).toContain('alt="Ảnh mới"');
+  // Component tab: the E2 panel for a plain node
+  await page.getByRole("tab", { name: "Component" }).click();
+  await expect.poll(() => page.locator('[data-ui="ui_editor_component_convert"]').isVisible()).toBe(true);
+  // Hiệu ứng: a preset on the selected node at the current breakpoint
+  await page.getByRole("tab", { name: "Hiệu ứng" }).click();
+  await page.getByRole("combobox", { name: "Keyframes" }).selectOption("sp1-fade-in");
+  await page.getByRole("button", { name: "Áp cho phần tử đang chọn" }).click();
+  await saved(page);
+  await expect.poll(async () => (await fetch(`${app!.base}/api/projects/${projectId}/files/out/css/styles.css`)).text(), { timeout: 30_000 }).toContain("sp1-fade-in");
+  for (let i = 0; i < 3; i++) { await page.getByRole("button", { name: "Hoàn tác" }).click(); await saved(page); }
+  await expectUi(page, ["ui_editor_effects_panel"]);
+  await page.close();
+});

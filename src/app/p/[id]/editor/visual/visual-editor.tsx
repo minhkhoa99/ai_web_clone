@@ -15,11 +15,13 @@ import { Banner } from "@/app/_ui/Banner";
 import { Button } from "@/app/_ui/Button";
 import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
+import { ComponentPanel } from "../component-panel/component-panel";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
+import { EffectsCard, ElementPanel } from "./element-panel";
 import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
-import { bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, type Batch, type Bp, type Clip, type DocIndex } from "./model";
+import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { measure, Overlay } from "./overlay";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
@@ -307,6 +309,28 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         <aside className="ve-right panel">
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
             options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
+          {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (
+            <ElementPanel projectId={id} index={index} entry={index.get(selection[0])!} element={canvas.current?.element(selection[0]) ?? null} bp={bp} assets={data.assets} onBatch={batch}
+              onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} />
+          ) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
+          {data && tab === "component" && (
+            <fieldset className="cmp-fieldset" disabled={pending > 0 || loading}>
+              <ComponentPanel
+                document={{ components: data.interactives, ancestors: selection[0] ? ancestorsOf(index, selection[0]) : [], outline: selection[0] ? outlineOf(index, selection[0]) : [], shot: data.shot }}
+                selectedId={selection[0] ?? null} revision={data.revision}
+                onCommands={(list) => commands(list, "Component", { done: "Đã cập nhật component — điểm QA cần chạy lại" })}
+                onShow={(root, k) => canvas.current?.post(k < 0 ? { type: "aiwc:hide", root } : { type: "aiwc:show", root, index: k })} />
+            </fieldset>
+          )}
+          {data && tab === "effects" && (
+            <EffectsCard effects={data.effects} disabled={!selection[0]}
+              onApply={(animation) => {
+                const sid = live.current.selection[0];
+                const why = sid ? guard(index, data.interactives, sid, "edit") : "Chọn một phần tử trên canvas trước.";
+                if (why || !sid) return setMsg(why ?? "");
+                commands([{ op: "setStyle", id: sid, target: styleTarget(bp), changes: { animation } }], "Hiệu ứng");
+              }} />
+          )}
         </aside>
       </div>
     </div>
