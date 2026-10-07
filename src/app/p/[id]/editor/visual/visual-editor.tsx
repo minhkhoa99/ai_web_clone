@@ -23,6 +23,7 @@ import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
 import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { at, measure, Overlay } from "./overlay";
+import { gaps } from "./snap";
 import { StylePanel } from "./style-panel";
 import { useGestures } from "./use-gestures";
 
@@ -60,6 +61,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [bp, setBp] = useState<Bp>(1440);
   const [selection, setSelection] = useState<string[]>([]);
   const [hover, setHover] = useState<string | null>(null);
+  const [alt, setAlt] = useState(false); // Alt held over the canvas: distances from the selection to the hovered node
   const [tick, setTick] = useState(0); // the frame scrolled / resized / changed: overlays re-measure
   const [msg, setMsg] = useState("");
   const [halt, setHalt] = useState<Halt | null>(null);
@@ -71,8 +73,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const bus = useRef<CommandBus | null>(null);
   const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
   const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
-  const live = useRef({ data, index, selection });
-  live.current = { data, index, selection };
+  const live = useRef({ data, index, selection, bp, zoom: 1 }); // zoom: Task 10
+  live.current = { data, index, selection, bp, zoom: 1 };
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
@@ -156,7 +158,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const batch = (b: Batch, label: string, extra: Partial<CommandsOp> = {}) => ("error" in b ? (setMsg(b.error), false) : commands(b.commands, label, extra));
   const select = (ids: string[]) => setSelection(ids);
   const editing = useRef<HTMLElement | null>(null); // the text host being edited
-  const gestures = useGestures({ canvas, live, editing, batch: (b, label) => batch(b, label) });
+  const gestures = useGestures({ canvas, live, editing, batch, setMsg });
   const { gesture } = gestures;
   // spec §2: the deepest pickable node; Shift toggles it in the selection. flushSync: the overlay is drawn in the
   // same task as the click (§9 hiệu năng)
@@ -324,13 +326,21 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={1} showItems={showItems}
-            onPick={pick} onDouble={double} onHover={setHover} onKey={onKey} onPress={gestures.onPress} onFrame={() => setTick((t) => t + 1)}>
+            onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onPress={gestures.onPress} onFrame={() => setTick((t) => t + 1)}>
             <Overlay zoom={1} hover={hoverInfo} selected={selectedBoxes} parent={parentBox}>
-              {gesture?.drop && (
+              {gesture?.kind === "flow" && gesture.drop && (
                 <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, 1)}>
                   {!gesture.drop.ok && <span className="ve-label">{gesture.drop.reason}</span>}
                 </div>
               )}
+              {gesture?.kind === "free" && gesture.guides.map((g, i) => (
+                <div key={i} className="ve-guide" data-ui="ui_editor_guides" style={g.axis === "x" ? at({ x: g.at, y: g.from, w: 0, h: g.to - g.from }, 1) : at({ x: g.from, y: g.at, w: g.to - g.from, h: 0 }, 1)} />
+              ))}
+              {alt && hoverInfo && selectedBoxes.length === 1 && hoverInfo.id !== selectedBoxes[0]!.id && gaps(selectedBoxes[0]!.m.box, hoverInfo.m.box).map((g, i) => (
+                <div key={i} className="ve-measure" style={at({ x: Math.min(g.x1, g.x2), y: Math.min(g.y1, g.y2), w: Math.abs(g.x2 - g.x1), h: Math.abs(g.y2 - g.y1) }, 1)}>
+                  <span className="ve-label" data-ui="ui_editor_measure">{g.value}</span>
+                </div>
+              ))}
             </Overlay>
           </Canvas>
         ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}

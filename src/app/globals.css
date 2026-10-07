@@ -826,3 +826,6 @@ select.full { width: 100%; min-height: 38px; }
 .ve-drop { position: absolute; background: color-mix(in srgb, var(--c-primary) 15%, transparent); outline: 2px solid var(--c-primary); }
 .ve-drop.is-bad { background: color-mix(in srgb, var(--c-danger) 15%, transparent); outline-color: var(--c-danger); }
 .ve-drop.is-bad .ve-label { background: var(--c-danger-strong); color: var(--c-on-danger); }
+.ve-guide { position: absolute; outline: 1px solid var(--c-danger); }
+.ve-measure { position: absolute; outline: 1px dashed var(--c-warn); }
+.ve-measure .ve-label { background: var(--c-warn); color: var(--c-on-warn); bottom: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); }

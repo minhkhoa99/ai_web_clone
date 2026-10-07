@@ -24,7 +24,7 @@ type Props = {
   children?: ReactNode;
   onPick(id: string, shift: boolean): void;
   onDouble(id: string): void;
-  onHover(id: string | null): void;
+  onHover(id: string | null, alt: boolean): void; // alt: Alt held (E3 §3 distances)
   onKey(e: KeyboardEvent): void;
   onPress(id: string, e: PointerEvent): void;
   onFrame(): void;
@@ -102,9 +102,9 @@ export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, child
       stop(e);
       d.execCommand("insertText", false, (e.clipboardData?.getData("text/plain") ?? "").replace(/\s*[\r\n]+\s*/g, " "));
     }, true);
-    let last: string | null = null;
-    d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last) { last = id; events.current.onHover(id); } });
-    d.documentElement.addEventListener("mouseleave", () => { last = null; events.current.onHover(null); });
+    let last: string | null = null, lastAlt = false;
+    d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last || e.altKey !== lastAlt) { last = id; lastAlt = e.altKey; events.current.onHover(id, e.altKey); } });
+    d.documentElement.addEventListener("mouseleave", () => { last = null; lastAlt = false; events.current.onHover(null, false); });
     d.addEventListener("keydown", (e) => events.current.onKey(e));
     d.addEventListener("pointerdown", (e) => { if (e.button !== 0) return; const id = idOf(e.target); if (id) events.current.onPress(id, e); }, true);
     w.addEventListener("scroll", () => events.current.onFrame(), { passive: true });

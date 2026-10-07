@@ -211,3 +211,45 @@ test("E3b flow drag: the h1 dropped into the features section keeps its id (move
   expect((await payload()).revision).toBe(rev2);
   await page.close();
 });
+
+test("E3b Alt+drag: the paragraph becomes absolute where dropped (its static parent relative), one batch at the current breakpoint; Alt+hover measures px to another node", { timeout: 240_000 }, async () => {
+  const page = await open();
+  const para = canvas(page).getByText("Plain paragraph text.");
+  const paraId = (await para.getAttribute("data-ir-id"))!;
+  const heroId = (await para.evaluate((el) => el.parentElement!.getAttribute("data-ir-id")))!;
+  await para.click();
+  // Alt+hover the h1: a px distance to the selection
+  await page.keyboard.down("Alt");
+  await canvas(page).locator("h1").hover();
+  await expect.poll(() => page.locator('[data-ui="ui_editor_measure"]').first().innerText()).toMatch(/^\d+$/);
+  await page.keyboard.up("Alt");
+  const rev = (await payload()).revision;
+  const b = (await para.boundingBox())!;
+  await drag(page, { x: b.x + 10, y: b.y + 5 }, { x: b.x + 70, y: b.y + 45 }, { alt: true });
+  await saved(page);
+  await expect.poll(async () => (await nodeById(paraId))?.styles.base.position, { timeout: 30_000 }).toBe("absolute");
+  const p = (await nodeById(paraId))!.styles.base;
+  expect([p.left, p.top, p.width].every((v) => /^-?\d+px$/.test(v ?? ""))).toBe(true);
+  expect((await nodeById(heroId))!.styles.base.position).toBe("relative");
+  expect((await payload()).revision).toBe(rev + 1);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(async () => (await nodeById(paraId))?.styles.base.position).toBeUndefined();
+  // Escape mid Alt+drag: the paragraph goes back (its inline translate removed), nothing is sent on release
+  await para.click();
+  const rev2 = (await payload()).revision;
+  const b2 = (await para.boundingBox())!;
+  const translate = () => para.evaluate((el) => (el as HTMLElement).style.translate);
+  await page.keyboard.down("Alt");
+  await page.mouse.move(b2.x + 10, b2.y + 5);
+  await page.mouse.down();
+  for (let k = 1; k <= 4; k++) await page.mouse.move(b2.x + 10 + 15 * k, b2.y + 5 + 10 * k);
+  await expect.poll(translate).not.toBe("");
+  await page.keyboard.press("Escape");
+  await expect.poll(translate).toBe("");
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev2);
+  await page.close();
+});
