@@ -194,7 +194,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       )}
       <div className="ve-grid">
         <aside className="ve-left panel" data-ui="ui_editor_layers" aria-label="Layers">
-          {data && <LayerTree index={index} rootId={bodyOf(data.page)} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
+          {data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} showItems={showItems}

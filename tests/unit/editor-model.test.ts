@@ -53,6 +53,7 @@ test("index: section roots carry their placeholder (subject) and shell parent; d
 test("layer rows: no #text rows, open state, search keeps matches + ancestors, badges; the window renders at most 200 rows", () => {
   const index = ix();
   expect(layerRows(index, "body", new Set(["body"]), "", []).map((r) => r.id)).toEqual(["body", "r1", "r2", "nav"]);
+  expect(layerRows(index, "body", new Set(), "", [], "Trang /index.html")[0]?.label).toBe("Trang /index.html");
   const rows = layerRows(index, "body", new Set(["body", "r1", "r2"]), "", [carousel]);
   expect(rows.map((r) => r.id)).toEqual(["body", "r1", "h", "p", "box", "pic", "gone", "bad", "r2", "inst", "track", "nav"]);
   expect(rows.find((r) => r.id === "r2")).toMatchObject({ kind: "carousel", section: true });

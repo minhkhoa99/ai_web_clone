@@ -15,10 +15,10 @@ import { ancestorsOf, dropCommand, hideBatch, layerRows, renameBatch, ROW_HEIGHT
 
 const ICON: Record<IRNodeV2["type"], IconName> = { container: "crop_square", text: "title", image: "image", link: "link", button: "touch_app", input: "input", media: "movie", svg: "shapes", "component-root": "widgets" };
 const KIND: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
-type Props = { index: DocIndex; rootId: string; components: readonly PanelComponent[]; selection: string[]; onSelect(ids: string[]): void; onBatch(b: Batch, label: string): void };
+type Props = { index: DocIndex; rootId: string; rootLabel: string; components: readonly PanelComponent[]; selection: string[]; onSelect(ids: string[]): void; onBatch(b: Batch, label: string): void };
 const domId = (id: string) => `ve-layer-${id}`;
 
-export function LayerTree({ index, rootId, components, selection, onSelect, onBatch }: Props) {
+export function LayerTree({ index, rootId, rootLabel, components, selection, onSelect, onBatch }: Props) {
   const [open, setOpen] = useState<Set<string>>(() => new Set([rootId]));
   const [query, setQuery] = useState("");
   const [scroll, setScroll] = useState(0);
@@ -31,10 +31,12 @@ export function LayerTree({ index, rootId, components, selection, onSelect, onBa
     if (!first) return;
     setOpen((o) => { const next = new Set(o); for (const a of ancestorsOf(index, first).slice(1)) next.add(a); return next; });
   }, [first, index]);
-  const rows = useMemo(() => layerRows(index, rootId, open, query, components), [index, rootId, open, query, components]);
+  const rows = useMemo(() => layerRows(index, rootId, open, query, components, rootLabel), [index, rootId, open, query, components, rootLabel]);
+  const scrolledTo = useRef<string | undefined>(undefined); // a chevron or a search keystroke never snaps back to the selection
   useEffect(() => {
     const el = list.current, at = rows.findIndex((r) => r.id === first);
-    if (!el || at < 0) return;
+    if (!el || at < 0 || scrolledTo.current === first) return;
+    scrolledTo.current = first;
     const top = at * ROW_HEIGHT;
     if (top < el.scrollTop || top + ROW_HEIGHT > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 2);
   }, [rows, first]);
@@ -99,7 +101,7 @@ export function LayerTree({ index, rootId, components, selection, onSelect, onBa
                 )}
                 {r.kind && <Badge tone="accent">{KIND[r.kind] ?? r.kind}</Badge>}
                 {r.role && <Badge tone={r.role === "main" ? "primary" : "neutral"}>{r.role}</Badge>}
-                <IconButton icon={r.hidden ? "visibility_off" : "visibility"} label={`${r.hidden ? "Hiện" : "Ẩn"}: ${r.label}`}
+                <IconButton icon={r.hidden ? "visibility_off" : "visibility"} label={`${r.hidden ? "Hiện" : "Ẩn"}: ${r.label}`} tabIndex={on ? 0 : -1}
                   onClick={(e) => { e.stopPropagation(); onBatch(hideBatch(index, [r.id], !r.hidden), r.hidden ? "Hiện" : "Ẩn"); }} />
               </div>
             );

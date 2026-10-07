@@ -86,7 +86,7 @@ export function ancestorsOf(index: DocIndex, id: string): string[] {
 }
 const inside = (index: DocIndex, id: string, root: string) => ancestorsOf(index, id).includes(root);
 
-export function layerRows(index: DocIndex, rootId: string, open: ReadonlySet<string>, query: string, components: readonly PanelComponent[]): Row[] {
+export function layerRows(index: DocIndex, rootId: string, open: ReadonlySet<string>, query: string, components: readonly PanelComponent[], rootLabel?: string): Row[] {
   const q = query.trim().toLowerCase();
   const kinds = new Map(components.map((c) => [c.rootId, c.spec.kind as string]));
   let keep: Set<string> | undefined;
@@ -100,7 +100,7 @@ export function layerRows(index: DocIndex, rootId: string, open: ReadonlySet<str
     if (!e || (keep && !keep.has(id))) return;
     const isOpen = keep ? true : open.has(id);
     rows.push({
-      id, depth, label: labelOf(e), type: e.node.type, section: e.sectionName !== undefined, hasChildren: e.children.length > 0, open: isOpen,
+      id, depth, label: id === rootId && rootLabel ? rootLabel : labelOf(e), type: e.node.type, section: e.sectionName !== undefined, hasChildren: e.children.length > 0, open: isOpen,
       hidden: !!e.node.hidden, dimmed: e.hidden, ...(e.node.component && { role: e.node.component.role }), ...(kinds.has(id) && { kind: kinds.get(id) }),
     });
     if (isOpen) for (const c of e.children) walk(c, depth + 1);
