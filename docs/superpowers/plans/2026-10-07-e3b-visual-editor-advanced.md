@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Hoàn thiện visual editor E3 (đợt E3b): Style Manager đầy đủ theo breakpoint/trạng thái, kéo theo luồng (kể cả sang section khác, giữ ID), Alt+kéo tự do có snap/guide và đo khoảng cách, resize + chỉnh padding/gap trực tiếp, panel "Thêm" (kể cả Carousel/Tabs/Accordion/Modal mẫu), zoom 25–200% + pan, drawer ở 768 / chỉ xem ở 375, rồi gỡ hẳn GrapesJS.
+**Goal:** Hoàn thiện visual editor E3 (đợt E3b): sửa main component tại chỗ, Style Manager đầy đủ theo breakpoint/trạng thái, kéo theo luồng (kể cả sang section khác, giữ ID), Alt+kéo tự do có snap/guide và đo khoảng cách, resize + chỉnh padding/gap trực tiếp, panel "Thêm" (kể cả Carousel/Tabs/Accordion/Modal mẫu), zoom 25–200% + pan, drawer ở 768 / chỉ xem ở 375, rồi gỡ hẳn GrapesJS.
 
 **Architecture:** Ba thay đổi lõi nhỏ đi trước (moveNode qua section, tham chiếu node mới trong cùng batch, gộp bước History cho cùng ô style), mỗi cái có test riêng trên `ir-command`/`ir-store`. Phía client, mọi phép hình học là hàm thuần (`style-model.ts`, `gestures.ts`, `snap.ts`, `templates.ts`); component React chỉ đo DOM iframe, vẽ overlay và đẩy batch qua `CommandBus` của E3a. Mọi kéo dùng pointer event + một lớp phủ bắt chuột ở cửa sổ cha + `elementFromPoint` trong iframe (không HTML5 DnD xuyên iframe).
 
@@ -39,6 +39,9 @@
 - R13 Node không absolute chỉ có handle e / s / se (handle trên/trái là của absolute); resize ghi `width`/`height` px vào target bp hiện tại; Shift khoá tỉ lệ.
 - R14 Ô Style hiện giá trị IR đang có hiệu lực; trống thì placeholder là giá trị computed của iframe (không nhãn nguồn).
 - R15 Gỡ GrapesJS: xoá `grapes-adapter.ts`, route `editor/save` + `editor/promote-layout`, `editor-view.tsx`, `?legacy=1`, CSS `.editor-shell .gjs-*`, dependency `grapesjs`, `styleTargetFidelity` (chỉ route save dùng) và test của chúng; e2e GrapesJS chuyển sang editor mới.
+- R16 "Sửa main" tại chỗ (người dùng chọn 2026-10-07): sửa main ngay trên instance của canvas, không có canvas riêng cho main. Node chỉ-để-xem = `viewOnly(n)` (id `instance:` **và** ref instance); mọi guard dùng hàm này thay vì tiền tố id.
+- R17 Chế độ sửa main: `mainView` bỏ ref instance trong cây instance đang mở (guard, sửa chữ, Style Manager coi như node thường; id vẫn là id canvas); mọi batch qua `commands()` được `toMain` đổi id → `component.sourceId` của main. Từ chối (tiếng Việt, không gửi): id ngoài instance, xoá/di chuyển/nhân bản chính gốc instance, thêm/di chuyển con dưới node có override `children`, mọi lệnh khác (detach, resetOverride, component E2, promoteLayout). Server không đổi: sửa main có từ E1; `affectedOf` so cây đã resolve nên mọi section chứa instance được thay (> 20 → nạp lại).
+- R18 Vào: nút "Sửa main" (`ui_editor_edit_main`) ở card Phần tử của node trong instance. Ra: "Xong", Esc khi đang chọn gốc instance (hoặc không chọn gì), chọn node ngoài instance, instance biến mất sau reload. Node server vừa tạo trong main hiện dưới id `viewIdOf(root, mainId)` và được chọn. Thuộc tính đã override ở instance đang mở không đổi theo main (thanh chế độ ghi chú).
 
 **Không khả thi / lệch so với code thật (đã xử lý):** E1 cấm chuyển qua section (R1, đổi lõi); client không thể gọi `convertToComponent` cho node vừa tạo trong cùng bước (R2, đổi lõi); server History không có cơ chế gộp (R3, đổi store); "Section trống" không thể là IR section mới (R7).
 
@@ -49,6 +52,7 @@
 3. Sửa liên tục cùng một ô (nhiều lần debounce) rồi Undo: một lần Undo về giá trị trước chuỗi sửa; sửa ô khác, chờ > 1,5 s, hoặc tab khác commit giữa chừng thì không gộp (Task 3 unit store + bus).
 4. Canvas ở zoom 50 % và 200 % có cuộn trong iframe: hover/chọn/kéo/resize vẫn trúng phần tử và đúng px (Task 10 e2e chọn + resize ở 50 %).
 5. Sau khi gỡ GrapesJS: URL cũ `?legacy=1` vẫn mở editor mới, `POST …/editor/save` và `…/editor/promote-layout` trả 404 (không 500), "Gộp thành layout" qua `promoteLayout` Undo được (Task 12).
+6. Sửa main khi instance đang mở có override (chữ thẻ 2–3, danh sách con riêng) hoặc khi chọn ra ngoài instance: thông báo rõ, không gửi; thẻ có override giữ giá trị riêng (Task 14 unit `toMain` + inline-text, Task 15 e2e chữ thẻ 2–3).
 
 ## File Structure
 
@@ -66,9 +70,11 @@
 | `src/app/p/[id]/editor/visual/snap.ts` (mới) | Thuần: `snap`, `gaps`, `SNAP_PX`. |
 | `src/app/p/[id]/editor/visual/templates.ts` (mới) | Thuần: `TEMPLATES`, `insertBatch`, `dropPosition`. |
 | `src/app/p/[id]/editor/visual/insert-panel.tsx` (mới) | Panel "Thêm". |
+| `src/app/p/[id]/editor/visual/model.ts` (Task 14) | R16–R18: `viewOnly`, `instanceRootOf`, `mainView`, `toMain`, `viewIdOf`. |
+| `tests/fixtures/site5/index.html` (mới) | Ba thẻ cùng cấu trúc → một component cho e2e sửa main. |
 | `src/app/p/[id]/editor/visual/{canvas,overlay,visual-editor}.tsx` | zoom, lớp phủ kéo, handle, guide, đo, drawer, view-only, card Section. |
 | Xoá | `src/core/grapes-adapter.ts`, `src/app/p/[id]/editor/editor-view.tsx`, `src/app/api/projects/[id]/editor/{save,promote-layout}/route.ts`, `tests/unit/grapes-adapter.test.ts`, `tests/e2e/grapes-textnode.test.ts`. |
-| Tests | `tests/unit/{ir-command,ir-store,command-bus,editor-model,style-model,gestures,snap,templates,editor-api,emit-components,fidelity,icons}.test.ts`, `tests/e2e/visual-editor-advanced.test.ts` (mới), `tests/e2e/{editor-smoke,editor-components}.test.ts` (chuyển). |
+| Tests | `tests/unit/{ir-command,ir-store,command-bus,editor-model,style-model,gestures,snap,templates,editor-api,emit-components,fidelity,icons}.test.ts`, `tests/e2e/visual-editor-advanced.test.ts` (mới), `tests/e2e/visual-editor-main.test.ts` (mới), `tests/e2e/{editor-smoke,editor-components}.test.ts` (chuyển). |
 
 Interface dùng chung (bổ sung cho E3a):
 
@@ -2367,7 +2373,390 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 14: Rulings E3b vào spec, graph, kiểm toàn bộ
+### Task 14: Sửa main — mô hình thuần: `viewOnly`, `instanceRootOf`, `mainView`, `toMain`, `viewIdOf` (R16–R18)
+
+**Files:**
+- Modify: `src/app/p/[id]/editor/visual/model.ts` (hàm mới; mọi chỗ `id.startsWith(GENERATED)` → `viewOnly(node)`; copy GEN_MSG/INSTANCE_MSG nhắc nút "Sửa main"), `src/app/p/[id]/editor/visual/inline-text.ts:72` (cùng predicate), `src/app/p/[id]/editor/visual/style-model.ts` (`clearField`: cùng predicate), `src/app/p/[id]/editor/visual/element-panel.tsx:56` (`generated` = `viewOnly(node)`)
+- Test: `tests/unit/editor-model.test.ts`, `tests/unit/inline-text.test.ts`, `tests/unit/editor-canvas.test.ts`
+
+**Interfaces:**
+- Consumes: `DocIndex`, `Entry`, `ancestorsOf`, `GENERATED`, `Batch` (E3a Task 5); `EditorCommand` (`@/core/ir-command`, chỉ `import type`).
+- Produces (Task 15 dùng đúng tên):
+  - `viewOnly(n: IRNodeV2): boolean`
+  - `instanceRootOf(index: DocIndex, id: string): string | undefined`
+  - `mainView(index: DocIndex, root: string): DocIndex`
+  - `toMain(index: DocIndex, root: string, commands: readonly EditorCommand[]): Batch`
+  - `viewIdOf(root: string, mainId: string): string`
+
+Bối cảnh (đọc trước): main component nằm ở `ir.components[].root`, không ở trang nào. Trên canvas, một instance hiện cây đã resolve: gốc instance và node "đối ứng" là node lưu thật (`component: { id, role: "instance", sourceId: <id node main> }`); con main chưa có đối ứng được resolver sinh id `instance:<len>:<gốc>:<id main>` (chỉ để xem, cũng mang `component.sourceId`). Server đã sửa được node main bằng id của nó (E1: sửa main lan tới mọi instance không override — `tests/unit/ir-command.test.ts` "main edits reach non-overriding instances"); thứ còn thiếu là client đổi id canvas → id main.
+
+- [ ] **Step 1: Viết test đỏ**
+
+`tests/unit/editor-model.test.ts` — import thêm `instanceRootOf, mainView, toMain, viewIdOf, viewOnly`. Sửa fixture `page()` cũ: node `"instance:4:inst:m1"` thêm `{ component: { id: "c", role: "instance", sourceId: "m1" } }` (resolver luôn gắn ref cho node sinh ra; `viewOnly` cần nó). Thêm fixture + test:
+
+```ts
+// a card instance: stored root + stored counterpart h3 (+ its #text) + a generated p the main added later;
+// card2 keeps its own children (a `children` override)
+const ref = (sourceId: string, overrides: string[] = []) => ({ component: { id: "k", role: "instance" as const, sourceId, overrides } });
+const mainPage = () => ({
+  shell: n("html", "html", [n("body", "body", [n("ph1", "#section", [], { attrs: { "data-section": "s1" } })])]),
+  sections: [{ id: "s1", name: "Cards", root: n("r1", "section", [
+    n("hero", "h1", [n("ht", "#text", [], { text: "Hero" })], { type: "text" }),
+    n("card", "div", [
+      n("ch", "h3", [n("ct", "#text", [], { text: "Nhanh", ...ref("mt") })], { type: "text", ...ref("mh") }),
+      n("instance:4:card:mp", "p", [n("instance:4:card:mpt", "#text", [], { text: "Mới", ...ref("mpt") })], { type: "text", ...ref("mp") }),
+    ], ref("m")),
+    n("card2", "div", [n("c2h", "h3", [n("c2t", "#text", [], { text: "Gọn", ...ref("mt", ["text"]) })], { type: "text", ...ref("mh") })], ref("m", ["children"])),
+  ]) }],
+});
+
+test("edit main (R16–R18): mainView clears instance refs inside the open instance only; toMain names main nodes; outside ids, the root itself, children-overridden parents and non-edit ops are refused; created ids map back", () => {
+  const idx = indexPage(mainPage());
+  expect(viewOnly(idx.get("instance:4:card:mp")!.node)).toBe(true);
+  expect(viewOnly(idx.get("ch")!.node)).toBe(false); // stored counterpart: editable as an instance override
+  expect(guard(idx, [], "instance:4:card:mp", "edit")).toMatch(/Sửa main/);
+  expect(instanceRootOf(idx, "ct")).toBe("card");
+  expect(instanceRootOf(idx, "instance:4:card:mp")).toBe("card");
+  expect(instanceRootOf(idx, "hero")).toBeUndefined();
+  const view = mainView(idx, "card");
+  expect(view.get("instance:4:card:mp")!.node.component).toBeUndefined();
+  expect(view.get("ct")!.node.component).toBeUndefined();
+  expect(view.get("card")!.node.children[0]!.component).toBeUndefined();
+  expect(view.get("card2")!.node).toBe(idx.get("card2")!.node); // other instances untouched
+  expect(view.get("hero")!.node).toBe(idx.get("hero")!.node);
+  expect(guard(view, [], "instance:4:card:mp", "delete")).toBeUndefined();
+  expect(instanceRootOf(view, "ct")).toBeUndefined(); // no "Sửa main" button inside the open mode
+  expect(toMain(idx, "card", [
+    { op: "setStyle", id: "card", target: "base", changes: { color: "red" } },
+    { op: "setText", id: "ct", text: "Mới" },
+    { op: "createNode", parentId: "instance:4:card:mp", index: 0, draft: { tag: "b", attrs: {}, children: [] } },
+    { op: "moveNode", id: "instance:4:card:mp", parentId: "card", index: 0 },
+    { op: "duplicateNode", id: "ch", parentId: "card", index: 1 },
+    { op: "deleteNode", id: "ch" },
+  ])).toEqual({ commands: [
+    { op: "setStyle", id: "m", target: "base", changes: { color: "red" } },
+    { op: "setText", id: "mt", text: "Mới" },
+    { op: "createNode", parentId: "mp", index: 0, draft: { tag: "b", attrs: {}, children: [] } },
+    { op: "moveNode", id: "mp", parentId: "m", index: 0 },
+    { op: "duplicateNode", id: "mh", parentId: "m", index: 1 },
+    { op: "deleteNode", id: "mh" },
+  ] });
+  expect(toMain(idx, "card", [{ op: "setStyle", id: "hero", target: "base", changes: { color: "red" } }])).toEqual({ error: expect.stringMatching(/Xong/) });
+  expect(toMain(idx, "card", [{ op: "moveNode", id: "ch", parentId: "r1", index: 0 }])).toEqual({ error: expect.stringMatching(/Xong/) });
+  expect(toMain(idx, "card", [{ op: "deleteNode", id: "card" }])).toEqual({ error: expect.stringMatching(/gốc/) });
+  expect(toMain(idx, "card2", [{ op: "createNode", parentId: "card2", index: 0, draft: { tag: "b", attrs: {}, children: [] } }])).toEqual({ error: expect.stringMatching(/con riêng/) });
+  expect(toMain(idx, "card", [{ op: "detachComponent", instanceId: "card" }])).toEqual({ error: expect.stringMatching(/đang sửa main/) });
+  expect(toMain(idx, "hero", [])).toEqual({ error: expect.stringMatching(/Instance không còn/) });
+  expect(viewIdOf("card", "new1")).toBe("instance:4:card:new1");
+});
+```
+
+`tests/unit/inline-text.test.ts` — append:
+
+```ts
+test("edit main (R16): a generated instance host is refused; the same host with its instance refs cleared (mainView) edits like a plain node", () => {
+  const ref = (sourceId: string) => ({ component: { id: "k", role: "instance" as const, sourceId } });
+  const gen = n("instance:1:c:mh", "h3", [n("instance:1:c:mt", "#text", [], { text: "Cũ", ...ref("mt") })], ref("mh"));
+  expect(textBatch(gen, el("h3", [t("Mới")]))).toEqual({ error: expect.stringMatching(/main/) });
+  const plain = n("instance:1:c:mh", "h3", [n("instance:1:c:mt", "#text", [], { text: "Cũ" })]);
+  expect(textBatch(plain, el("h3", [t("Mới")]))).toEqual({ commands: [{ op: "setText", id: "instance:1:c:mt", text: "Mới" }] });
+});
+```
+
+`tests/unit/editor-canvas.test.ts` — append (chốt hành vi server có sẵn; có thể xanh ngay — ghi rõ trong report):
+
+```ts
+test("affected (edit main, R17): a main edit re-renders every section whose instances resolve differently", () => {
+  const main = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}) => n(id, tag, children, { ...extra, component: { id: "k", role: "main" } });
+  const inst = (id: string, sourceId: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}) => n(id, tag, children, { ...extra, component: { id: "k", role: "instance", sourceId, overrides: [] } });
+  const before = doc(2);
+  before.components = [{ id: "k", root: main("m", "div", [main("mh", "h3", [main("mt", "#text", [], { text: "Card" })])]), instanceIds: ["i0", "i1"] }];
+  before.sections.forEach((s, i) => s.root.children.push({ ...inst(`i${i}`, "m", "div", [inst(`i${i}h`, "mh", "h3", [inst(`i${i}t`, "mt", "#text", [], { text: "Card" })])]), parentId: s.root.id }));
+  const after = applyCommands(before, [{ op: "setStyle", id: "mh", target: "base", changes: { color: "blue" } }]).ir;
+  const a = affectedOf(before, after, "pg", opts);
+  expect(a.shellChanged).toBe(false);
+  expect(a.sections.map((s) => s.id)).toEqual(["s0", "s1"]);
+  expect(a.css).toContain("color:blue");
+});
+```
+
+- [ ] **Step 2: Chạy test, xác nhận đỏ**
+
+Run: `npx vitest run tests/unit/editor-model.test.ts tests/unit/inline-text.test.ts tests/unit/editor-canvas.test.ts`
+Expected: FAIL — `mainView`/`toMain`/`viewIdOf`/`viewOnly`/`instanceRootOf` chưa export; textBatch từ chối host `plain` (tiền tố id). Test `affected (edit main)` có thể đã xanh (server sẵn có) — ghi lại.
+
+- [ ] **Step 3: Viết code tối thiểu**
+
+`model.ts` (cạnh `guard`; `ancestorsOf` đã có):
+
+```ts
+// R16: a node the resolver generated for an instance (not stored: commands cannot name it). mainView clears the ref,
+// so the same node is a plain one while its main is being edited
+export const viewOnly = (n: IRNodeV2): boolean => n.id.startsWith(GENERATED) && n.component?.role === "instance";
+// the outermost instance node of the same component holding `id` (its sourceId is the main's root)
+export function instanceRootOf(index: DocIndex, id: string): string | undefined {
+  let root: string | undefined, cmp: string | undefined;
+  for (const at of ancestorsOf(index, id)) {
+    const ref = index.get(at)!.node.component;
+    if (ref?.role !== "instance" || (cmp !== undefined && ref.id !== cmp)) break;
+    root = at; cmp = ref.id;
+  }
+  return root;
+}
+const stripRefs = (n: IRNodeV2): IRNodeV2 => { const { component: _ref, ...rest } = n; return { ...rest, children: n.children.map(stripRefs) }; };
+// R17: edit-main mode — every node of the open instance (#text too) loses its instance ref; ids stay the canvas's
+export function mainView(index: DocIndex, root: string): DocIndex {
+  const view: DocIndex = new Map(index), top = index.get(root);
+  if (!top) return view;
+  const stack = [top.node];
+  while (stack.length) {
+    const node = stack.pop()!, e = index.get(node.id);
+    if (e) view.set(node.id, { ...e, node: stripRefs(e.node) });
+    stack.push(...node.children);
+  }
+  return view;
+}
+const OUTSIDE = "Đang sửa main: chỉ sửa được bên trong instance đang mở — bấm Xong để ra.";
+const OWN_CHILDREN = "Instance này giữ danh sách con riêng (override) — sửa cấu trúc main ở instance khác hoặc Bỏ mọi override.";
+// R17: a batch built on mainView names canvas ids; each becomes its main node (component.sourceId)
+export function toMain(index: DocIndex, root: string, commands: readonly EditorCommand[]): Batch {
+  const top = index.get(root)?.node.component;
+  if (top?.role !== "instance" || !top.sourceId) return { error: "Instance không còn trên trang — bấm Xong rồi chọn lại." };
+  const main = (id: string): string | undefined => {
+    const e = index.get(id), ref = e?.node.component;
+    return e && ancestorsOf(index, id).includes(root) && ref?.role === "instance" && ref.id === top.id ? ref.sourceId : undefined;
+  };
+  // the instance's own children list (a `children` override) is not the main's: indexes would not match
+  const ownChildren = (id: string) => !!index.get(id)?.node.component?.overrides?.includes("children");
+  const out: EditorCommand[] = [];
+  for (const c of commands) {
+    if (c.op === "setStyle" || c.op === "setText" || c.op === "setAttribute" || c.op === "setHidden" || c.op === "setName" || c.op === "deleteNode") {
+      if (c.op === "deleteNode" && c.id === root) return { error: "Không xoá gốc main ở đây — bấm Xong rồi xoá instance." };
+      const id = main(c.id);
+      if (!id) return { error: OUTSIDE };
+      out.push({ ...c, id });
+    } else if (c.op === "createNode") {
+      const parentId = main(c.parentId);
+      if (!parentId) return { error: OUTSIDE };
+      if (ownChildren(c.parentId)) return { error: OWN_CHILDREN };
+      out.push({ ...c, parentId });
+    } else if (c.op === "moveNode" || c.op === "duplicateNode") {
+      if (c.id === root) return { error: "Không di chuyển / nhân bản gốc main ở đây — bấm Xong trước." };
+      const id = main(c.id), parentId = main(c.parentId);
+      if (!id || !parentId) return { error: OUTSIDE };
+      if (ownChildren(c.parentId)) return { error: OWN_CHILDREN };
+      out.push({ ...c, id, parentId });
+    } else return { error: "Thao tác này không dùng được khi đang sửa main — bấm Xong trước." };
+  }
+  return { commands: out };
+}
+// R18: a node the server just created in the main shows in the open instance under the resolver's generated id
+export const viewIdOf = (root: string, mainId: string): string => `${GENERATED}${root.length}:${root}:${mainId}`;
+```
+
+Đổi mọi kiểm tra `id.startsWith(GENERATED)` / `parentId.startsWith(GENERATED)` trong `model.ts` (guard, guardParent, các batch dòng ~201/298/331) thành `viewOnly(<node của entry>)`; `inline-text.ts:72` thành `viewOnly(ir) || [...known.values()].some(viewOnly)`; `style-model.ts` `clearField` thành `viewOnly(node)`; `element-panel.tsx:56` `const generated = viewOnly(node);`. Copy: `GEN_MSG` / `INSTANCE_MSG` (model.ts, style-model.ts) và thông báo inline-text đổi "sửa ở main" → "bấm Sửa main"; ví dụ `GEN_MSG = "Phần tử này thuộc component instance — bấm Sửa main hoặc Tách khỏi component (Detach)."`. Nếu `EditorCommand` thật khiến `{ ...c, id }` không hẹp kiểu, viết từng nhánh theo union thật và ghi vào report.
+
+- [ ] **Step 4: Chạy test, xác nhận xanh**
+
+Run: `npx vitest run tests/unit/editor-model.test.ts tests/unit/inline-text.test.ts tests/unit/editor-canvas.test.ts tests/unit/style-model.test.ts && npm run typecheck && npx vitest run`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -- "src/app/p/[id]/editor/visual/model.ts" "src/app/p/[id]/editor/visual/inline-text.ts" "src/app/p/[id]/editor/visual/style-model.ts" "src/app/p/[id]/editor/visual/element-panel.tsx" tests/unit/editor-model.test.ts tests/unit/inline-text.test.ts tests/unit/editor-canvas.test.ts
+git commit -m "feat(e3b): edit-main model — view-only predicate, mainView, toMain maps canvas ids to main nodes, created ids map back
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 15: Sửa main — chế độ trên canvas: nút "Sửa main", thanh + khung, mọi batch qua `toMain`, ra khỏi chế độ (R17–R18)
+
+**Files:**
+- Create: `tests/fixtures/site5/index.html`, `tests/e2e/visual-editor-main.test.ts`
+- Modify: `src/app/p/[id]/editor/visual/visual-editor.tsx`, `src/app/p/[id]/editor/visual/command-bus.ts` (`mainRoot?` trên op commands), `src/app/p/[id]/editor/visual/element-panel.tsx` (nút), `src/app/p/[id]/editor/visual/overlay.tsx` (khung), `src/app/globals.css`, `docs/superpowers/design/stitch-screens.md`
+
+**Interfaces:**
+- Consumes: `viewOnly`, `instanceRootOf`, `mainView`, `toMain`, `viewIdOf` (Task 14); `commands()` / `batch()` / `applyResult` / `onKey` / `measured` của `visual-editor.tsx` (E3a + Task 5–13); `Overlay` (E3a Task 9, zoom Task 10).
+- Produces: `ElementPanel` prop `onEditMain(root: string): void`; `Overlay` prop `frame?: Measured`; op `{ kind: "commands"; …; mainRoot?: string }`; `data-ui`: `ui_editor_edit_main`, `ui_editor_edit_main_bar`, `ui_editor_edit_main_frame`.
+
+- [ ] **Step 1: Fixture + e2e đỏ**
+
+`tests/fixtures/site5/index.html` (ba thẻ cùng cấu trúc + class → E1 gom thành một component: main + 3 instance; thẻ 1 không override, thẻ 2–3 override chữ):
+
+```html
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Site Five</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    .hero { padding: 24px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 24px; }
+    .card { padding: 16px; border: 1px solid #ccc; border-radius: 8px; }
+    .card h3 { margin: 0 0 8px; color: rgb(30, 60, 200); }
+  </style>
+</head>
+<body>
+  <section class="hero"><h1>Thẻ dùng chung</h1></section>
+  <section class="cards">
+    <div class="card"><h3>Nhanh</h3><p>Chạy ngay.</p></div>
+    <div class="card"><h3>Gọn</h3><p>Không thừa.</p></div>
+    <div class="card"><h3>Tĩnh</h3><p>Chỉ HTML.</p></div>
+  </section>
+</body>
+</html>
+```
+
+`tests/e2e/visual-editor-main.test.ts`: chép nguyên `beforeAll`/`afterAll`, `canvas`, `payload`, `status`, `saved`, `walk`, `allNodes`, `open` từ `tests/e2e/visual-editor.test.ts` (dòng 1–60), đổi `site1` → `site5`, tiền tố tmp `visual-editor-main-`, và `Tree` thêm `component?: { id: string; role: string; sourceId?: string; overrides?: string[] }`. Rồi:
+
+```ts
+test("E3b edit main: Sửa main on an instance; H hides the h3 of every card in one step; inline text edits the main (card 1 follows, cards 2–3 keep their own text); Esc at the root, Xong and a click outside leave", { timeout: 240_000 }, async () => {
+  const roots = (await allNodes()).filter((x) => x.component?.role === "instance" && x.children.some((c) => c.tag === "h3"));
+  expect(roots).toHaveLength(3); // site5 must give E1 one component — if not, stop and report (do not change detection)
+  const h3Id = (k: number) => roots[k]!.children.find((c) => c.tag === "h3")!.id;
+  const page = await open();
+  const h3 = (k: number) => canvas(page).locator(`[data-ir-id="${h3Id(k)}"]`);
+  const bar = page.locator('[data-ui="ui_editor_edit_main_bar"]');
+  await h3(1).click();
+  await page.locator('[data-ui="ui_editor_edit_main"]').click();
+  await expect.poll(() => bar.isVisible()).toBe(true);
+  await expectUi(page, ["ui_editor_edit_main_bar", "ui_editor_edit_main_frame"]);
+  expect(await page.locator('[data-ui="ui_editor_edit_main_frame"]').count()).toBe(1);
+  // H on card 2's h3 = setHidden on the main's h3: every card follows, one revision, one Undo
+  const rev = (await payload()).revision;
+  await page.keyboard.press("h");
+  await saved(page);
+  expect((await payload()).revision).toBe(rev + 1);
+  for (const k of [0, 1, 2]) await expect.poll(() => h3(k).isVisible(), { timeout: 30_000 }).toBe(false);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  for (const k of [0, 1, 2]) await expect.poll(() => h3(k).isVisible(), { timeout: 30_000 }).toBe(true);
+  // inline text on card 1 edits the main's text: card 1 follows, cards 2–3 keep their own (text override)
+  await h3(0).dblclick();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Main mới");
+  await page.keyboard.press("Enter");
+  await saved(page);
+  await expect.poll(() => h3(0).innerText(), { timeout: 30_000 }).toBe("Main mới");
+  expect([await h3(1).innerText(), await h3(2).innerText()]).toEqual(["Gọn", "Tĩnh"]);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await expect.poll(() => h3(0).innerText(), { timeout: 30_000 }).toBe("Nhanh");
+  // Esc goes up inside the instance; at its root Esc leaves the mode
+  await h3(1).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(() => bar.isVisible()).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => bar.count()).toBe(0);
+  // Xong, and a click outside the instance, leave too
+  await h3(1).click();
+  await page.locator('[data-ui="ui_editor_edit_main"]').click();
+  await page.getByRole("button", { name: "Xong" }).click();
+  await expect.poll(() => bar.count()).toBe(0);
+  await h3(1).click();
+  await page.locator('[data-ui="ui_editor_edit_main"]').click();
+  await canvas(page).locator("h1").click();
+  await expect.poll(() => bar.count()).toBe(0);
+  await page.close();
+});
+```
+
+- [ ] **Step 2: Chạy test, xác nhận đỏ**
+
+Run: `npx vitest run -c vitest.e2e.config.ts tests/e2e/visual-editor-main.test.ts`
+Expected: FAIL tại `ui_editor_edit_main` (chưa có nút). Nếu `roots` ≠ 3: dừng, báo NEEDS_CONTEXT kèm cây payload (không sửa bộ dò component).
+
+- [ ] **Step 3: Viết code**
+
+`command-bus.ts`: op commands thêm `mainRoot?: string` (chỉ client dùng, không gửi lên server — `SendBody` không đổi).
+
+`visual-editor.tsx` (giữ tên thật của file sau Task 5–13; khối dưới là neo):
+
+```tsx
+const [editMain, setEditMain] = useState<string | null>(null); // R17: the open instance's root (canvas id)
+const raw: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
+// a reload / an edit that removed the instance closes the mode
+const open = editMain && raw.get(editMain)?.node.component?.role === "instance" ? editMain : null;
+const index: DocIndex = useMemo(() => (open ? mainView(raw, open) : raw), [raw, open]);
+live.current = { ...live.current, data, index, raw, selection, open };
+```
+
+Mọi chỗ trước đây dùng `index` giữ nguyên tên (Layers, Style Manager, panel Phần tử, sửa chữ, phím tắt, kéo, panel Thêm đều nhận bản `mainView` khi đang ở chế độ). Trong `commands(list, label, extra)` — điểm mọi batch đi qua — trước khi đẩy lên bus:
+
+```ts
+const root = live.current.open;
+if (root) {
+  const m = toMain(live.current.raw, root, list);
+  if ("error" in m) { setMsg(m.error); return false; }
+  list = m.commands;
+  extra = { ...extra, mainRoot: root };
+}
+```
+
+`applyResult(r, keepSelection, mainRoot?)` (truyền `e.op.mainRoot` từ case `"done"`): `setSelection((s) => (r.createdIds.length ? r.createdIds.map((c) => (mainRoot ? viewIdOf(mainRoot, c) : c)) : s))`.
+
+Ra khỏi chế độ:
+
+```ts
+useEffect(() => { // a selection outside the open instance leaves the mode
+  if (open && selection.some((sid) => !ancestorsOf(raw, sid).includes(open))) setEditMain(null);
+}, [selection, open, raw]);
+```
+
+`onKey` case `"parent"`: đầu case thêm `if (live.current.open && (!first || first === live.current.open)) { e.preventDefault(); setEditMain(null); return; }`.
+
+Thanh chế độ (ngay trên canvas, trong cột giữa; **không** `role="status"` — e2e dùng `getByRole("status")` cho thông báo):
+
+```tsx
+{open && (
+  <div className="ve-main-bar" data-ui="ui_editor_edit_main_bar">
+    <Icon name="widgets" size={16} />
+    <span className="t-body-sm">Đang sửa main component — thay đổi áp cho mọi instance chưa override thuộc tính đó.</span>
+    <Button onClick={() => setEditMain(null)}>Xong</Button>
+  </div>
+)}
+```
+
+Khung: `const mainBox = open ? measured(open) : undefined;` → `<Overlay … frame={mainBox} />`; `overlay.tsx` thêm prop `frame?: Measured` và vẽ `{frame && <div className="ve-main-frame" data-ui="ui_editor_edit_main_frame" style={at(frame.box, zoom)} />}` trước các khung chọn.
+
+`ElementPanel` prop `onEditMain(root: string): void`; trong card Phần tử (cạnh nút Tách khỏi component):
+
+```tsx
+const root = instanceRootOf(index, node.id); // undefined inside the open mode (mainView cleared the refs)
+{root && <Button icon="widgets" data-ui="ui_editor_edit_main" onClick={() => onEditMain(root)}>Sửa main</Button>}
+```
+
+`visual-editor.tsx` truyền `onEditMain={(r) => { setEditMain(r); setMsg("Đang sửa main component"); }}`.
+
+`globals.css`:
+
+```css
+.ve-main-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin-bottom: 8px; border: 1px solid var(--c-warn); border-radius: 8px; background: var(--c-surface-high); }
+.ve-main-frame { position: absolute; outline: 2px dashed var(--c-warn); outline-offset: 2px; pointer-events: none; }
+```
+
+`stitch-screens.md` (mục `/p/[id]/editor`): `ui_editor_edit_main` ("E3 Sửa main: nút ở card Phần tử của node trong instance"), `ui_editor_edit_main_bar` ("thanh 'Đang sửa main component … Xong'"), `ui_editor_edit_main_frame` ("khung nét đứt quanh instance đang mở") — "không có trong mockup, dùng token/component sẵn có".
+
+- [ ] **Step 4: Chạy test, xác nhận xanh**
+
+Run: `npm run typecheck && npx vitest run && npx vitest run -c vitest.e2e.config.ts tests/e2e/visual-editor-main.test.ts tests/e2e/visual-editor.test.ts tests/e2e/visual-editor-advanced.test.ts`
+Expected: PASS; không cuộn ngang ở 1440 khi thanh hiện.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -- tests/fixtures/site5/index.html tests/e2e/visual-editor-main.test.ts "src/app/p/[id]/editor/visual/visual-editor.tsx" "src/app/p/[id]/editor/visual/command-bus.ts" "src/app/p/[id]/editor/visual/element-panel.tsx" "src/app/p/[id]/editor/visual/overlay.tsx" src/app/globals.css docs/superpowers/design/stitch-screens.md
+git commit -m "feat(e3b): edit main in place — Sửa main on an instance, every batch mapped to the main, bar + frame, Esc/Xong/click outside leave
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 16: Rulings E3b vào spec, graph, kiểm toàn bộ
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-07-e3-visual-editor-design.md` (§12), `docs/superpowers/design/stitch-screens.md` (errata icon), `graphify-out/*`
@@ -2382,7 +2771,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```markdown
 ## 12. Rulings khi triển khai E3b (2026-10-07)
 
-Từ plan `docs/superpowers/plans/2026-10-07-e3b-visual-editor-advanced.md` (R1–R15):
+Từ plan `docs/superpowers/plans/2026-10-07-e3b-visual-editor-advanced.md` (R1–R18):
 - `moveNode` được chuyển giữa hai section và giữ ID (ghi đè luật ranh giới section của E1 §2; shell/main giữ nguyên).
 - Trong một batch, `convertToComponent` gọi node vừa tạo bằng `new:<k>/<path>`; mẫu component = một bước Undo.
 - Gộp Undo 1,5 s: client gửi `coalesce` khi cùng ô được đẩy lại trong 1,5 s (cửa sổ trượt) và revision chưa đổi; server thay bước mới nhất chỉ khi cùng tập (id, target, prop) và không có nhánh Redo.
@@ -2391,6 +2780,7 @@ Từ plan `docs/superpowers/plans/2026-10-07-e3b-visual-editor-advanced.md` (R1�
 - "Section trống" là `<section>` bên trong section hiện tại (Command API không tạo IR section).
 - Zoom theo mốc 25/33/50/67/75/100/125/150/200 %, Ctrl+lăn ×1,1; drawer ≤ 1099px; chỉ xem < 768px.
 - GrapesJS, `grapes-adapter`, route `editor/save` và `editor/promote-layout` đã gỡ; "Gộp thành layout" là `promoteLayout` từ card Section.
+- Sửa main tại chỗ (R16–R18): nút "Sửa main" mở chế độ trên instance; batch đổi id canvas → node main (`toMain`); ra bằng Xong / Esc ở gốc / chọn ngoài instance; thuộc tính đã override ở instance không đổi theo main.
 ```
 
 `stitch-screens.md` Errata: **E3b icons** `zoom_in`, `zoom_out`, `fit_screen`, `text_fields`, `text_snippet`, `add_box`, `view_week`, `view_agenda`, `grid_view`, `view_carousel`, `tab`, `expand_circle_down`, `web_asset` (83 → 96).
@@ -2403,7 +2793,7 @@ Expected: các `ui_editor_*` E3b gắn `screen_editor`; không còn node/edge n�
 - [ ] **Step 3: Kiểm toàn bộ**
 
 Run: `npm run typecheck && npx vitest run && npm run build && npx vitest run -c vitest.e2e.config.ts`
-Expected: tất cả PASS (gồm `qa-baseline`, `ui-smoke`, `editor-smoke`, `editor-components`, `visual-editor`, `visual-editor-perf`, `visual-editor-advanced`).
+Expected: tất cả PASS (gồm `qa-baseline`, `ui-smoke`, `editor-smoke`, `editor-components`, `visual-editor`, `visual-editor-perf`, `visual-editor-advanced`, `visual-editor-main`).
 
 - [ ] **Step 4: Commit**
 
@@ -2418,7 +2808,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ## Self-Review
 
-1. **Spec coverage (E3b):** §3 Style Manager (6 nhóm, nguồn, ↺, state, Thuộc tính khác, isSafeCss, lạc quan + 300 ms + 1,5 s) — Task 3, 4, 5; Kéo theo luồng + vạch chèn + ID giữ qua section + cấm (shell/instance/vai trò, đỏ + lý do) — Task 1, 7 (guard của E3a Task 5); Alt+kéo absolute + cha relative + bp + một batch — Task 6, 8; Resize 8 handle, Shift, trên/trái chỉ absolute, padding/gap — Task 6, 9; Chèn phần tử (danh sách đủ 16, component mẫu, kéo/click, tiếng Việt, không class) — Task 2, 11; Snap 4 px + guide, Alt đo — Task 8; Zoom 25–200 %, Ctrl+lăn/Ctrl±, Vừa khung, Space+kéo, `scale()`, overlay quy đổi — Task 6, 10; Gỡ GrapesJS + `promoteLayout` — Task 12. §4 drawer 768 / chỉ xem 375 / không cuộn ngang 1440 — Task 13. §6 debounce/gộp/zoom — Task 3, 5, 6. §9 unit: kéo → moveNode (E3a T5 + T1), Alt → setStyle absolute + relative (T6), resize theo bp (T6), snap thuần (T8), nguồn giá trị (T4); e2e: kéo sang section giữ ID (T7), Alt+kéo absolute (T8), resize 768 không ảnh hưởng 1440 (T9), Style Manager kế thừa (T5), chèn Flex/Carousel (T11), zoom 50 % chọn đúng (T10), một lần sửa style chỉ thay một section (T5: 2 bước = 2 lần thay), drawer 768 (T13).
+1. **Spec coverage (E3b):** §3 Style Manager (6 nhóm, nguồn, ↺, state, Thuộc tính khác, isSafeCss, lạc quan + 300 ms + 1,5 s) — Task 3, 4, 5; Kéo theo luồng + vạch chèn + ID giữ qua section + cấm (shell/instance/vai trò, đỏ + lý do) — Task 1, 7 (guard của E3a Task 5); Alt+kéo absolute + cha relative + bp + một batch — Task 6, 8; Resize 8 handle, Shift, trên/trái chỉ absolute, padding/gap — Task 6, 9; Chèn phần tử (danh sách đủ 16, component mẫu, kéo/click, tiếng Việt, không class) — Task 2, 11; Snap 4 px + guide, Alt đo — Task 8; Zoom 25–200 %, Ctrl+lăn/Ctrl±, Vừa khung, Space+kéo, `scale()`, overlay quy đổi — Task 6, 10; Gỡ GrapesJS + `promoteLayout` — Task 12. §4 drawer 768 / chỉ xem 375 / không cuộn ngang 1440 — Task 13. §6 debounce/gộp/zoom — Task 3, 5, 6. §9 unit: kéo → moveNode (E3a T5 + T1), Alt → setStyle absolute + relative (T6), resize theo bp (T6), snap thuần (T8), nguồn giá trị (T4); e2e: kéo sang section giữ ID (T7), Alt+kéo absolute (T8), resize 768 không ảnh hưởng 1440 (T9), Style Manager kế thừa (T5), chèn Flex/Carousel (T11), zoom 50 % chọn đúng (T10), một lần sửa style chỉ thay một section (T5: 2 bước = 2 lần thay), drawer 768 (T13). Sửa main (E1 §4 "E3 trình bày Edit main", người dùng thêm vào E3b) — Task 14 (mô hình thuần, unit) + Task 15 (chế độ trên canvas, e2e site5: H lan 3 thẻ, sửa chữ main, override giữ, Esc/Xong/click ngoài).
 2. **Placeholder scan:** đã thay các dòng chỉ dẫn dạng comment ở Task 3 (bus) và Task 10 (`onKey`, pan) bằng code đầy đủ; Task 11 kéo mẫu có ngưỡng 4 px để click vẫn chèn; khối `catch` của bus ghi rõ là bốn nhánh E3a giữ nguyên. Không còn "tương tự Task N".
-3. **Type consistency:** `Gesture` mở rộng dần: Flow (T7) → Free (T8) → Resize/Spacing (T9) → Pan (T10) → Insert (T11), cùng `gestureMove`/`gestureUp`; `Drop` dùng chung T7/T11; `Op.coalesceKey` (T3) ↔ `StylePanel.onBatch extra` (T5) ↔ `batch(b, label, extra)` (E3a T8 `Partial<CommandsOp>`); `CanvasHandle` thêm `toDoc`, `hit` (T7), `pane` (T10) — dùng đúng tên ở T8–T11; `CanvasPayload.allSections` (T12) ↔ card Section; `KeyAction` thêm zoom (T6) ↔ `onKey` (T10).
-4. **Review Focus:** (1) T7 e2e vạch đỏ + revision không đổi (+ guard unit E3a T5); (2) T4 unit `setField` chuỗi phá rule + T5 e2e lỗi tại ô, không gửi; (3) T3 unit store (ô khác, nhánh Redo, batch không phải style) + bus (key khác, > 1,5 s, Undo chen giữa); (4) T10 e2e chọn ở 50 % khớp khung (resize ở 50 % dùng cùng `toDoc` ÷ zoom); (5) T12 unit URL cũ không còn + `?legacy=1` mở editor mới (e2e) + `promoteLayout` qua commands.
+3. **Type consistency:** `Gesture` mở rộng dần: Flow (T7) → Free (T8) → Resize/Spacing (T9) → Pan (T10) → Insert (T11), cùng `gestureMove`/`gestureUp`; `Drop` dùng chung T7/T11; `Op.coalesceKey` (T3) ↔ `StylePanel.onBatch extra` (T5) ↔ `batch(b, label, extra)` (E3a T8 `Partial<CommandsOp>`); `CanvasHandle` thêm `toDoc`, `hit` (T7), `pane` (T10) — dùng đúng tên ở T8–T11; `CanvasPayload.allSections` (T12) ↔ card Section; `KeyAction` thêm zoom (T6) ↔ `onKey` (T10); `viewOnly`/`instanceRootOf`/`mainView`/`toMain`/`viewIdOf` (T14) ↔ `commands()`/`applyResult`/`ElementPanel.onEditMain`/`Overlay.frame` (T15).
+4. **Review Focus:** (6) T14 unit `toMain` (ngoài instance, gốc, override `children`) + inline-text, T15 e2e chữ thẻ 2–3 giữ; (1) T7 e2e vạch đỏ + revision không đổi (+ guard unit E3a T5); (2) T4 unit `setField` chuỗi phá rule + T5 e2e lỗi tại ô, không gửi; (3) T3 unit store (ô khác, nhánh Redo, batch không phải style) + bus (key khác, > 1,5 s, Undo chen giữa); (4) T10 e2e chọn ở 50 % khớp khung (resize ở 50 % dùng cùng `toDoc` ÷ zoom); (5) T12 unit URL cũ không còn + `?legacy=1` mở editor mới (e2e) + `promoteLayout` qua commands.
