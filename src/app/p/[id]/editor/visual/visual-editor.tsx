@@ -162,7 +162,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       }
       case "up": case "down": { if (!sel.length) return; e.preventDefault(); batch(reorderBatch(ix, comps, sel, action === "up" ? -1 : 1), "Đổi thứ tự"); return; }
       case "copy": {
-        if (!first) return;
+        const at = e.target as Node, doc = at.ownerDocument ?? (at as Document);
+        if (!first || doc.getSelection?.()?.isCollapsed === false) return; // highlighted text: the browser's own copy
         e.preventDefault();
         const c = copyClip(ix, first);
         if ("error" in c) return setMsg(c.error);
