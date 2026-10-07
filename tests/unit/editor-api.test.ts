@@ -26,6 +26,13 @@ vi.mock("@/core/jobs", async (orig) => {
   return { ...real, isQueuedOrActive: (id: string) => busy.has(id) || real.isQueuedOrActive(id) };
 });
 
+// forces affectedOf to throw after a committed step (withAffected must fall back to a page reload)
+const failAffected = vi.hoisted(() => ({ on: false }));
+vi.mock("@/core/editor-canvas", async (orig) => {
+  const real = await orig<typeof import("@/core/editor-canvas")>();
+  return { ...real, affectedOf: (...a: Parameters<typeof real.affectedOf>) => { if (failAffected.on) throw new Error("boom"); return real.affectedOf(...a); } };
+});
+
 const created: string[] = [];
 afterAll(async () => {
   for (const id of created) await rm(join(config.workspaceRoot, id), { recursive: true, force: true, maxRetries: 3 });
@@ -497,4 +504,20 @@ test("E3 §5: an uploaded SVG reaches the canvas only by URL (css url() → asse
   expect(data.css).toContain(`assets/${file}`);
   expect(data.page.html).not.toMatch(/<svg|<rect/);
   expect(data.assets.map((a) => a.key)).toContain(key);
+});
+
+test("E3 §5: affected failing after the step committed is not a 500: 200 with the committed revision and a page reload (shellChanged)", async () => {
+  const id = await seed();
+  const root = await rootId(id);
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  failAffected.on = true;
+  try {
+    const res = await post(commandsRoute, id, { baseRevision: 0, pageId: "home", commands: [{ op: "setName", id: root, name: "x" }] });
+    expect([res.status, await res.json()]).toEqual([200, { revision: 1, createdIds: [], canUndo: true, canRedo: false, affected: { sections: [], css: "", shellChanged: true, interactives: [] } }]);
+    expect(log).toHaveBeenCalledTimes(1);
+  } finally {
+    failAffected.on = false;
+    log.mockRestore();
+  }
+  expect((await projectDocuments(getDb()).loadDocument(id)).revision).toBe(1);
 });

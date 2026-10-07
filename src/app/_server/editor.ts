@@ -20,11 +20,17 @@ export function canvasUrlsFor(req: Request, projectId: string): (file: string) =
 }
 
 // Runs under exclusiveEdit: nothing else writes the document between the read before and the read after the step.
-// A failed step (stale, invalid, materialize) throws before `affected` is computed.
+// A failed step (stale, invalid, materialize) throws before `affected` is computed. Once the step committed, a
+// failure computing `affected` is no error: the client gets the committed result and reloads the page.
 export async function withAffected(db: DatabaseSync, projectId: string, store: DocumentStore, pageId: string | undefined, step: () => Promise<EditResult>): Promise<EditResult & { affected?: Affected }> {
   if (pageId === undefined) return step();
   const before = await store.readDocument(projectId);
   const result = await step();
-  const [after, emit] = await Promise.all([store.readDocument(projectId), editorEmit(db, projectId)]);
-  return { ...result, affected: affectedOf(before, after, pageId, emit) };
+  try {
+    const [after, emit] = await Promise.all([store.readDocument(projectId), editorEmit(db, projectId)]);
+    return { ...result, affected: affectedOf(before, after, pageId, emit) };
+  } catch (e) {
+    console.error("editor: affected failed after commit", e); // server-side only; core error messages carry no secrets
+    return { ...result, affected: { sections: [], css: "", shellChanged: true, interactives: [] } };
+  }
 }
