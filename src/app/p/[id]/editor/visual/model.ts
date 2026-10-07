@@ -245,7 +245,6 @@ export function dropCommand(index: DocIndex, components: readonly PanelComponent
   const parentWhy = guardParent(index, components, parentId);
   if (parentWhy) return { error: parentWhy };
   if (inside(index, parentId, dragId)) return { error: "Không thả phần tử vào chính nó." };
-  if (index.get(parentId)!.sectionId !== drag.sectionId) return { error: "Chưa chuyển được phần tử sang section khác." }; // R11 (E3b lifts it)
   let at = zone === "inside" ? over.node.children.length : over.index + (zone === "after" ? 1 : 0);
   if (parentId === drag.parent && drag.index < at) at -= 1;
   if (parentId === drag.parent && at === drag.index) return { error: SAME_PLACE };

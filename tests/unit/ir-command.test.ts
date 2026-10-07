@@ -135,13 +135,26 @@ test("protected roots, cycles and owner boundaries are refused", () => {
   const refused: EditorCommand[] = [
     { op: "deleteNode", id: "p" }, { op: "moveNode", id: "p", parentId: "a", index: 0 }, { op: "deleteNode", id: "html" },
     { op: "moveNode", id: "a", parentId: "ta", index: 0 }, { op: "moveNode", id: "a", parentId: "a", index: 0 },
-    { op: "moveNode", id: "d", parentId: "p", index: 0 }, { op: "moveNode", id: "b", parentId: "body", index: 0 },
+    { op: "moveNode", id: "b", parentId: "body", index: 0 },
     { op: "duplicateNode", id: "ph1", parentId: "body", index: 0 }, { op: "duplicateNode", id: "d", parentId: "p", index: 0 },
     { op: "deleteNode", id: "missing" }, { op: "moveNode", id: "b", parentId: "p", index: 3 },
   ];
   for (const command of refused) expect(() => prepareCommands(ir, [command], ids()), JSON.stringify(command)).toThrow(/command 0/);
   const cycle = applyCommands(ir, [{ op: "moveNode", id: "b", parentId: "a", index: 0 }]).ir;
   expect(() => applyCommands(cycle, [{ op: "moveNode", id: "a", parentId: "b", index: 0 }])).toThrow(/cycle/);
+});
+
+test("E3b R1: moveNode between two sections keeps the ids of the whole subtree and inverts exactly; shell and main boundaries still hold", () => {
+  const ir = fixture();
+  const out = roundTrip(ir, [{ op: "moveNode", id: "d", parentId: "p", index: 1 }]).ir;
+  expect(kids(out).map((x) => x.id)).toEqual(["a", "d", "b", "c"]);
+  expect(kids(out)[1]!.parentId).toBe("p");
+  expect(kids(out, 1)).toEqual([]);
+  const back = roundTrip(out, [{ op: "moveNode", id: "a", parentId: "q", index: 0 }]).ir; // with its #text child
+  expect(kids(back, 1)[0]).toMatchObject({ id: "a", parentId: "q", children: [{ id: "ta", parentId: "a" }] });
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "b", parentId: "body", index: 0 }])).toThrow(/boundaries/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "d", parentId: "p", index: 9 }])).toThrow(/index out of range/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "d", parentId: "ta", index: 0 }])).toThrow(/cannot have children/);
 });
 
 test("shell edits sync section references and undo restores sections and layouts", () => {

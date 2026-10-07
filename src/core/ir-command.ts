@@ -284,7 +284,7 @@ function overridden(ir: IRV2, node: IRNodeV2, c: Extract<Edit, { op: "setStyle" 
   return { ...ref, overrides: [...new Set([...(ref.overrides ?? []), ...paths])] };
 }
 
-// --- tree commands (one tree each: a node never changes owner) ---
+// --- tree commands (one tree each, except a moveNode between two sections: E3b R1) ---
 function insert(ir: IRV2, parentId: unknown, index: unknown, node: IRNodeV2, fail: Fail): { ir: IRV2; tree: Tree } {
   const parent = need(ir, parentId, fail, "parent");
   checkParent(parent.node, fail);
@@ -332,7 +332,9 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
     return { ir: withRoot(ir, tree, root), tree, inverse: { op: "restoreNode", parentId: parent.id, index: found.index, node } };
   }
   const target = need(ir, c.parentId, fail, "parent");
-  if (!sameTree(tree, target.tree)) fail("nodes cannot move across section/shell/main boundaries");
+  // E3 §3 (R1): a move may cross from one section to another; never into / out of a shell or a component main
+  const across = !sameTree(tree, target.tree);
+  if (across && !(c.op === "moveNode" && tree.kind === "sections" && target.tree.kind === "sections")) fail("nodes cannot move across section/shell/main boundaries");
   checkParent(target.node, fail);
   if (c.op === "duplicateNode") {
     const source = preorder(node);
@@ -350,6 +352,15 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
   }
   // moveNode: the index counts after the node is lifted out of its current parent.
   if (preorder(node).some((n) => n.id === target.node.id)) fail("cannot move a node into itself (cycle)");
+  if (across) {
+    checkIndex(c.index, target.node.children.length, fail);
+    checkDepth(target, node, fail);
+    const lifted = withRoot(ir, tree, update(rootOf(ir, tree), parent.id, (p) => ({ ...p, children: splice(p.children, found.index, 1) }))!);
+    const next = withRoot(lifted, target.tree, update(rootOf(lifted, target.tree), target.node.id, (p) => ({ ...p, children: splice(p.children, c.index, 0, withParent(node, p.id)) }))!);
+    // the subtree may join another page's section: that page stays loadable by migrateIR
+    if (pageTrees(next, target.tree).reduce((sum, r) => sum + preorder(r).length, 0) > MAX_CAPTURE_NODES) fail(`page node limit exceeded (${MAX_CAPTURE_NODES})`);
+    return { ir: next, tree, inverse: { op: "moveNode", id: node.id, parentId: parent.id, index: found.index } };
+  }
   const lifted = update(rootOf(ir, tree), parent.id, (p) => ({ ...p, children: splice(p.children, found.index, 1) }))!;
   const length = target.node.id === parent.id ? parent.children.length - 1 : target.node.children.length;
   checkIndex(c.index, length, fail);

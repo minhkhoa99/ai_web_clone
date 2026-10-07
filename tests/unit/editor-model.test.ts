@@ -119,7 +119,7 @@ test("batches: delete top-most (a section by its placeholder), duplicate in desc
   expect(hideBatch(wide, many, true)).toEqual({ error: expect.stringMatching(/50/) });
 });
 
-test("drop: before/after/inside with the index counted after lifting; into itself, void tags, the shell and (E3a) another section are refused; a section row only reorders sections", () => {
+test("drop: before/after/inside with the index counted after lifting; into itself, void tags, the shell are refused, another section is allowed (E3b R1); a section row only reorders sections", () => {
   const index = ix();
   expect(dropCommand(index, [], "h", "box", "after")).toEqual({ commands: [{ op: "moveNode", id: "h", parentId: "r1", index: 2 }] });
   expect(dropCommand(index, [], "box", "h", "before")).toEqual({ commands: [{ op: "moveNode", id: "box", parentId: "r1", index: 0 }] });
@@ -127,7 +127,7 @@ test("drop: before/after/inside with the index counted after lifting; into itsel
   expect(dropCommand(index, [], "p", "b", "inside")).toEqual({ error: expect.stringMatching(/chính nó/) });
   expect(dropCommand(index, [], "h", "img", "inside")).toEqual({ error: expect.stringMatching(/img/) });
   expect(dropCommand(index, [], "h", "nav", "after")).toEqual({ error: expect.stringMatching(/shell/) });
-  expect(dropCommand(index, [], "h", "track", "after")).toEqual({ error: expect.stringMatching(/section khác/) });
+  expect(dropCommand(index, [], "h", "track", "after")).toEqual({ commands: [{ op: "moveNode", id: "h", parentId: "r2", index: 2 }] }); // E3b R1
   expect(dropCommand(index, [], "r2", "r1", "before")).toEqual({ commands: [{ op: "moveNode", id: "ph2", parentId: "body", index: 0 }] });
   expect(dropCommand(index, [], "r2", "h", "after")).toEqual({ error: expect.stringMatching(/section/) });
   expect(dropCommand(index, [], "r1", "r2", "before")).toEqual({ error: expect.stringMatching(/chỗ cũ/) });
