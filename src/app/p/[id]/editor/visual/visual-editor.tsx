@@ -73,7 +73,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
-  const applyResult = (r: StepResult) => {
+  const applyResult = (r: StepResult, keepSelection = false) => {
     const a = r.affected, d = live.current.data;
     if (!d) return;
     const roots = new Map(d.page.sections.map((s) => [s.id, s.root.id]));
@@ -88,14 +88,14 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         page: { ...cur.page, sections: cur.page.sections.map((s) => (fresh.has(s.id) ? { ...s, root: fresh.get(s.id)! } : s)) },
       }),
     });
-    setSelection((s) => (r.createdIds.length ? r.createdIds : s));
+    if (!keepSelection) setSelection((s) => (r.createdIds.length ? r.createdIds : s));
   };
   // refetch the page; the old bus is dropped at once so nothing more is pushed to it
   const refetch = () => { bus.current = null; setLoading(true); setLoad((x) => x + 1); };
   const say = (e: BusEvent) => {
     switch (e.type) {
       case "saving": return;
-      case "done": setSaved(true); setMsg(e.op.done ?? DONE[e.op.kind]); return applyResult(e.result);
+      case "done": setSaved(true); setMsg(e.op.done ?? DONE[e.op.kind]); return applyResult(e.result, e.op.kind === "commands" && !!e.op.keepSelection);
       case "refused": return setMsg(e.message);
       case "full": return setMsg("Đang lưu… chờ chút");
       case "stale": {
@@ -187,7 +187,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       let prev: string | null = null;
       const host = () => canvas.current?.element(nid) ?? null; // a partial update may have swapped the element
       run({
-        kind: "commands", commands: b.commands, label: "Sửa chữ",
+        kind: "commands", commands: b.commands, label: "Sửa chữ", keepSelection: true, // recreated children are #text / b / br: the host stays selected
         apply: () => { const h = host(); if (h) { prev = h.innerHTML; drawText(h, node, b.commands); } },
         rollback: () => { const h = host(); if (h && prev !== null) h.innerHTML = prev; },
       });

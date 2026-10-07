@@ -9,7 +9,7 @@ export type StepResult = { revision: number; createdIds: string[]; canUndo: bool
 // Op contract: apply() records its own "before" state and applies the edit; rollback() restores what the latest apply()
 // recorded. A refusal rolls back the refused op and everything queued after it (newest first), then re-applies the queued ones.
 export type Op =
-  | { kind: "commands"; label: string; commands: EditorCommand[]; done?: string; apply?(): void; rollback?(): void }
+  | { kind: "commands"; label: string; commands: EditorCommand[]; done?: string; keepSelection?: boolean; apply?(): void; rollback?(): void }
   | { kind: "undo" | "redo"; label: string; done?: string };
 export type SendBody = { baseRevision: number; pageId: string; commands?: EditorCommand[] };
 export type Send = (op: Op, body: SendBody) => Promise<StepResult>;

@@ -260,8 +260,8 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
           }}
           options={DEVICES.map((w) => ({ value: w, label: w }))}
         />
-        <IconButton icon="undo" label="Hoàn tác" onClick={() => void history("undo")} disabled={busy || !project?.canUndo} />
-        <IconButton icon="redo" label="Làm lại" onClick={() => void history("redo")} disabled={busy || !project?.canRedo} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => void history("undo")} disabled={busy || loading || !project?.canUndo} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => void history("redo")} disabled={busy || loading || !project?.canRedo} />
         <Button variant="primary" icon="save" onClick={() => void save()} disabled={busy || !project}>
           Lưu
         </Button>

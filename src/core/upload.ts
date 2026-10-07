@@ -13,7 +13,7 @@ export const UPLOAD_ORIGIN = "https://upload.aiwc.invalid/"; // http(s) so the e
 export type ImageKind = "png" | "jpg" | "gif" | "webp" | "avif" | "svg";
 export type LibraryAsset = { key: string; url: string; size: number; type: string };
 const EXT: Record<string, ImageKind> = { png: "png", jpg: "jpg", jpeg: "jpg", gif: "gif", webp: "webp", avif: "avif", svg: "svg" };
-const STORED = /^assets\/[0-9a-f]{64}\.(?:png|jpg|gif|webp|avif|svg)$/;
+const STORED = /^assets\/[0-9a-f]{64}\.(?:png|jpe?g|gif|webp|avif|svg)$/; // captured assets may be .jpeg
 const LIBRARY_LIMIT = 500;
 const STAT_CONCURRENCY = 8;
 function invalid(message: string): never {

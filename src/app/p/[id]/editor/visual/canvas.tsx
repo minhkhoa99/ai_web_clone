@@ -10,7 +10,6 @@ export type CanvasHandle = {
   element(id: string): HTMLElement | null;
   replace(a: Affected, rootOf: (sectionId: string) => string | undefined): boolean;
   post(message: unknown): void;
-  frame(): HTMLIFrameElement | null;
 };
 type Props = {
   ref?: Ref<CanvasHandle>;
@@ -54,7 +53,6 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
   const show = () => { for (const s of shown.current) frame.current?.contentWindow?.postMessage({ type: "aiwc:show", root: s.root, index: s.index }, "*"); };
   useImperativeHandle(ref, () => ({
     doc,
-    frame: () => frame.current,
     element: (id) => doc()?.querySelector<HTMLElement>(`[data-ir-id="${CSS.escape(id)}"]`) ?? null,
     replace(a, rootOf) {
       const d = doc();

@@ -417,6 +417,9 @@ test("E3a inline text: a multi-line paste stays on one line; Shift+Enter keeps a
   const out = await outHtml();
   expect(out).toContain("line one line two");
   expect(out).toMatch(/<br[^>]*>next<\/p>/);
+  // the recreated children (#text / br) never take the selection: the paragraph stays selected
+  const paraId = await para.getAttribute("data-ir-id");
+  await expect.poll(() => page.locator('[data-ui="ui_editor_selection_box"]').first().getAttribute("data-for")).toBe(paraId);
   await page.getByRole("button", { name: "Hoàn tác" }).click();
   await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
   expect(await outHtml()).toContain(`>${before}</p>`);
