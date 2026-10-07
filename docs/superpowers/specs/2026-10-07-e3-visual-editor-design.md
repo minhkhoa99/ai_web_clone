@@ -215,3 +215,19 @@ Quyết định phát sinh khi viết plan E3a (R1–R20, `docs/superpowers/plan
 - Sửa chữ: setText khi cấu trúc giữ nguyên, thay con trong một batch khi chỉ còn chữ + b/i/a/br (giữ style + attr an toàn), còn lại từ chối. Dán chỉ lấy text thuần, xuống dòng khi dán thành dấu cách; Shift+Enter = `<br>`; Enter khi bị từ chối giữ nguyên chế độ sửa; bỏ qua Enter/Esc khi IME đang gõ. Ctrl+C khi đang bôi đen chữ để trình duyệt tự copy.
 - Panel ảnh: thay `src` + `srcset` + `<source>` trong `<picture>` cùng một batch; nền chỉ coi là ảnh khi có `url(`; href qua allowlist an toàn.
 - "Editor cũ" = `?legacy=1`; "Edit main" của E1 không nằm trong E3a (thêm vào E3b).
+
+## 12. Rulings khi triển khai E3b (2026-10-07)
+
+Từ plan `docs/superpowers/plans/2026-10-07-e3b-visual-editor-advanced.md` (R1–R18) và review từng task, chép lại để spec khớp code:
+- `moveNode` được chuyển giữa hai section và giữ ID (ghi đè luật ranh giới section của E1 §2 và dòng "E3a chưa cho chuyển node sang section khác" ở §11; shell/main giữ nguyên). Giới hạn đã biết: trần số node chỉ đếm trang chủ của section layout (đã có sẵn ở insert/createNode).
+- Trong một batch, `convertToComponent` gọi node vừa tạo bằng `new:<k>/<path>`; chỉ số con đếm trên mảng `children` thô của bản nháp (kể cả `#text`); mẫu component = một bước Undo. AI qa-fix không có `convertToComponent` nên không dùng được `new:`.
+- Gộp Undo 1,5 s: client gửi `coalesce` (khoá `<id>|<target>|<prop>`) khi cùng ô được đẩy lại trong 1,5 s (cửa sổ trượt) và revision chưa đổi; server thay bước mới nhất chỉ khi cùng tập (id, target, prop) của `setStyle` và không có nhánh Redo; revision vẫn +1.
+- Style Manager: giá trị rỗng = ↺ (xoá về giá trị kế thừa, theo luật `clearField`, kể cả ở instance); 375 kế thừa thẳng Desktop; trạng thái :hover/:focus/:active áp mọi breakpoint; ô lệch an toàn bị `isSafeCss` ở server chặn.
+- Gesture (kéo, Alt+kéo, resize, padding/gap, chèn, pan) bị huỷ khi: canvas tải lại hoặc thay section giữa chừng, Esc, mất focus cửa sổ, mất `pointerup` (buttons = 0), `pointercancel`, frame cuộn.
+- Alt+kéo: top/left theo padding box của cha trực tiếp (cha static → relative), khoá width; snap 4 px màn hình (chia zoom).
+- Resize/padding: gap theo từng trục `column-gap` / `row-gap`, không bao giờ ghi shorthand `gap`; node absolute và fixed có đủ 8 handle, sticky thì không; đo theo border-box, bỏ qua số không hữu hạn.
+- "Section trống" là `<section>` bên trong section hiện tại (Command API không tạo IR section).
+- Zoom theo mốc 25/33/50/67/75/100/125/150/200 %, mặc định 100 %, Ctrl+lăn ×1,1, "Vừa khung" có sàn; Space+kéo chỉ pan khi focus ở canvas/body — control đang focus giữ Space để kích hoạt.
+- Drawer ≤ 1099px nằm trong vùng canvas; dưới 768px chỉ xem/chọn (view-only): việc đang gõ (Style chờ debounce, sửa chữ inline) được lưu có chủ đích lúc chuyển, sau đó không gửi gì nữa; upload hoàn tất sau khi khoá bị chặn kèm thông báo.
+- GrapesJS, `grapes-adapter`, route `editor/save` và `editor/promote-layout` đã gỡ (URL cũ trả 404); `?legacy=1` mở editor mới; "Gộp thành layout" là `promoteLayout` từ card Section.
+- Sửa main tại chỗ (R16–R18): nút "Sửa main" mở chế độ trên instance; `generatedNode` nhận ra node sinh từ ref, `toMain` ở `run()` đổi id canvas → node main, id tạo mới ánh xạ ngược; chọn instance khác của cùng component thì chuyển đích, chọn thứ khác thì thoát; tab Component có ghi chú khi đang sửa main; ra bằng Xong / Esc ở gốc / chọn ngoài instance / chuyển sang view-only; thuộc tính đã override ở instance không đổi theo main.
