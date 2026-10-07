@@ -175,24 +175,56 @@ function makeCtx(ir: IR, opts: RenderOpts, fileByPage: Map<string, string>): Ctx
 // R9: a page with an allowlisted embed gets this meta CSP (also on export / file://; the files route header is unchanged).
 export const EMBED_CSP = `frame-src ${EMBED_HOSTS.map((h) => `https://${h}`).join(" ")}`;
 
-function renderPage(page: IR["pages"][number], ctx: Ctx): string {
+// --- editor canvas (E3 §1, §8) ---------------------------------------------------------------
+// The srcdoc frame shares the app origin: its meta CSP lets nothing but the exact runtime URL run (CSP source
+// matching ignores the ?edit=1 query), no plugins, no form posts, no foreign <base>.
+export type CanvasUrls = { base: string; runtime: string };
+export const canvasCsp = (runtime: string): string =>
+  `default-src 'self' data: blob: http: https:; script-src ${runtime.split("?")[0]}; style-src 'self' 'unsafe-inline' data: http: https:; object-src 'none'; form-action 'none'; base-uri 'self'`;
+
+function renderPage(page: IR["pages"][number], ctx: Ctx, canvas?: CanvasUrls): string {
   const base = ctx.opts.pageUrls[page.id];
   const embeds = (x: IRNode | undefined): boolean =>
     !!x && (!!x.embed || (x.tag === "#section" ? embeds(ctx.sections.get(x.attrs["data-section"] ?? "")?.root) : x.children.some(embeds)));
   const head = [
     '<meta charset="utf-8">',
+    // the canvas resolves assets like out/<page>.html; <base> precedes the CSP so base-uri never blocks it
+    ...(canvas ? [`<base href="${escAttr(canvas.base)}">`, `<meta http-equiv="Content-Security-Policy" content="${escAttr(canvasCsp(canvas.runtime))}">`] : []),
     ...(embeds(page.shell) ? [`<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`] : []),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escText(page.title)}</title>`,
     ...Object.entries(page.meta)
       .filter(([key]) => !HEAD_META_SKIP.has(key))
       .map(([key, content]) => `<meta ${PROPERTY_META.test(key) ? "property" : "name"}="${escAttr(key)}" content="${escAttr(content)}">`),
-    '<link rel="stylesheet" href="css/styles.css">',
-    '<script src="js/runtime.js" defer></script>',
+    canvas ? "<style data-aiwc-css></style>" : '<link rel="stylesheet" href="css/styles.css">',
+    canvas ? `<script src="${escAttr(canvas.runtime)}"></script>` : '<script src="js/runtime.js" defer></script>',
   ];
   const body: string[] = [];
   for (const child of page.shell.children) renderNode(child, base, ctx, body);
   return `<!DOCTYPE html>\n<html${renderAttrs(page.shell, base, ctx)}><head>\n${head.join("\n")}\n</head>${body.join("")}</html>\n`;
+}
+
+export function renderCanvasPage(view: IR, pageId: string, opts: RenderOpts, urls: CanvasUrls): string {
+  const page = view.pages.find((p) => p.id === pageId);
+  if (!page) throw new Error(`emit: unknown page ${pageId}`);
+  return renderPage(page, makeCtx(view, opts, pageFileNames(view.pages)), urls);
+}
+// renderViewStylesheet writes asset urls relative to out/css/; the canvas reads its stylesheet inline beside out/<page>
+const CSS_ASSET = /\.\.\/(assets\/[0-9a-f]{64}\.[a-z0-9]{1,8})/g;
+export const renderCanvasCss = (view: IR, opts: RenderOpts): string => renderViewStylesheet(view, opts).replace(CSS_ASSET, "$1");
+
+// HTML of several sections from one compiled view (the editor's partial update: one compile per batch, R1).
+export function renderSectionsHtml(view: IR, sectionIds: readonly string[], opts: RenderOpts): Map<string, string> {
+  const ctx = makeCtx(view, opts, pageFileNames(view.pages));
+  const out = new Map<string, string>();
+  for (const id of sectionIds) {
+    const section = ctx.sections.get(id);
+    if (!section) throw new Error(`emit: unknown section ${id}`);
+    const html: string[] = [];
+    renderNode(section.root, opts.pageUrls[section.pageId], ctx, html);
+    out.set(id, html.join(""));
+  }
+  return out;
 }
 
 // --- CSS ---------------------------------------------------------------------
@@ -394,12 +426,7 @@ export const renderStylesheet = (ir: IRV2, opts: RenderOpts): string => renderVi
 
 // HTML of one section: the same compile + renderer as renderSite, so it never drifts from the site output.
 export function emitSection(doc: IRV2, sectionId: string, opts: RenderOpts): string {
-  const ir = compileV2(doc);
-  const section = ir.sections.find((s) => s.id === sectionId);
-  if (!section) throw new Error(`emit: unknown section ${sectionId}`);
-  const out: string[] = [];
-  renderNode(section.root, opts.pageUrls[section.pageId], makeCtx(ir, opts, pageFileNames(ir.pages)), out);
-  return out.join("");
+  return renderSectionsHtml(compileV2(doc), [sectionId], opts).get(sectionId)!;
 }
 
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).
