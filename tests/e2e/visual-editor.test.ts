@@ -253,3 +253,88 @@ test("E3a layers: canvas ⇄ tree selection (auto-scroll), search by text, renam
   await expect.poll(async () => (await allNodes()).find((x) => x.id === h1Id)?.name).toBeUndefined();
   await page.close();
 });
+
+// counts section roots swapped into the frame (outerHTML replacements) from now on
+async function countSwaps(page: Page): Promise<() => Promise<number>> {
+  const roots = (await payload()).page.sections.map((s) => s.root.id);
+  await canvas(page).locator("body").evaluate((body, ids) => {
+    const w = window as unknown as { __swaps: number };
+    w.__swaps = 0;
+    new MutationObserver((records) => { for (const r of records) for (const n of r.addedNodes) if (n.nodeType === 1 && ids.includes((n as Element).getAttribute("data-ir-id") ?? "")) w.__swaps++; }).observe(body, { childList: true, subtree: true });
+  }, roots);
+  return () => canvas(page).locator("body").evaluate(() => (window as unknown as { __swaps: number }).__swaps);
+}
+
+test("E3a shortcuts: Delete, Ctrl+Z / Ctrl+Y, Ctrl+D, Alt+↑, Ctrl+C / Ctrl+V — one step each; Shift-selected nodes deleted and restored by one Undo; H replaces exactly one section", { timeout: 240_000 }, async () => {
+  const page = await open();
+  const PARA = "Plain paragraph text.", HEAD = "Build faster sites";
+  const count = async (text: string) => (await outHtml()).split(text).length - 1;
+  const para = () => canvas(page).getByText(PARA);
+  await para().click();
+  await page.keyboard.press("Delete");
+  await saved(page);
+  await expect.poll(() => count(PARA), { timeout: 30_000 }).toBe(0);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  await expect.poll(() => count(PARA), { timeout: 30_000 }).toBe(1);
+  await page.keyboard.press("Control+y");
+  await saved(page);
+  await expect.poll(() => count(PARA), { timeout: 30_000 }).toBe(0);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  // Ctrl+D: a copy right after it (the copy selected); one Undo
+  await para().click();
+  await page.keyboard.press("Control+d");
+  await saved(page);
+  await expect.poll(() => count(PARA), { timeout: 30_000 }).toBe(2);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  // Alt+↑ moves the paragraph above the h1
+  await para().click();
+  await page.keyboard.press("Alt+ArrowUp");
+  await saved(page);
+  await expect.poll(async () => { const h = await outHtml(); return h.indexOf(PARA) < h.indexOf(HEAD); }, { timeout: 30_000 }).toBe(true);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  // h1 + p selected with Shift: one Delete, one revision, one Undo restores both
+  const rev = (await payload()).revision;
+  await canvas(page).locator("h1").click();
+  await para().click({ modifiers: ["Shift"] });
+  await page.keyboard.press("Delete");
+  await saved(page);
+  await expect.poll(async () => [(await payload()).revision, await count(HEAD), await count(PARA)], { timeout: 30_000 }).toEqual([rev + 1, 0, 0]);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  await expect.poll(async () => [await count(HEAD), await count(PARA)], { timeout: 30_000 }).toEqual([1, 1]);
+  // copy + paste the h1 right after itself: a fresh id
+  const h1Id = (await canvas(page).locator("h1").getAttribute("data-ir-id"))!;
+  await canvas(page).locator("h1").click();
+  await page.keyboard.press("Control+c");
+  await page.keyboard.press("Control+v");
+  await saved(page);
+  await expect.poll(() => canvas(page).locator("h1").count(), { timeout: 30_000 }).toBe(2);
+  expect(await canvas(page).locator("h1").nth(1).getAttribute("data-ir-id")).not.toBe(h1Id);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  // H on the paragraph: exactly one section swapped on the canvas
+  const swaps = await countSwaps(page);
+  await para().click();
+  await page.keyboard.press("h");
+  await saved(page);
+  await expect.poll(swaps, { timeout: 30_000 }).toBe(1);
+  await expect.poll(() => para().isVisible()).toBe(false);
+  await page.keyboard.press("Control+z");
+  await saved(page);
+  // a section row deleted from the tree changes the shell: the page reloads, the other sections stay (Undo brings it back)
+  const before = (await payload()).page;
+  const footer = before.sections.at(-1)!;
+  await page.locator(`[data-ui="ui_editor_layer_row"][data-id="${footer.root.id}"]`).click();
+  await page.keyboard.press("Delete");
+  await saved(page);
+  await expect.poll(async () => (await payload()).page.sections.length, { timeout: 30_000 }).toBe(before.sections.length - 1);
+  await expect.poll(() => canvas(page).locator(`[data-ir-id="${footer.root.id}"]`).count()).toBe(0);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(async () => (await payload()).page.sections.length, { timeout: 30_000 }).toBe(before.sections.length);
+  await page.close();
+});

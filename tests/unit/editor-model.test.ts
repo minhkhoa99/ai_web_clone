@@ -105,6 +105,13 @@ test("batches: delete top-most (a section by its placeholder), duplicate in desc
   expect(reorderBatch(index, [], ["p", "box"], 1)).toEqual({ commands: [{ op: "moveNode", id: "box", parentId: "r1", index: 3 }, { op: "moveNode", id: "p", parentId: "r1", index: 2 }] });
   expect(reorderBatch(index, [], ["h"], -1)).toEqual({ error: expect.any(String) });
   expect(reorderBatch(index, [], ["gone", "bad"], 1)).toEqual({ error: "Đã ở đầu / cuối danh sách." }); // bad is last: nothing moves
+  // whitespace-only text between elements is skipped (the tree never shows it); consecutive picks keep their order
+  const ws = (id: string) => n(id, "#text", [], { text: "\n  " });
+  const spaced = indexPage({ shell: n("html", "html", [n("body", "body", [n("ph", "#section", [], { attrs: { "data-section": "s" } })])]), sections: [{ id: "s", name: "S", root: n("r", "div", [ws("w0"), n("a", "h1"), ws("w1"), n("b2", "p"), ws("w2"), n("c", "p"), ws("w3")]) }] });
+  expect(reorderBatch(spaced, [], ["b2"], -1)).toEqual({ commands: [{ op: "moveNode", id: "b2", parentId: "r", index: 1 }] });
+  expect(reorderBatch(spaced, [], ["a"], 1)).toEqual({ commands: [{ op: "moveNode", id: "a", parentId: "r", index: 3 }] });
+  expect(reorderBatch(spaced, [], ["b2", "c"], -1)).toEqual({ commands: [{ op: "moveNode", id: "b2", parentId: "r", index: 1 }, { op: "moveNode", id: "c", parentId: "r", index: 2 }] });
+  expect(reorderBatch(spaced, [], ["a"], -1)).toEqual({ error: "Đã ở đầu / cuối danh sách." });
   expect(renameBatch(index, "h", "  Tiêu đề  ")).toEqual({ commands: [{ op: "setName", id: "h", name: "Tiêu đề" }] });
   expect(renameBatch(index, "h", " ")).toEqual({ error: expect.stringMatching(/1–80/) });
   const many = Array.from({ length: 26 }, (_, i) => `x${i}`);

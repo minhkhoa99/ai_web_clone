@@ -206,16 +206,25 @@ export function hideBatch(index: DocIndex, ids: readonly string[], hidden: boole
   }
   return capped(commands);
 }
-// moveNode's index counts after lifting: ±1 lands next to the neighbour; moving down goes last-first, up first-first
+// moveNode's index counts after lifting: the node lands past its neighbour (whitespace-only text skipped — the tree
+// never shows it); moving down goes last-first, up first-first, each move applied to a working copy of the siblings
+const blank = (n: IRNodeV2) => n.tag === "#text" && !(n.text ?? "").trim();
 export function reorderBatch(index: DocIndex, components: readonly PanelComponent[], ids: readonly string[], delta: -1 | 1): Batch {
   const top = topMost(index, ids), why = first(index, components, top, "move");
   if (why) return { error: why };
   const order = [...top].sort((a, b) => (index.get(a)!.index - index.get(b)!.index) * -delta);
+  const lists = new Map<string, IRNodeV2[]>();
   const commands: EditorCommand[] = [];
   for (const id of order) {
-    const e = index.get(id)!, count = index.get(e.parent!)!.node.children.length, to = e.index + delta;
-    if (to < 0 || to >= count) return { error: "Đã ở đầu / cuối danh sách." }; // all or nothing
-    commands.push({ op: "moveNode", id: e.subject, parentId: e.parent!, index: to });
+    const e = index.get(id)!, parentId = e.parent!;
+    const list = lists.get(parentId) ?? [...index.get(parentId)!.node.children];
+    lists.set(parentId, list);
+    const at = list.findIndex((c) => c.id === e.subject);
+    let to = at + delta;
+    while (list[to] && blank(list[to]!)) to += delta;
+    if (!list[to]) return { error: "Đã ở đầu / cuối danh sách." }; // all or nothing
+    list.splice(to, 0, ...list.splice(at, 1));
+    commands.push({ op: "moveNode", id: e.subject, parentId, index: to });
   }
   return capped(commands);
 }

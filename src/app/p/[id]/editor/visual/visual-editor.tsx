@@ -16,7 +16,7 @@ import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { LayerTree } from "./layer-tree";
-import { bodyOf, BPS, indexPage, keyAction, labelOf, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
+import { bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, hideBatch, indexPage, keyAction, labelOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { measure, Overlay } from "./overlay";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
@@ -42,6 +42,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
+  const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
   const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
   const live = useRef({ data, index, selection });
   live.current = { data, index, selection };
@@ -142,8 +143,34 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const onKey = (e: KeyboardEvent) => {
     const action = keyAction(e, typingIn(e.target));
     if (!action) return;
-    const { index: ix, selection: sel } = live.current, first = sel[0];
+    const { index: ix, selection: sel } = live.current, first = sel[0], comps = live.current.data?.interactives ?? [];
     switch (action) {
+      case "undo": case "redo": { e.preventDefault(); run({ kind: action, label: action === "undo" ? "Hoàn tác" : "Làm lại" }); return; }
+      case "delete": {
+        if (!sel.length) return;
+        e.preventDefault();
+        if (batch(deleteBatch(ix, comps, sel), "Xoá")) setSelection([]);
+        return;
+      }
+      case "duplicate": { if (!sel.length) return; e.preventDefault(); batch(duplicateBatch(ix, comps, sel), "Nhân bản"); return; }
+      case "hide": {
+        if (!sel.length) return;
+        e.preventDefault();
+        const all = sel.every((x) => ix.get(x)?.node.hidden);
+        batch(hideBatch(ix, sel, !all), all ? "Hiện" : "Ẩn");
+        return;
+      }
+      case "up": case "down": { if (!sel.length) return; e.preventDefault(); batch(reorderBatch(ix, comps, sel, action === "up" ? -1 : 1), "Đổi thứ tự"); return; }
+      case "copy": {
+        if (!first) return;
+        e.preventDefault();
+        const c = copyClip(ix, first);
+        if ("error" in c) return setMsg(c.error);
+        clip.current = c;
+        setMsg(`Đã sao chép ${c.count} phần tử`);
+        return;
+      }
+      case "paste": { if (!clip.current) return; e.preventDefault(); batch(pasteBatch(ix, comps, clip.current, first), "Dán"); return; }
       case "parent": { e.preventDefault(); const p = first ? parentOf(ix, first) : undefined; return select(p ? [p] : []); }
       case "child": { e.preventDefault(); const c = first ? ix.get(first)?.children[0] : undefined; if (c) select([c]); return; }
       case "siblings": { if (!first) return; e.preventDefault(); return select(siblingsOf(ix, first)); }
