@@ -59,7 +59,9 @@ const ELEMENTS = new Map(
 const ANIMATION = new Set(["animate", "animateMotion", "animateTransform", "set"]);
 const RASTER_HOLDER = new Set(["image", "feImage"]);
 const RASTER = /^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/;
-const UNSAFE_CSS = /\\|@import|expression\s*\(|-moz-binding|behavior\s*:|(?:java|vb)script:|url\s*\(\s*(?!['"]?\s*#)/i;
+// Anything that fetches (url() other than a #ref, image-set(), src(), @import, @font-face) or runs (expression,
+// bindings, script URLs); a backslash is refused outright (CSS escapes can spell any of these).
+const UNSAFE_CSS = /\\|@import|@font-face|expression\s*\(|-moz-binding|behavior\s*:|(?:java|vb)script:|image-set\s*\(|(?:^|[^\w-])src\s*\(|url\s*\(\s*(?!['"]?\s*#)/i;
 const SCRIPT_URL = /(?:java|vb)script:/;
 const NAME = /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/;
 // No "<" inside a tag (XML forbids it in attribute values): every match attempt ends at the next "<", so linear.
@@ -74,7 +76,27 @@ const decode = (s: string) =>
     const cp = hex ? parseInt(hex, 16) : Number(dec);
     return String.fromCodePoint(cp <= 0x10ffff ? cp : 0xfffd);
   }));
-const encode = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const encodeText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/]]>/g, "]]&gt;");
+const encodeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const MAX_DEPTH = 1024; // open + dropped elements: deeper nesting is refused
+
+// A tag stack whose "is <name> open?" is O(1): a stray close never scans it, a matched close pops what it closes.
+class TagStack {
+  readonly names: string[] = [];
+  private counts = new Map<string, number>();
+  push(name: string) {
+    this.names.push(name);
+    this.counts.set(name, (this.counts.get(name) ?? 0) + 1);
+  }
+  pop(): string {
+    const name = this.names.pop()!;
+    this.counts.set(name, this.counts.get(name)! - 1);
+    return name;
+  }
+  has(name: string) {
+    return (this.counts.get(name) ?? 0) > 0;
+  }
+}
 const malformed = (): never => invalid("Tệp .svg không hợp lệ (XML hỏng).");
 
 // The kept attributes as ` name="value"`, or null when the element itself must go (animation of href / on*).
@@ -99,22 +121,26 @@ function svgAttrs(el: string, raw: string): string | null {
       if (target === "href" || target.startsWith("on")) return null;
     }
     seen.add(key);
-    out += ` ${name}="${encode(value)}"`;
+    out += ` ${name}="${encodeAttr(value)}"`;
   }
   return out;
 }
 
 export function sanitizeSvg(text: string): string {
   const out: string[] = [];
-  const open: string[] = []; // kept elements still open (canonical names)
-  const skip: string[] = []; // a dropped element's subtree still open (lowercase names)
+  const open = new TagStack(); // kept elements still open (canonical names)
+  const skip = new TagStack(); // a dropped element's subtree still open (lowercase names)
   let css: { attrs: string; parts: string[]; ok: boolean } | null = null; // inside a kept <style>
-  let rooted = false;
+  let rooted = false, xlinkUsed = false;
   const content = (s: string) => {
     if (css) css.parts.push(s);
-    else if (open.length && !skip.length) out.push(encode(s));
+    else if (open.names.length && !skip.names.length) out.push(encodeText(s));
   };
-  for (let i = 0; i < text.length && !(rooted && !open.length); ) {
+  const enter = (stack: TagStack, name: string) => {
+    if (open.names.length + skip.names.length >= MAX_DEPTH) invalid(`Tệp .svg lồng quá ${MAX_DEPTH} cấp.`);
+    stack.push(name);
+  };
+  for (let i = 0; i < text.length && !(rooted && !open.names.length); ) {
     if (text[i] !== "<") {
       const next = text.indexOf("<", i);
       const end = next < 0 ? text.length : next;
@@ -149,38 +175,40 @@ export function sanitizeSvg(text: string): string {
     if (css) {
       if (close && lower === "style") {
         const body = css.parts.join("");
-        if (css.ok && !UNSAFE_CSS.test(body)) out.push(`<style${css.attrs}>${encode(body)}</style>`);
+        if (css.ok && !UNSAFE_CSS.test(body)) out.push(`<style${css.attrs}>${encodeText(body)}</style>`);
         css = null;
       } else css.ok = false; // markup inside <style>
       continue;
     }
-    if (skip.length) {
-      const at = close ? skip.lastIndexOf(lower) : -1; // a stray close inside dropped content is ignored
-      if (at >= 0) skip.length = at;
-      else if (!close && !self) skip.push(lower);
+    if (skip.names.length) {
+      if (!close) {
+        if (!self) enter(skip, lower);
+      } else if (skip.has(lower)) while (skip.pop() !== lower); // a stray close inside dropped content is ignored
       continue;
     }
     if (!rooted && (close || lower !== "svg")) invalid("Tệp .svg không có thẻ <svg> ở gốc.");
     if (close) {
-      const at = el ? open.lastIndexOf(el) : -1;
-      while (at >= 0 && open.length > at) out.push(`</${open.pop()}>`);
+      if (el && open.has(el)) for (let name = ""; name !== el; ) out.push(`</${(name = open.pop())}>`);
       continue;
     }
     const attrs = el ? svgAttrs(el, tag[3]!) : null;
     if (attrs === null) {
-      if (!self) skip.push(lower);
+      if (!self) enter(skip, lower);
       continue;
     }
+    if (attrs.includes(" xlink:")) xlinkUsed = true;
     rooted = true;
     if (el === "style") {
       if (!self) css = { attrs, parts: [], ok: true };
       continue;
     }
     out.push(`<${el}${attrs}${self ? "/>" : ">"}`);
-    if (!self) open.push(el!);
+    if (!self) enter(open, el!);
   }
   if (!rooted) invalid("Tệp .svg không có thẻ <svg>.");
-  while (open.length) out.push(`</${open.pop()}>`);
+  while (open.names.length) out.push(`</${open.pop()}>`);
+  // a kept xlink:* attribute needs its prefix declared or the file doesn't parse (the root start tag is out[0])
+  if (xlinkUsed && !out[0]!.includes(' xmlns:xlink="')) out[0] = out[0]!.replace(/\/?>$/, (end) => ` xmlns:xlink="${XLINK_NS}"${end}`);
   return out.join("");
 }
 
@@ -193,7 +221,13 @@ export async function readUploads(ws: string): Promise<Record<string, string>> {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return "{}";
     throw e;
   });
-  const map = JSON.parse(text) as Record<string, unknown>;
+  let map: unknown;
+  try {
+    map = JSON.parse(text);
+  } catch {
+    return {}; // unreadable: the next upload rewrites it; emit never fails on it
+  }
+  if (!map || typeof map !== "object" || Array.isArray(map)) return {};
   return Object.fromEntries(
     Object.entries(map).filter(([k, v]) => k.startsWith(UPLOAD_ORIGIN) && v === `assets/${k.slice(UPLOAD_ORIGIN.length)}` && STORED.test(v)),
   ) as Record<string, string>;
@@ -211,7 +245,7 @@ export async function storeUpload(ws: string, fileName: string, bytes: Uint8Arra
   const ext = EXT[/\.([a-z0-9]+)$/i.exec(fileName)?.[1]?.toLowerCase() ?? ""];
   const kind = sniffImage(bytes);
   if (!ext || kind !== ext) invalid("Chỉ nhận ảnh png/jpg/webp/gif/svg/avif — đuôi file và nội dung phải khớp.");
-  let body = Buffer.from(bytes);
+  let body = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength); // a view, not a copy
   if (kind === "svg") {
     let text = "";
     try {
@@ -220,6 +254,8 @@ export async function storeUpload(ws: string, fileName: string, bytes: Uint8Arra
       invalid("Tệp .svg không phải UTF-8 hợp lệ.");
     }
     body = Buffer.from(sanitizeSvg(text));
+    // escaping can grow the text (a bare "&" -> "&amp;"): the stored file obeys the same cap
+    if (body.byteLength > MAX_FILE_BYTES) throw new AppError(Codes.ASSET_TOO_LARGE, `Ảnh .svg sau khi làm sạch vượt ${MAX_FILE_BYTES / 1024 / 1024} MB.`);
   }
   const sha = createHash("sha256").update(body).digest("hex");
   const file = `assets/${sha}.${kind}`;

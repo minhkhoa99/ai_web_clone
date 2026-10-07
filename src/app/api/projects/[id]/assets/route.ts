@@ -19,6 +19,8 @@ export function POST(req: Request, { params }: IdCtx) {
     const files = (await multipartBody(req, MAX_BODY)).getAll("file");
     const file = files[0];
     if (files.length !== 1 || typeof file === "string" || !file) throw new ApiError(400, "VALIDATION", "send exactly one file in the `file` field");
+    // ponytail: the file is held ~3x per request (capped body, parsed FormData, arrayBuffer) ≈ 75 MB peak at 25 MB;
+    // stream the multipart part to a tmp file if uploads get concurrent or the cap grows.
     const bytes = new Uint8Array(await file.arrayBuffer());
     const { key, file: rel } = await exclusiveEdit(db, id, () => storeUpload(workspaceOf(id), file.name, bytes));
     return Response.json({ key, url: `/api/projects/${encodeURIComponent(id)}/files/${rel}` });
