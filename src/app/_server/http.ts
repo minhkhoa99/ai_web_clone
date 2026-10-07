@@ -29,6 +29,9 @@ const STATUS: Partial<Record<Code, number>> = {
   NOTHING_TO_UNDO: 409,
   NOTHING_TO_REDO: 409,
   DOCUMENT_MATERIALIZE_FAILED: 500, // the step is committed: the client keeps its revision/createdIds, the next read repairs
+  UPLOAD_INVALID: 400,
+  ASSET_TOO_LARGE: 413,
+  PROJECT_SIZE_LIMIT: 413,
 };
 // Context the client needs to recover (reload at `revision`, keep `createdIds`); nothing else of the context leaves.
 const CLIENT_CONTEXT = ["revision", "createdIds"] as const;
@@ -57,20 +60,26 @@ function hostOf(req: Request): string {
 
 // CSRF guard for every mutation: a page on another origin can't drive the local API. Origin must be absent
 // (non-browser client) or this host; a body must be JSON (text/plain & form posts skip CORS preflight).
-function guardMutation(req: Request, host: string): void {
+function guardMutation(req: Request, host: string, body: "json" | "multipart"): void {
   if (req.method === "GET" || req.method === "HEAD") return;
   const origin = req.headers.get("origin");
   // an opaque origin ("null", e.g. a sandboxed frame) doesn't parse and is refused too
   if (origin && (!URL.canParse(origin) || new URL(origin).host !== host)) throw new ApiError(403, "FORBIDDEN", "cross-origin request refused");
+  const type = req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (body === "multipart") {
+    // R8: a form post skips the CORS preflight: an upload needs the editor's own Origin (browsers always send it on POST)
+    if (!origin) throw new ApiError(403, "FORBIDDEN", "an upload needs the Origin header");
+    if (type !== "multipart/form-data") throw new ApiError(403, "FORBIDDEN", "an upload must be multipart/form-data");
+    return;
+  }
   // on the wire a body always comes with Content-Length > 0 or Transfer-Encoding (Next gives bodiless requests an empty stream)
   const hasBody = Number(req.headers.get("content-length") ?? 0) > 0 || req.headers.has("transfer-encoding");
-  const type = req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (hasBody && type !== "application/json") throw new ApiError(403, "FORBIDDEN", "request body must be application/json");
 }
 
-export async function handle(req: Request, fn: () => Promise<Response> | Response): Promise<Response> {
+export async function handle(req: Request, fn: () => Promise<Response> | Response, opts: { body?: "json" | "multipart" } = {}): Promise<Response> {
   try {
-    guardMutation(req, hostOf(req));
+    guardMutation(req, hostOf(req), opts.body ?? "json");
     return await fn();
   } catch (e) {
     return errorResponse(e);
@@ -100,9 +109,8 @@ export async function authUrl(db: DatabaseSync, project: Pick<ProjectRow, "id" |
 
 export const MAX_JSON_BYTES = 1_000_000;
 
-// A capped JSON body validated by `schema`: the size is refused while streaming (never buffered past the cap), and
-// errors name only the failing field path (schema key + command index), never the sent values or keys.
-export async function jsonBody<T>(req: Request, schema: z.ZodType<T>, max = MAX_JSON_BYTES): Promise<T> {
+// A request body refused while streaming once past `max` (never buffered past the cap).
+async function readCapped(req: Request, max: number): Promise<Buffer> {
   const tooLarge = new ApiError(413, "PAYLOAD_TOO_LARGE", `request body over ${max} bytes`);
   if (Number(req.headers.get("content-length") ?? 0) > max) throw tooLarge;
   const chunks: Uint8Array[] = [];
@@ -116,9 +124,27 @@ export async function jsonBody<T>(req: Request, schema: z.ZodType<T>, max = MAX_
     }
     chunks.push(r.value);
   }
+  return Buffer.concat(chunks);
+}
+
+// A capped multipart/form-data body (the upload route); the parts are judged by the caller.
+export async function multipartBody(req: Request, max: number): Promise<FormData> {
+  const buf = await readCapped(req, max);
+  try {
+    // Buffer.concat allocates a plain ArrayBuffer; the cast only narrows the DOM BodyInit typing
+    return await new Response(buf as Uint8Array<ArrayBuffer>, { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
+  } catch {
+    throw new ApiError(400, "VALIDATION", "request body is not valid multipart/form-data");
+  }
+}
+
+// A capped JSON body validated by `schema`: the size is refused while streaming (never buffered past the cap), and
+// errors name only the failing field path (schema key + command index), never the sent values or keys.
+export async function jsonBody<T>(req: Request, schema: z.ZodType<T>, max = MAX_JSON_BYTES): Promise<T> {
+  const text = (await readCapped(req, max)).toString("utf8");
   let value: unknown;
   try {
-    value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    value = JSON.parse(text);
   } catch {
     throw new ApiError(400, "VALIDATION", "request body is not valid JSON");
   }

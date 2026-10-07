@@ -128,8 +128,8 @@ function resolveUnique(raw: string[], baseUrl: string): string[] {
 // --- downloadAssets ---------------------------------------------------------
 
 const DOWNLOAD_CONCURRENCY = 6;
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
-const DEFAULT_BUDGET_BYTES = 500 * 1024 * 1024;
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const DEFAULT_BUDGET_BYTES = 500 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const DOWNLOAD_RETRY_ATTEMPTS = 2; // + the initial try = 3 total
 const RETRY_BASE_DELAY_MS = 300;

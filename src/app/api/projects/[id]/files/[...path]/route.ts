@@ -10,8 +10,9 @@ import { ensureOutput } from "@/app/_server/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Only the clone output, the capture screenshots and the QA crops/heatmaps are servable.
-const ALLOWED = /^(out|qa)\/.+|^pages\/[^/]+\/shots\/.+/;
+// Only the clone output, the capture screenshots and the QA crops/heatmaps are servable; plus (R7) the editor's
+// asset library: hashed image files under assets/ — inert like every non-page file.
+const ALLOWED = /^(out|qa)\/.+|^pages\/[^/]+\/shots\/.+|^assets\/[0-9a-f]{64}\.(?:png|jpe?g|gif|webp|avif|svg)$/;
 // The emitted pages (flat out/*.html) are the only documents allowed to run anything.
 const PAGE = /^out\/[^/]+\.html$/;
 // Cloned pages run on the app origin: the one script is our own runtime (exact URL, never a downloaded asset),

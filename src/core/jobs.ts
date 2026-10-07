@@ -29,6 +29,7 @@ import { scoreSections, type SectionScore } from "./qa";
 import { checkBehavior } from "./qa-behavior";
 import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
+import { readUploads } from "./upload";
 import { clearRunSecrets, createSchema, emit, logDetail, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
 import type { GenerateOptions } from "./gateway";
 
@@ -278,9 +279,10 @@ async function checkpointIr(run: Run, ir: IR): Promise<boolean> {
 }
 
 async function emitOpts(run: EmitSource): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
-  const captures = await loadCaptures(run);
+  const [captures, uploads] = await Promise.all([loadCaptures(run), readUploads(run.ws)]);
   return {
-    assetMap: Object.assign({}, ...captures.map((c) => c.assets)) as Record<string, string>,
+    // R7: editor uploads (uploads.json) join the captured asset map: canvas, out/, export and graph all map them
+    assetMap: Object.assign({}, ...captures.map((c) => c.assets), uploads) as Record<string, string>,
     pageUrls: Object.fromEntries(captures.map((c) => [c.pageId, c.url])),
   };
 }

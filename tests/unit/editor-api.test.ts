@@ -1,6 +1,6 @@
 // E1 Task 8: thin command/Undo/Redo routes over the document store, and the out/ gate on the files route.
 import { afterAll, expect, test, vi } from "vitest";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
@@ -16,6 +16,7 @@ import * as editorRoute from "@/app/api/projects/[id]/editor/route";
 import * as saveRoute from "@/app/api/projects/[id]/editor/save/route";
 import * as promoteRoute from "@/app/api/projects/[id]/editor/promote-layout/route";
 import * as files from "@/app/api/projects/[id]/files/[...path]/route";
+import * as assetsRoute from "@/app/api/projects/[id]/assets/route";
 
 // a queued/active job, as the session guards see it (a real queue would start a browser pipeline)
 const busy = vi.hoisted(() => new Set<string>());
@@ -342,4 +343,69 @@ test("E3 §5: setName passes zod and commits; a non-string name is a 400 VALIDAT
   expect((await projectDocuments(getDb()).loadDocument(id)).sections[0]!.root.name).toBe("Đầu trang");
   const bad = await post(commandsRoute, id, { baseRevision: 1, commands: [{ op: "setName", id: root, name: 5 }] });
   expect([bad.status, ((await bad.json()) as { code: string }).code]).toEqual([400, "VALIDATION"]);
+});
+
+const upload = (id: string, form: FormData, headers: Record<string, string> = { origin: "http://127.0.0.1" }) =>
+  assetsRoute.POST(new Request("http://127.0.0.1/api/projects/x/assets", { method: "POST", body: form, headers }), { params: Promise.resolve({ id }) });
+const fileForm = (...files: File[]) => { const f = new FormData(); for (const x of files) f.append("file", x); return f; };
+const PNG_BYTES = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+
+test("E3 §5 upload: one image per request -> { key, url }; served inert; an <img> naming the key is emitted with the local file", async () => {
+  const id = await seed();
+  const res = await upload(id, fileForm(new File([PNG_BYTES], "logo.png", { type: "image/png" })));
+  expect(res.status).toBe(200);
+  const { key, url } = (await res.json()) as { key: string; url: string };
+  expect(key).toMatch(/^https:\/\/upload\.aiwc\.invalid\/[0-9a-f]{64}\.png$/);
+  expect(url).toMatch(new RegExp(`^/api/projects/${id}/files/assets/[0-9a-f]{64}\.png$`));
+  const rel = url.split("/files/")[1]!;
+  const served = await getFile(id, ...rel.split("/"));
+  expect([served.status, served.headers.get("content-type")]).toEqual([200, "image/png"]);
+  expect(served.headers.get("content-security-policy")).toContain("sandbox");
+  expect((await getFile(id, "assets", "x.html")).status).toBe(404);
+  const root = await rootId(id);
+  const created = await post(commandsRoute, id, { baseRevision: 0, commands: [{ op: "createNode", parentId: root, index: 0, draft: { tag: "img", attrs: { src: key, alt: "logo" } } }] });
+  expect(created.status).toBe(200);
+  expect(await readFile(join(config.workspaceRoot, id, "out", "index.html"), "utf8")).toContain(`src="${rel}"`);
+  expect(await readFile(join(config.workspaceRoot, id, "out", rel))).toEqual(PNG_BYTES);
+});
+
+test("E3 §5 upload guards: no Origin or a JSON body -> 403; two files, no file, a disguised file -> 400; a busy project -> 409", async () => {
+  const id = await seed();
+  const png = () => new File([PNG_BYTES], "a.png");
+  expect((await upload(id, fileForm(png()), {})).status).toBe(403);
+  expect((await upload(id, fileForm(png()), { origin: "http://evil.test" })).status).toBe(403);
+  expect((await post(assetsRoute, id, { file: "x" })).status).toBe(403);
+  const fake = await upload(id, fileForm(new File(["hello"], "a.png")));
+  expect([fake.status, ((await fake.json()) as { code: string }).code]).toEqual([400, "UPLOAD_INVALID"]);
+  expect((await upload(id, fileForm(png(), png()))).status).toBe(400);
+  expect((await upload(id, new FormData())).status).toBe(400);
+  busy.add(id);
+  try { expect((await upload(id, fileForm(png()))).status).toBe(409); } finally { busy.delete(id); }
+});
+
+test("E3 §5 upload: an opaque/foreign Origin, a non-loopback Host, a non-multipart body and an oversized body are refused; a sanitized svg is served inert", async () => {
+  const id = await seed();
+  const png = () => new File([PNG_BYTES], "a.png");
+  expect((await upload(id, fileForm(png()), { origin: "null" })).status).toBe(403);
+  expect((await upload(id, fileForm(png()), { origin: "http://127.0.0.1:9999" })).status).toBe(403); // another local port is another origin
+  expect((await upload(id, fileForm(png()), { origin: "http://evil.test", host: "evil.test" })).status).toBe(403);
+  const text = await assetsRoute.POST(
+    new Request("http://127.0.0.1/", { method: "POST", body: "file=x", headers: { origin: "http://127.0.0.1", "content-type": "application/x-www-form-urlencoded" } }),
+    { params: Promise.resolve({ id }) },
+  );
+  expect(text.status).toBe(403);
+  // raw multipart bytes (a FormData body source keeps enqueuing after the cap cancels it — an in-process artifact)
+  const head = '--b\r\ncontent-disposition: form-data; name="file"; filename="a.png"\r\ncontent-type: image/png\r\n\r\n';
+  const bigBody = Buffer.concat([Buffer.from(head), PNG_BYTES, Buffer.alloc(25 * 1024 * 1024 + 64 * 1024), Buffer.from("\r\n--b--\r\n")]);
+  const big = await assetsRoute.POST(
+    new Request("http://127.0.0.1/", { method: "POST", body: bigBody, headers: { origin: "http://127.0.0.1", "content-type": "multipart/form-data; boundary=b" } }),
+    { params: Promise.resolve({ id }) },
+  );
+  expect([big.status, ((await big.json()) as { code: string }).code]).toEqual([413, "PAYLOAD_TOO_LARGE"]);
+  expect(await readdir(join(config.workspaceRoot, id, "assets")).catch(() => [])).toEqual([]);
+  const svg = await upload(id, fileForm(new File(['<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script></svg>'], "../../x.svg", { type: "text/html" })));
+  const { url } = (await svg.json()) as { url: string };
+  const served = await getFile(id, ...url.split("/files/")[1]!.split("/"));
+  expect([served.headers.get("content-type"), served.headers.get("content-security-policy")?.startsWith("sandbox;")]).toEqual(["image/svg+xml", true]);
+  expect(await served.text()).toBe('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
 });
