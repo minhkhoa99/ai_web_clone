@@ -15,10 +15,11 @@ import { ancestorsOf, dropCommand, hideBatch, layerRows, renameBatch, ROW_HEIGHT
 
 const ICON: Record<IRNodeV2["type"], IconName> = { container: "crop_square", text: "title", image: "image", link: "link", button: "touch_app", input: "input", media: "movie", svg: "shapes", "component-root": "widgets" };
 const KIND: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
-type Props = { index: DocIndex; rootId: string; rootLabel: string; components: readonly PanelComponent[]; selection: string[]; onSelect(ids: string[]): void; onBatch(b: Batch, label: string): void };
+type Props = { index: DocIndex; rootId: string; rootLabel: string; components: readonly PanelComponent[]; selection: string[]; onSelect(ids: string[]): void; onBatch(b: Batch, label: string): void; editable?: boolean };
 const domId = (id: string) => `ve-layer-${id}`;
 
-export function LayerTree({ index, rootId, rootLabel, components, selection, onSelect, onBatch }: Props) {
+// editable false (R9 view-only): browse and select only — no drag, rename or eye
+export function LayerTree({ index, rootId, rootLabel, components, selection, onSelect, onBatch, editable = true }: Props) {
   const [open, setOpen] = useState<Set<string>>(() => new Set([rootId]));
   const [query, setQuery] = useState("");
   const [scroll, setScroll] = useState(0);
@@ -66,7 +67,7 @@ export function LayerTree({ index, rootId, rootLabel, components, selection, onS
         if (p && rows.some((r) => r.id === p)) onSelect([p]);
         break;
       }
-      case "F2": if (row) setRenaming(row.id); break;
+      case "F2": if (row && editable) setRenaming(row.id); break;
       default: return;
     }
     e.preventDefault();
@@ -85,7 +86,7 @@ export function LayerTree({ index, rootId, rootLabel, components, selection, onS
               <div key={r.id} id={domId(r.id)} role="treeitem" aria-selected={on} aria-level={r.depth + 1} {...(r.hasChildren && { "aria-expanded": r.open })}
                 className={`ve-layer${on ? " is-selected" : ""}${r.dimmed ? " is-dimmed" : ""}`} data-ui="ui_editor_layer_row" data-id={r.id}
                 style={{ top: (start + k) * ROW_HEIGHT, paddingInlineStart: 4 + r.depth * 12 }}
-                draggable={renaming !== r.id}
+                draggable={editable && renaming !== r.id}
                 onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.id); setDrag(r.id); }}
                 onDragEnd={() => setDrag(null)} onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); if (drag && drag !== r.id) onBatch(dropCommand(index, components, drag, r.id, zoneOf(e)), "Di chuyển"); setDrag(null); }}
@@ -97,11 +98,11 @@ export function LayerTree({ index, rootId, rootLabel, components, selection, onS
                     onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") { onBatch(renameBatch(index, r.id, e.currentTarget.value), "Đổi tên"); endRename(); } if (e.key === "Escape") endRename(); }}
                     onBlur={() => setRenaming(null)} />
                 ) : (
-                  <span className="ve-layer-name ellipsis" onDoubleClick={(e) => { e.stopPropagation(); setRenaming(r.id); }}>{r.label}</span>
+                  <span className="ve-layer-name ellipsis" onDoubleClick={(e) => { e.stopPropagation(); if (editable) setRenaming(r.id); }}>{r.label}</span>
                 )}
                 {r.kind && <Badge tone="accent">{KIND[r.kind] ?? r.kind}</Badge>}
                 {r.role && <Badge tone={r.role === "main" ? "primary" : "neutral"}>{r.role}</Badge>}
-                <IconButton icon={r.hidden ? "visibility_off" : "visibility"} label={`${r.hidden ? "Hiện" : "Ẩn"}: ${r.label}`} tabIndex={on ? 0 : -1}
+                <IconButton icon={r.hidden ? "visibility_off" : "visibility"} label={`${r.hidden ? "Hiện" : "Ẩn"}: ${r.label}`} tabIndex={on ? 0 : -1} disabled={!editable}
                   onClick={(e) => { e.stopPropagation(); onBatch(hideBatch(index, [r.id], !r.hidden), r.hidden ? "Hiện" : "Ẩn"); }} />
               </div>
             );

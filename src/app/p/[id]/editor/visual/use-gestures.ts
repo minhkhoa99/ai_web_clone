@@ -27,7 +27,7 @@ type Pan = { kind: "pan"; x: number; y: number; left: number; top: number };
 // a panel template dragged onto the canvas (Task 11): the same insertion bar, its batch the template's
 type Insert = { kind: "insert"; template: Template; drop?: Drop };
 export type Gesture = Flow | Free | Resize | Spacing | Pan | Insert;
-export type GestureLive = { data: { interactives: PanelComponent[] } | null; index: DocIndex; selection: string[]; bp: Bp; zoom: number };
+export type GestureLive = { data: { interactives: PanelComponent[] } | null; index: DocIndex; selection: string[]; bp: Bp; zoom: number; editable: boolean };
 type Point = { x: number; y: number };
 type Extra = { apply?(): void; rollback?(): void };
 type HandlePress = { button: number; clientX: number; clientY: number; shiftKey: boolean; stopPropagation(): void; preventDefault(): void };
@@ -152,7 +152,7 @@ export function useGestures(o: {
     e.stopPropagation();
     e.preventDefault(); // no text selection / focus change in this window
     const c = canvas.current, d = c?.doc(), nid = live.current.selection[0], el = nid ? c?.element(nid) : null;
-    if (!c || !d || !nid || !el || live.current.selection.length !== 1 || drag.current.gesture) return undefined;
+    if (!c || !d || !nid || !el || live.current.selection.length !== 1 || drag.current.gesture || !live.current.editable) return undefined;
     const why = guard(live.current.index, live.current.data?.interactives ?? [], nid, "edit");
     if (why) { o.setMsg(why); return undefined; }
     return { d, nid, el, cs: el.ownerDocument.defaultView!.getComputedStyle(el), start: c.toDoc(e.clientX, e.clientY) };
@@ -272,7 +272,8 @@ export function useGestures(o: {
   const onPress = (raw: string | null, e: PointerEvent) => {
     drag.current.dropped = false;
     const pan = space.current;
-    const target = pan || !raw ? undefined : ancestorsOf(live.current.index, raw).find((a) => live.current.selection.includes(a));
+    // R9 view-only: a press only pans (Space) or selects (the click)
+    const target = pan || !raw || !live.current.editable ? undefined : ancestorsOf(live.current.index, raw).find((a) => live.current.selection.includes(a));
     const d = canvas.current?.doc();
     if ((!pan && !target) || !d || drag.current.gesture || o.editing.current?.isConnected) return; // mouse text selection while editing
     if (pan) { e.preventDefault(); drag.current.dropped = true; }
@@ -298,7 +299,7 @@ export function useGestures(o: {
   const startInsert = (template: Template, e: { clientX: number; clientY: number }) => {
     drag.current.dropped = false;
     const d = canvas.current?.doc();
-    if (!d || drag.current.gesture) return;
+    if (!d || drag.current.gesture || !live.current.editable) return;
     const unpress = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", unpress); window.removeEventListener("pointercancel", unpress); };
     const move = (m: PointerEvent) => {
       if (m.buttons === 0) return unpress();

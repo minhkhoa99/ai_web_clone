@@ -450,3 +450,45 @@ test("E3b insert: Flex hàng after the selection (click) and a Carousel sample d
   expect(await canvas(page).locator(`[data-ir-id="${h1Id}"]`).count()).toBe(1);
   await page.close();
 });
+
+test("E3b responsive: no sideways scroll at 1440; at 768 the panels are drawers opened from the toolbar; at 375 view and select only, with the notice", { timeout: 180_000 }, async () => {
+  const page = await open(1440, 900);
+  expect(await noSideScroll(page)).toBe(true);
+  await page.setViewportSize({ width: 768, height: 900 });
+  expect(await noSideScroll(page)).toBe(true);
+  const leftPanel = page.locator(".ve-left");
+  await expect.poll(() => leftPanel.isVisible()).toBe(false); // the drawer slides out (0.15 s) as the window narrows
+  await page.getByRole("button", { name: "Mở Layers" }).click();
+  await expect.poll(() => leftPanel.isVisible()).toBe(true);
+  expect(await page.getByRole("button", { name: "Đóng Layers" }).getAttribute("aria-expanded")).toBe("true");
+  await page.getByRole("button", { name: "Đóng Layers" }).click();
+  await page.getByRole("button", { name: "Mở bảng Style" }).click();
+  await expect.poll(() => page.locator(".ve-right").isVisible()).toBe(true);
+  // Esc closes the drawer, the focus goes back to its toggle
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.locator(".ve-right").isVisible()).toBe(false);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Mở bảng Style");
+  await page.setViewportSize({ width: 375, height: 800 });
+  await expect.poll(() => page.locator('[data-ui="ui_editor_viewonly_notice"]').innerText()).toContain("Dùng màn hình ≥ 768px để chỉnh sửa");
+  expect(await noSideScroll(page)).toBe(true);
+  const h1 = canvas(page).locator("h1");
+  await h1.click();
+  await expect.poll(() => page.locator('[data-ui="ui_editor_selection_box"]').first().getAttribute("data-for")).toBe(await h1.getAttribute("data-ir-id"));
+  const rev = (await payload()).revision;
+  await page.keyboard.press("Delete");
+  await h1.dblclick();
+  expect(await h1.evaluate((el) => (el as HTMLElement).isContentEditable)).toBe(false);
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev);
+  expect(await page.locator('[data-ui="ui_editor_resize_handle"]').count()).toBe(0);
+  // the Layers drawer still opens (browse, select); no Thêm tab, no Style drawer, no merge, no Undo
+  expect(await page.getByRole("button", { name: "Mở bảng Style" }).count()).toBe(0);
+  await page.getByRole("button", { name: "Mở Layers" }).click();
+  await expect.poll(() => leftPanel.isVisible()).toBe(true);
+  expect(await page.getByRole("tab", { name: "Thêm" }).count()).toBe(0);
+  expect(await page.getByRole("button", { name: "Gộp thành layout" }).isDisabled()).toBe(true);
+  expect(await page.getByRole("button", { name: "Hoàn tác" }).isDisabled()).toBe(true);
+  expect(await page.getByRole("button", { name: /^(Ẩn|Hiện): / }).first().isDisabled()).toBe(true);
+  expect(await page.locator('[data-ui="ui_editor_layer_row"][draggable="true"]').count()).toBe(0);
+  await page.close();
+});

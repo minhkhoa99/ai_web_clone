@@ -812,7 +812,20 @@ select.full { width: 100%; min-height: 38px; }
 .ve-box-top { grid-area: t; } .ve-box-right { grid-area: r; } .ve-box-bottom { grid-area: b; } .ve-box-left { grid-area: l; }
 .ve-free { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 4px; }
 .ve-free input { min-width: 0; }
-@media (max-width: 1099px) { .ve-grid { grid-template-columns: minmax(0, 1fr); height: auto; } .ve-pane { height: 70vh; } }
+/* R9: up to 1099px the side panels are drawers over the canvas area (not modal: no backdrop, the canvas stays usable),
+   opened from the toolbar — below it, so a drawer never covers its own toggle; the grid clips the closed ones (no
+   sideways page scroll) without becoming a scroll container */
+.ve-drawer-toggle { display: none; gap: 2px; }
+@media (max-width: 1099px) {
+  .ve-grid { grid-template-columns: minmax(0, 1fr); position: relative; overflow: clip; }
+  .ve-drawer-toggle { display: inline-flex; }
+  .ve-left, .ve-right { position: absolute; top: 0; bottom: 0; width: min(320px, 85%); z-index: 40; background: var(--c-surface-low); border: 1px solid var(--c-border); visibility: hidden; transition: transform 0.15s, visibility 0.15s; }
+  .ve-left { left: 0; transform: translateX(-100%); }
+  .ve-right { right: 0; transform: translateX(100%); }
+  .ve-left.is-open, .ve-right.is-open { visibility: visible; transform: none; box-shadow: 0 0 24px rgb(0 0 0 / 0.5); }
+  .ve-layers { min-height: 220px; } /* search + the list's 160px: a short drawer scrolls instead of the Section card overlapping the tree */
+}
+@media (prefers-reduced-motion: reduce) { .ve-left, .ve-right { transition: none; } }
 .ve-capture { position: fixed; inset: 0; z-index: 50; cursor: grabbing; }
 .ve-insert { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .ve-insert-item { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); color: var(--c-text); font: var(--t-label-sm); cursor: grab; touch-action: none; user-select: none; }

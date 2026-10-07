@@ -69,6 +69,20 @@ const panKey = (t: EventTarget | null): boolean => {
   return el === document.body || el === document.documentElement || (el as Element).matches?.('[data-ui="ui_editor_canvas_chrome"]') === true;
 };
 
+// a media query as state (client only: false on the server render)
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const sync = () => setOn(m.matches);
+    sync();
+    m.addEventListener("change", sync);
+    return () => m.removeEventListener("change", sync);
+  }, [query]);
+  return on;
+}
+const VIEW_ONLY = "Dùng màn hình ≥ 768px để chỉnh sửa";
+
 export function VisualEditor({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
   const [pageId, setPageId] = useState(initialPage); // "" = the API's default page
   const [load, setLoad] = useState(0); // bumped: refetch + a fresh frame (shellChanged, Tải lại, a drifted frame)
@@ -87,13 +101,19 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
   const [zoom, setZoom] = useState(1); // R8: view only, never saved
   const [picked, setPicked] = useState<string[]>([]); // the Section card's choice (R10), sections of any page
-  const editable = true; // Task 13: !viewOnly
+  // R9: up to 1099px the side panels are drawers; below 768px the editor only views and selects
+  const narrow = useMedia("(max-width: 1099px)");
+  const viewOnly = useMedia("(max-width: 767.98px)");
+  const editable = !viewOnly;
+  const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const toggles = useRef<Record<"left" | "right", HTMLButtonElement | null>>({ left: null, right: null });
+  const panels = useRef<Record<"left" | "right", HTMLElement | null>>({ left: null, right: null });
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
   const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
   const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
-  const live = useRef({ data, index, selection, bp, zoom });
-  live.current = { data, index, selection, bp, zoom };
+  const live = useRef({ data, index, selection, bp, zoom, editable });
+  live.current = { data, index, selection, bp, zoom, editable };
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
@@ -174,7 +194,10 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   }, [id, pageId, load, initialPage]); // send / onEvent read `live` and setters only: no stale state
 
   // false = not queued (the bus already said why: full / stale); no bus yet = the page is still loading
+  // view-only (R9): nothing is queued from this render on — an edit begun while editable (an open inline text, a
+  // Style field's debounce) holds the earlier render's run and still lands
   const run = (op: Op): boolean => {
+    if (!editable) { setMsg(VIEW_ONLY); return false; }
     setMsg("");
     if (!bus.current) { setMsg("Editor chưa sẵn sàng."); return false; }
     return bus.current.push(op);
@@ -205,6 +228,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // text (the canvas's capture listener). true = the node is a text host (editing, or refused with a message)
   const startEdit = (nid: string): boolean => {
     const { index: ix, data: d } = live.current;
+    if (!live.current.editable) return true; // R9 view-only: a double click selects, never edits
     const e = ix.get(nid), el = canvas.current?.element(nid);
     if (!e || !el || !d || !isTextHost(e.node)) return false;
     const why = guard(ix, d.interactives, nid, "edit");
@@ -261,6 +285,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const onKey = (e: KeyboardEvent) => {
     if (e.key === " " && panKey(e.target)) { gestures.spaceKey(true); e.preventDefault(); return; } // Space+drag pans
     if (e.key === "Escape" && gestures.cancelGesture()) { e.preventDefault(); return; }
+    if (e.key === "Escape" && narrow && drawer) { e.preventDefault(); closeDrawer(); return; }
     const action = keyAction(e, typingIn(e.target));
     if (!action) return;
     const { index: ix, selection: sel } = live.current, first = sel[0], comps = live.current.data?.interactives ?? [];
@@ -314,6 +339,24 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     window.addEventListener("blur", lost);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", lost); };
   }, []);
+  // a drawer (≤ 1099px) takes the focus when it opens and gives it back to its toggle when it closes; not modal: the
+  // canvas stays usable beside it
+  const openDrawer = (side: "left" | "right") => { flushSync(() => setDrawer(side)); panels.current[side]?.focus({ preventScroll: true }); };
+  const closeDrawer = () => { const side = drawer; setDrawer(null); if (side) toggles.current[side]?.focus(); };
+  const drawerToggle = (side: "left" | "right", name: string) => (
+    <IconButton icon={side === "left" ? "layers" : "edit"} label={`${drawer === side ? "Đóng" : "Mở"} ${name}`} aria-expanded={drawer === side} aria-controls={`ve-${side}`}
+      ref={(b) => { toggles.current[side] = b; }} onClick={() => (drawer === side ? closeDrawer() : openDrawer(side))} />
+  );
+  // turning view-only mid-edit: the drag is cancelled, an open inline text saved (its run is the editable render's),
+  // the Style drawer and the Thêm tab closed
+  useEffect(() => {
+    if (!viewOnly) return;
+    gestures.cancelGesture();
+    editing.current?.blur();
+    setDrawer((d) => (d === "right" ? null : d));
+    setLeft("layers");
+  }, [viewOnly]); // gestures.cancelGesture / editing read refs only: no stale state
+  useEffect(() => { if (!narrow) setDrawer(null); }, [narrow]); // wide again: the panels are columns
   // "Vừa khung": the breakpoint's width across the pane (R8)
   const fit = () => { const w = canvas.current?.pane()?.clientWidth; if (w) setZoom(fitZoom(w, bp)); };
 
@@ -365,12 +408,17 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           <IconButton icon="zoom_in" label="Phóng to" onClick={() => setZoom((z) => zoomStep(z, 1))} disabled={zoom >= ZOOM.max} />
           <IconButton icon="fit_screen" label="Vừa khung" onClick={fit} />
         </div>
-        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading} />
-        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading || !editable} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading || !editable} />
         <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
         <span role="status" className="t-label-md text-2">{msg}</span>
+        <span className="ve-drawer-toggle" data-ui="ui_editor_drawer_toggle">
+          {drawerToggle("left", "Layers")}
+          {editable && drawerToggle("right", "bảng Style")}
+        </span>
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
       </div>
+      {viewOnly && <Banner tone="info" icon="phone_iphone" data-ui="ui_editor_viewonly_notice" title={VIEW_ONLY}>Ở màn hình này chỉ xem và chọn phần tử.</Banner>}
       {halt && (
         <Banner tone={halt.kind === "stale" ? "warn" : "danger"} icon="warning" data-ui="ui_editor_stale_banner" title={halt.text}
           actions={halt.kind === "failed"
@@ -378,11 +426,11 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             : <Button icon="refresh" onClick={reload}>{halt.kind === "stale" ? "Tải lại" : "Thử lại"}</Button>} />
       )}
       <div className="ve-grid">
-        <aside className="ve-left panel" data-ui="ui_editor_layers" aria-label="Layers">
+        <aside id="ve-left" ref={(el) => { panels.current.left = el; }} tabIndex={-1} className={`ve-left panel${drawer === "left" ? " is-open" : ""}`} data-ui="ui_editor_layers" aria-label="Layers">
           <SegmentedControl<"layers" | "insert"> label="Bảng bên trái" semantics="tabs" data-ui="ui_editor_left_tabs" value={left} onChange={setLeft}
-            options={[{ value: "layers", label: "Layers" }, { value: "insert", label: "Thêm" }]} />
-          {left === "insert" && <InsertPanel onInsert={insert} onDragStart={gestures.startInsert} />}
-          {left === "layers" && data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
+            options={editable ? [{ value: "layers", label: "Layers" }, { value: "insert", label: "Thêm" }] : [{ value: "layers", label: "Layers" }]} />
+          {left === "insert" && editable && <InsertPanel onInsert={insert} onDragStart={gestures.startInsert} />}
+          {left === "layers" && data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} editable={editable} />}
           {left === "layers" && data && (
             <Card title="Section" variant="section" data-ui="ui_editor_sections_panel">
               <p className="t-body-sm text-2">Chọn section ở các trang khác nhau; section chọn đầu tiên thành layout chung.</p>
@@ -397,7 +445,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
                   </li>
                 ))}
               </ul>
-              <Button onClick={() => { if (commands([{ op: "promoteLayout", sectionIds: picked }], "Gộp layout", { done: "Đã gộp thành layout chung" })) setPicked([]); }} disabled={picked.length < 2 || pending > 0}>Gộp thành layout</Button>
+              <Button onClick={() => { if (commands([{ op: "promoteLayout", sectionIds: picked }], "Gộp layout", { done: "Đã gộp thành layout chung" })) setPicked([]); }} disabled={picked.length < 2 || pending > 0 || !editable}>Gộp thành layout</Button>
             </Card>
           )}
         </aside>
@@ -422,7 +470,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             </Overlay>
           </Canvas>
         ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}
-        <aside className="ve-right panel">
+        <aside id="ve-right" ref={(el) => { panels.current.right = el; }} tabIndex={-1} className={`ve-right panel${drawer === "right" ? " is-open" : ""}`} aria-label="Bảng Style">
+          {editable && <>
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
             options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
           {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (<>
@@ -449,6 +498,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
                 commands([{ op: "setStyle", id: sid, target: styleTarget(bp), changes: { animation } }], "Hiệu ứng");
               }} />
           )}
+          </>}
         </aside>
       </div>
       {gesture && <div className="ve-capture" {...gestures.capture} />}
