@@ -193,13 +193,20 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_code_viewer_wrap_toggle` | `feat_emit_html` | client | — | build |
 | `ui_code_viewer_build_status` | `feat_export` | `listOut` + `stat` (`mapLimit(8)`) | footer | build |
 
-## `/p/[id]/editor` ↔ `screen_editor` — GrapesJS thật, không có mockup Stitch (chỉ token + chrome)
+## `/p/[id]/editor` ↔ `screen_editor` — visual editor E3 (GrapesJS ở "Editor cũ" tới hết E3a), không có mockup Stitch (chỉ token + chrome)
 
 | ui_id | Feature | API / nguồn | Mockup (vùng) | Trạng thái |
 |---|---|---|---|---|
 | `ui_editor_page_header` | `feat_editor` | — | — | build |
-| `ui_editor_toolbar` | `feat_editor` | `GET/POST …/editor*`, `?page=` | — | build |
-| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | GrapesJS | — | build |
+| `ui_editor_toolbar` | `feat_editor` | `GET …/editor`, `POST …/editor/{commands,undo,redo}` + `pageId`, `?page=`, `?legacy=1` | — | build |
+| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | khung canvas E3; GrapesJS chỉ ở `?legacy=1` | — | build |
+| `ui_editor_canvas_frame` | `feat_editor`, `feat_ir` | E3 §1 iframe `srcdoc` sandbox (`page.html` của `GET …/editor`), click → chọn, link/form không điều hướng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_bp_switch` | `feat_editor` | E3 §1 SegmentedControl "Thiết bị" 1440/768/375 = độ rộng iframe + `target` của setStyle | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_save_state` | `feat_editor` | E3 §4 "Đã lưu" / "Đang lưu…" theo command bus | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_legacy_link` | `feat_editor` | E3 §2 link "Editor cũ" → `?legacy=1` (chỉ E3a) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_stale_banner` | `feat_editor` | E3 §7 Banner "Tải lại" (409) / "Thử lại" (lỗi mạng, 503) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layers` | `feat_editor`, `feat_ir` | E3 §4 cột trái Layers | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_right_tabs` | `feat_editor` | E3 §4 tab Style / Component / Hiệu ứng | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_effects_panel` | `feat_editor` | `effects` | — | build |
 | `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
 | `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" ở rail phải khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |

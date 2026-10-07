@@ -777,3 +777,12 @@ select.full { width: 100%; min-height: 38px; }
 .editor-shell .gjs-four-color, .editor-shell .gjs-four-color-h:hover { color: var(--c-primary); }
 .editor-shell .gjs-pn-panel, .editor-shell .gjs-blocks-c, .editor-shell .gjs-sm-sector, .editor-shell .gjs-layer, .editor-shell .gjs-block { border-color: var(--c-border); }
 .editor-shell .gjs-editor, .editor-shell .gjs-pn-btn, .editor-shell .gjs-block, .editor-shell .gjs-sm-sector-title, .editor-shell .gjs-layer-name { font: var(--t-label-md); }
+/* === Screen: visual editor (E3) === */
+.ve { display: flex; flex-direction: column; gap: var(--s-sm); min-width: 0; }
+.ve-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: var(--s-sm); height: calc(100vh - 210px); min-height: 480px; }
+.ve-left, .ve-right { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--s-sm); padding: var(--s-sm); }
+.ve-pane { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
+.ve-stage { position: relative; margin: 0 auto; }
+.ve-stage iframe { display: block; border: 0; background: #fff; }
+.ve-legacy { margin-inline-start: auto; }
+@media (max-width: 1099px) { .ve-grid { grid-template-columns: minmax(0, 1fr); height: auto; } .ve-pane { height: 70vh; } }

@@ -281,6 +281,7 @@ export function EditorView({ projectId: id, initialPage }: { projectId: string; 
           </Button>
         )}
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
+        <Link href={`/p/${id}/editor${project ? `?page=${encodeURIComponent(project.pageId)}` : ""}`}>Editor mới</Link>
       </div>
       <div className="editor-grid">
         <div className="editor-shell panel" data-ui="ui_editor_canvas_chrome">

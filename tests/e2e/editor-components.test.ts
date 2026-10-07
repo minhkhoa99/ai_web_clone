@@ -56,7 +56,7 @@ const noSideScroll = (page: Page) => page.evaluate(() => document.scrollingEleme
 test("panel: select a slide -> Carousel panel; add, duplicate, delete, reorder; Undo/Redo; reload keeps it; 409 asks to reload", { timeout: 240_000 }, async () => {
   const base = app!.base;
   const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
-  await page.goto(`${base}/p/${projectId}/editor`);
+  await page.goto(`${base}/p/${projectId}/editor?legacy=1`);
   const canvas = page.frameLocator("iframe.gjs-frame");
   await (await shownSlide(page)).click();
   const panel = page.locator('[data-ui="ui_editor_component_panel"]');
@@ -118,7 +118,7 @@ test("panel: select a slide -> Carousel panel; add, duplicate, delete, reorder; 
 test("panel: a plain node offers 'Đánh dấu là component…'; parity — no horizontal scroll at 375 and 1440 (wizard and carousel panel)", { timeout: 180_000 }, async () => {
   for (const width of [375, 1440]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
-    await page.goto(`${app!.base}/p/${projectId}/editor`);
+    await page.goto(`${app!.base}/p/${projectId}/editor?legacy=1`);
     // section#sw of site4: wraps the swiper root but is no part of it (the canvas drops html ids: found as the root's parent)
     const plain = page.frameLocator("iframe.gjs-frame").locator('[data-c="carousel"]').first().locator("xpath=..");
     await plain.waitFor({ timeout: 30_000 });

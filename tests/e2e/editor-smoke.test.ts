@@ -340,6 +340,7 @@ test("editor: edit one heading in the canvas, save -> exactly one command, out/i
   await page.goto(`${base}/p/${projectId}/preview`);
   await page.getByRole("navigation", { name: "Dự án" }).getByRole("link", { name: "Editor" }).click();
   await page.waitForURL(/\/editor$/);
+  await page.goto(`${base}/p/${projectId}/editor?legacy=1`);
 
   const canvas = page.frameLocator("iframe.gjs-frame");
   const heading = canvas.locator("h1");
@@ -417,7 +418,7 @@ test("editor: ?page= opens that page, an unknown one falls back to the default; 
   const ir = JSON.parse(await readFile(join(workspaceRoot, projectId, "ir.json"), "utf8")) as { pages: { id: string }[] };
   const pageId = ir.pages[0]!.id;
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${base}/p/${projectId}/editor?page=${pageId}`);
+  await page.goto(`${base}/p/${projectId}/editor?page=${pageId}&legacy=1`);
   const select = page.locator('[data-ui="ui_editor_toolbar"] select');
   await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
   await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_canvas_chrome", "ui_editor_effects_panel", "ui_editor_sections_panel"]);
@@ -444,7 +445,7 @@ test("editor: ?page= opens that page, an unknown one falls back to the default; 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scrollWidth at 768").toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.goto(`${base}/p/${projectId}/editor?page=nope`);
+  await page.goto(`${base}/p/${projectId}/editor?page=nope&legacy=1`);
   await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
   expect(await page.getByRole("status").innerText()).toBe("");
   await page.close();
@@ -599,7 +600,7 @@ test("v1 → v2: Preview reads a v1 project without migrating it; the editor ado
 
   // Editor: the first read adopts the migrated document at revision 0 — QA of the v1 output stale, ir.json the v2 mirror
   const page = await browser.newPage({ viewport: { width: 1280, height: 1080 } });
-  await page.goto(`${base}/p/${id}/editor`);
+  await page.goto(`${base}/p/${id}/editor?legacy=1`);
   const heading = page.frameLocator("iframe.gjs-frame").locator("h1");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
   expect(docRow()).toEqual({ revision: 0, cursor: 0, materialized_revision: 0 });

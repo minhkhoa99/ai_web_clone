@@ -26,6 +26,8 @@ export const NAMES = [
   "phone_iphone", "tablet_mac", "desktop_windows", "view_column_2", "opacity", "compare", "layers",
   // code viewer
   "folder", "folder_open", "description", "html", "css", "javascript", "data_object", "format_list_numbered", "wrap_text",
+  // visual editor E3a (layer tree types, upload)
+  "title", "link", "touch_app", "input", "movie", "shapes", "widgets", "crop_square", "upload",
   // sitemap
   "unfold_more", "unfold_less",
 ];

@@ -1,0 +1,188 @@
+"use client";
+// E3 visual editor (spec §1–§4): the server's page in a canvas frame, the command bus for every edit, partial canvas
+// updates from `affected`. Selection lives here; panels render from the resolved page tree (model.indexPage).
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import type { CanvasPayload } from "@/core/editor-canvas";
+import type { PanelComponent } from "@/core/interactive";
+import type { EditorCommand } from "@/core/ir-command";
+import type { LibraryAsset } from "@/core/upload";
+import { api, errorText } from "@/app/_ui/api";
+import { Banner } from "@/app/_ui/Banner";
+import { Button } from "@/app/_ui/Button";
+import { IconButton } from "@/app/_ui/IconButton";
+import { SegmentedControl } from "@/app/_ui/SegmentedControl";
+import { Canvas, type CanvasHandle } from "./canvas";
+import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
+import { BPS, indexPage, keyAction, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
+
+export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
+type Halt = { kind: "stale" | "unwritten" | "failed"; text: string };
+type RightTab = "style" | "component" | "effects";
+type CommandsOp = Extract<Op, { kind: "commands" }>;
+const DONE: Record<Op["kind"], string> = { commands: "Đã lưu — điểm QA cần chạy lại", undo: "Đã hoàn tác — điểm QA cần chạy lại", redo: "Đã làm lại — điểm QA cần chạy lại" };
+const typingIn = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? "")); };
+
+export function VisualEditor({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
+  const [pageId, setPageId] = useState(initialPage); // "" = the API's default page
+  const [load, setLoad] = useState(0); // bumped: refetch + a fresh frame (shellChanged, Tải lại, a drifted frame)
+  const [data, setData] = useState<EditorData | null>(null);
+  const [bp, setBp] = useState<Bp>(1440);
+  const [selection, setSelection] = useState<string[]>([]);
+  const [hover, setHover] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // the frame scrolled / resized / changed: overlays re-measure
+  const [msg, setMsg] = useState("");
+  const [halt, setHalt] = useState<Halt | null>(null);
+  const [pending, setPending] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState<RightTab>("style");
+  const canvas = useRef<CanvasHandle>(null);
+  const bus = useRef<CommandBus | null>(null);
+  const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
+  const live = useRef({ data, index, selection });
+  live.current = { data, index, selection };
+
+  const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
+  const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
+  const applyResult = (r: StepResult) => {
+    const a = r.affected, d = live.current.data;
+    if (!d) return;
+    const roots = new Map(d.page.sections.map((s) => [s.id, s.root.id]));
+    // shellChanged / no affected / a missing section root -> reload; never patch a DOM that already drifted
+    const partial = !drift.current && !!a && !a.shellChanged && !!canvas.current?.replace(a, (sid) => roots.get(sid));
+    if (!partial) drift.current = true;
+    const fresh = new Map(a?.sections.map((s) => [s.id, s.root]));
+    setData((cur) => cur && {
+      ...cur, revision: r.revision, canUndo: r.canUndo, canRedo: r.canRedo,
+      ...(partial && a && {
+        css: a.css, interactives: a.interactives,
+        page: { ...cur.page, sections: cur.page.sections.map((s) => (fresh.has(s.id) ? { ...s, root: fresh.get(s.id)! } : s)) },
+      }),
+    });
+    setSelection((s) => (r.createdIds.length ? r.createdIds : s));
+    // a reload makes a new bus at the fetched revision: wait until this one has nothing left to send
+    if (drift.current && !bus.current?.pending) { drift.current = false; setLoad((x) => x + 1); }
+  };
+  const onEvent = (e: BusEvent) => {
+    setPending(bus.current?.pending ?? 0);
+    switch (e.type) {
+      case "saving": return;
+      case "done": setSaved(true); setMsg(e.op.done ?? DONE[e.op.kind]); return applyResult(e.result);
+      case "refused": return setMsg(e.message);
+      case "full": return setMsg("Đang lưu… chờ chút");
+      case "stale": {
+        const text = `Dự án đã thay đổi ở nơi khác${e.revision !== undefined ? ` (revision ${e.revision})` : ""}. Tải lại để tiếp tục.`;
+        setMsg(text);
+        return setHalt({ kind: "stale", text });
+      }
+      case "unwritten": return setHalt({ kind: "unwritten", text: "Đã lưu nhưng chưa ghi được bản xuất — thử lại sau ít phút." });
+      case "failed": return setHalt({ kind: "failed", text: `Chưa lưu được: ${e.message}` });
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    api<EditorData>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`).then(
+      (d) => {
+        if (cancelled) return;
+        const next = indexPage(d.page);
+        setData(d);
+        setHalt(null);
+        drift.current = false;
+        setSelection((s) => s.filter((x) => next.has(x)));
+        bus.current = new CommandBus(d.revision, d.page.id, send, onEvent);
+        setPending(0);
+      },
+      (e: unknown) => {
+        if (cancelled) return;
+        // a stale or mistyped ?page= falls back to the default page
+        if (pageId !== "" && pageId === initialPage && (e as { code?: string }).code === "NOT_FOUND") return setPageId("");
+        setMsg(errorText(e));
+      },
+    );
+    return () => { cancelled = true; };
+  }, [id, pageId, load, initialPage]); // send / onEvent read `live` and setters only: no stale state
+
+  // false = not queued (the bus already said why: full / stale); no bus yet = the page is still loading
+  const run = (op: Op): boolean => {
+    setMsg("");
+    if (!bus.current) { setMsg("Editor chưa sẵn sàng."); return false; }
+    return bus.current.push(op);
+  };
+  const commands = (list: EditorCommand[], label: string, extra: Partial<CommandsOp> = {}) => run({ kind: "commands", commands: list, label, ...extra });
+  const batch = (b: Batch, label: string, extra: Partial<CommandsOp> = {}) => ("error" in b ? (setMsg(b.error), false) : commands(b.commands, label, extra));
+  const select = (ids: string[]) => setSelection(ids);
+  // spec §2: the deepest pickable node; Shift toggles it in the selection. flushSync: the overlay is drawn in the
+  // same task as the click (§9 hiệu năng)
+  const pick = (raw: string, shift: boolean) => {
+    const target = pickTarget(live.current.index, raw);
+    if (!target) return;
+    flushSync(() => setSelection((s) => (shift ? (s.includes(target) ? s.filter((x) => x !== target) : [...s, target]) : [target])));
+  };
+  // R18: a container goes down to its first element child (a text host: Task 12 starts inline editing first)
+  const double = (raw: string) => {
+    const target = pickTarget(live.current.index, raw);
+    const child = target ? live.current.index.get(target)?.children[0] : undefined;
+    if (child) select([child]);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    const action = keyAction(e, typingIn(e.target));
+    if (!action) return;
+    const { index: ix, selection: sel } = live.current, first = sel[0];
+    switch (action) {
+      case "parent": { e.preventDefault(); const p = first ? parentOf(ix, first) : undefined; return select(p ? [p] : []); }
+      case "child": { e.preventDefault(); const c = first ? ix.get(first)?.children[0] : undefined; if (c) select([c]); return; }
+      case "siblings": { if (!first) return; e.preventDefault(); return select(siblingsOf(ix, first)); }
+      default: return;
+    }
+  };
+  const keyRef = useRef(onKey);
+  keyRef.current = onKey;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  const showItems = (data?.interactives ?? []).flatMap((c) => (c.spec.kind === "carousel" || c.spec.kind === "tabs" ? [{ root: c.rootId, index: c.spec.active }] : []));
+  const reload = () => { setHalt(null); setMsg(""); setLoad((x) => x + 1); };
+  return (
+    <div className="ve">
+      <div className="editor-toolbar" data-ui="ui_editor_toolbar">
+        <label className="inline-field">
+          <span className="field-label">Trang</span>
+          <select value={data?.page.id ?? ""} onChange={(e) => setPageId(e.target.value)} disabled={pending > 0}>
+            {data?.pages.map((p) => <option key={p.id} value={p.id}>{p.path}</option>)}
+          </select>
+        </label>
+        <SegmentedControl<string> label="Thiết bị" data-ui="ui_editor_bp_switch" value={String(bp)} onChange={(v) => setBp(Number(v) as Bp)} options={BPS.map((w) => ({ value: String(w), label: String(w) }))} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt} />
+        <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
+        <span role="status" className="t-label-md text-2">{msg}</span>
+        {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
+        <Link className="ve-legacy" data-ui="ui_editor_legacy_link" href={`/p/${id}/editor?legacy=1${data ? `&page=${encodeURIComponent(data.page.id)}` : ""}`}>Editor cũ</Link>
+      </div>
+      {halt && (
+        <Banner tone={halt.kind === "stale" ? "warn" : "danger"} icon="warning" data-ui="ui_editor_stale_banner" title={halt.text}
+          actions={halt.kind === "failed"
+            ? <Button icon="refresh" onClick={() => { setHalt(null); bus.current?.retry(); }}>Thử lại</Button>
+            : <Button icon="refresh" onClick={reload}>{halt.kind === "stale" ? "Tải lại" : "Thử lại"}</Button>} />
+      )}
+      <div className="ve-grid">
+        <aside className="ve-left panel" data-ui="ui_editor_layers" aria-label="Layers">
+          <h2 className="t-label-md upper">Layers</h2>
+        </aside>
+        {data ? (
+          <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} showItems={showItems}
+            onPick={pick} onDouble={double} onHover={setHover} onKey={onKey} onFrame={() => setTick((t) => t + 1)} />
+        ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}
+        <aside className="ve-right panel">
+          <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
+            options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
+        </aside>
+      </div>
+    </div>
+  );
+}
