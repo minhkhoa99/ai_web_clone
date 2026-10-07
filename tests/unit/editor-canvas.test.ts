@@ -75,6 +75,17 @@ test("affected: a style edit in one section returns only that section (html + re
   expect(affectedOf(before, before, "pg", opts).sections).toEqual([]);
 });
 
+test("affected: a change only the resolved tree shows (setName, a bare setHidden) still returns its section, so the layer tree gets the new root", () => {
+  const before = doc();
+  const named = applyCommands(before, [{ op: "setName", id: "h1", name: "Tiêu đề" }]).ir;
+  const a = affectedOf(before, named, "pg", opts);
+  expect(a.shellChanged).toBe(false);
+  expect(a.sections.map((s) => s.id)).toEqual(["s1"]);
+  expect(a.sections[0]!.root.children[0]!.name).toBe("Tiêu đề");
+  const hidden = applyCommands(before, [{ op: "setHidden", id: "h0", hidden: true }]).ir;
+  expect(affectedOf(before, hidden, "pg", opts).sections.map((s) => s.id)).toEqual(["s0"]);
+});
+
 test("affected: a shell change (section order) or more than 20 changed sections asks for a page reload", () => {
   const before = doc();
   const moved = applyCommands(before, [{ op: "moveNode", id: "ph1", parentId: "body", index: 0 }]).ir;

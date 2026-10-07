@@ -211,6 +211,8 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_selection_box` | `feat_editor` | E3 §2 khung chọn đậm (nhiều khi Shift) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_spacing` | `feat_editor` | E3 §2 vùng margin/padding của node đang chọn | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_parent_box` | `feat_editor` | E3 §2 node cha highlight nhẹ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layer_search` | `feat_editor`, `feat_ir` | E3 §2 ô tìm theo tên hoặc chữ (giữ dòng khớp + tổ tiên) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layer_row` | `feat_editor`, `feat_ir` | E3 §2 dòng layer: icon theo type, badge kind + main/instance, mắt `setHidden`, nhấp đúp / F2 đổi tên `setName`, kéo thả `moveNode`; chỉ render dòng nhìn thấy; ↑/↓ chọn, →/← mở/đóng | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_effects_panel` | `feat_editor` | `effects` | — | build |
 | `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
 | `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" ở rail phải khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |

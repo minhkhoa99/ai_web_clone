@@ -793,4 +793,14 @@ select.full { width: 100%; min-height: 38px; }
 .ve-parent { position: absolute; outline: 1px dashed var(--c-text-3); }
 .ve-margin { position: absolute; background: color-mix(in srgb, var(--c-warn) 25%, transparent); }
 .ve-padding { position: absolute; background: color-mix(in srgb, var(--c-success) 25%, transparent); }
+.ve-layers { display: flex; flex-direction: column; gap: var(--s-sm); min-height: 0; flex: 1; }
+.ve-layer-list { position: relative; flex: 1; min-height: 160px; overflow: auto; }
+.ve-layer { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 4px; font: var(--t-label-sm); border-radius: var(--r-sm); cursor: default; }
+.ve-layer:hover { background: var(--c-surface-high); }
+.ve-layer.is-selected { background: var(--c-surface-highest); color: var(--c-primary); }
+.ve-layer-list:focus-visible .ve-layer.is-selected { outline: 1px solid var(--c-accent); outline-offset: -1px; }
+.ve-layer.is-dimmed { opacity: 0.55; }
+.ve-layer .icon-btn { width: 20px; height: 20px; padding: 2px; flex: none; }
+.ve-layer-name { flex: 1; min-width: 0; }
+.ve-layer input { flex: 1; min-width: 0; min-height: 20px; padding: 0 4px; }
 @media (max-width: 1099px) { .ve-grid { grid-template-columns: minmax(0, 1fr); height: auto; } .ve-pane { height: 70vh; } }

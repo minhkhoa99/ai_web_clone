@@ -202,3 +202,54 @@ test("E3a select/hover: hover label tag · name · W×H; click selects the deepe
   expect(await canvas(page).locator(".secret").isVisible()).toBe(false);
   await page.close();
 });
+
+// site1's three cards may be component instances (cards 2-3 share a structure): these tests edit the hero's h1 / p,
+// which are plain nodes.
+test("E3a layers: canvas ⇄ tree selection (auto-scroll), search by text, rename = setName, eye = hidden + display:none, drag in the tree = moveNode (ids kept)", { timeout: 180_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  await h1.click();
+  const row = (nid: string) => page.locator(`[data-ui="ui_editor_layer_row"][data-id="${nid}"]`);
+  await expect.poll(() => row(h1Id).getAttribute("aria-selected")).toBe("true");
+  expect(await row(h1Id).isVisible()).toBe(true);
+  const para = canvas(page).getByText("Plain paragraph text.");
+  const paraId = (await para.getAttribute("data-ir-id"))!;
+  await row(paraId).click();
+  await expect.poll(() => page.locator('[data-ui="ui_editor_selection_box"]').first().getAttribute("data-for")).toBe(paraId);
+  await page.locator('[data-ui="ui_editor_canvas_chrome"]').evaluate((el) => { el.scrollLeft = 0; });
+  await parityShot(page, "e3a-layers-1440");
+  await expectUi(page, ["ui_editor_layer_search", "ui_editor_layer_row"]);
+  await expectIconButtonsLabelled(page);
+  expect(await noSideScroll(page)).toBe(true);
+  // keyboard: the tree moves the selection with the arrows
+  await row(paraId).click();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => row(h1Id).getAttribute("aria-selected")).toBe("true");
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(() => row(paraId).getAttribute("aria-selected")).toBe("true");
+  // search by text keeps the match and its ancestors
+  await page.getByRole("searchbox", { name: "Tìm lớp" }).fill("Static");
+  await expect.poll(() => page.locator('[data-ui="ui_editor_layer_row"]').allInnerTexts()).toEqual(expect.arrayContaining([expect.stringContaining("Static")]));
+  await page.getByRole("searchbox", { name: "Tìm lớp" }).fill("");
+  // rename
+  await row(h1Id).locator(".ve-layer-name").dblclick();
+  await page.getByRole("textbox", { name: "Tên lớp" }).fill("Tiêu đề chính");
+  await page.keyboard.press("Enter");
+  await saved(page);
+  await expect.poll(async () => (await allNodes()).find((x) => x.id === h1Id)?.name).toBe("Tiêu đề chính");
+  await expect.poll(() => row(h1Id).innerText()).toContain("Tiêu đề chính");
+  // eye: hidden on the canvas, back again
+  await page.getByRole("button", { name: "Ẩn: Tiêu đề chính" }).click();
+  await expect.poll(() => h1.evaluate((el) => getComputedStyle(el).display)).toBe("none");
+  await page.getByRole("button", { name: "Hiện: Tiêu đề chính" }).click();
+  await expect.poll(() => h1.evaluate((el) => getComputedStyle(el).display)).not.toBe("none");
+  // drag the paragraph's row above the h1's row: same id, new order in out/
+  await row(paraId).dragTo(row(h1Id), { targetPosition: { x: 20, y: 2 } });
+  await saved(page);
+  await expect.poll(async () => { const html = await outHtml(); return html.indexOf("Plain paragraph text.") < html.indexOf("Build faster sites"); }, { timeout: 30_000 }).toBe(true);
+  expect(await canvas(page).locator(`[data-ir-id="${paraId}"]`).count()).toBe(1);
+  for (let i = 0; i < 4; i++) { await page.getByRole("button", { name: "Hoàn tác" }).click(); await saved(page); } // drag, show, hide, rename
+  await expect.poll(async () => (await allNodes()).find((x) => x.id === h1Id)?.name).toBeUndefined();
+  await page.close();
+});

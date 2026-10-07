@@ -15,7 +15,8 @@ import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
-import { BPS, indexPage, keyAction, labelOf, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
+import { LayerTree } from "./layer-tree";
+import { bodyOf, BPS, indexPage, keyAction, labelOf, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
 import { measure, Overlay } from "./overlay";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
@@ -193,7 +194,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       )}
       <div className="ve-grid">
         <aside className="ve-left panel" data-ui="ui_editor_layers" aria-label="Layers">
-          <h2 className="t-label-md upper">Layers</h2>
+          {data && <LayerTree index={index} rootId={bodyOf(data.page)} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} showItems={showItems}

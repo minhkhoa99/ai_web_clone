@@ -60,9 +60,11 @@ export function affectedOf(before: IRV2, after: IRV2, pageId: string, opts: Rend
   const reload: Affected = { sections: [], css: "", shellChanged: true, interactives };
   if (!pa || !pb || json(pa) !== json(pb)) return reload;
   const rootIn = (view: LegacyIR, id: string) => view.sections.find((s) => s.id === id)?.root;
-  const changed = pageSectionIds(after, pageId).filter((id) => json(rootIn(va, id)) !== json(rootIn(vb, id)));
-  if (changed.length > MAX_AFFECTED_SECTIONS) return reload;
   const resolved = new Map(resolveComponents(after).sections.map((s) => [s.id, s.root]));
+  const was = new Map(resolveComponents(before).sections.map((s) => [s.id, s.root]));
+  // the compiled view drops what never reaches the HTML (name, the bare hidden flag); the resolved roots (R4) keep it
+  const changed = pageSectionIds(after, pageId).filter((id) => json(rootIn(va, id)) !== json(rootIn(vb, id)) || json(was.get(id)) !== json(resolved.get(id)));
+  if (changed.length > MAX_AFFECTED_SECTIONS) return reload;
   const html = renderSectionsHtml(vb, changed, opts);
   return { sections: changed.map((id) => ({ id, html: html.get(id)!, root: resolved.get(id)! })), css: renderCanvasCss(vb, opts), shellChanged: false, interactives };
 }
