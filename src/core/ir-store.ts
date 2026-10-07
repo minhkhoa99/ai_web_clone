@@ -41,6 +41,15 @@ function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// E3b R3: `next` repeats the latest step's style fields exactly (same nodes, targets and property sets, nothing else)
+function sameStyleFields(prev: unknown, next: readonly unknown[]): boolean {
+  const key = (c: unknown) => {
+    const s = c as { op?: unknown; id?: unknown; target?: unknown; changes?: unknown };
+    return s?.op === "setStyle" && s.changes && typeof s.changes === "object" ? JSON.stringify([s.id, s.target, Object.keys(s.changes).sort()]) : undefined;
+  };
+  return Array.isArray(prev) && prev.length === next.length && next.every((c, i) => { const a = key(prev[i]); return a !== undefined && a === key(c); });
+}
+
 export function documentStore(db: DatabaseSync, materialize: Materialize, hooks: StoreHooks) {
   // the snapshot through the upgrade hook; `pending`: the hook changed it (not stored yet: commitUpgrade)
   const read = (json: string): { ir: IRV2; pending: boolean } => {
@@ -130,7 +139,8 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       const fidelity = refreshFidelity(out.ir.fidelity ?? [], out.ir, captures);
       if (out.step) {
         db.prepare("DELETE FROM document_history WHERE project_id=? AND seq>?").run(id, s.cursor); // the Redo branch
-        db.prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES(?,?,?,?,?)").run(id, out.cursor, out.step.forward, out.step.inverse, source);
+        // OR REPLACE: a normal step's seq (cursor + 1) is free after the Redo branch is dropped; a coalesced one (R3) replaces the row at the cursor
+        db.prepare("INSERT OR REPLACE INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES(?,?,?,?,?)").run(id, out.cursor, out.step.forward, out.step.inverse, source);
         db.prepare("DELETE FROM document_history WHERE project_id=? AND seq<=?").run(id, out.cursor - MAX_HISTORY_STEPS);
       }
       db.prepare("UPDATE document_state SET ir_json=?,revision=?,cursor=? WHERE project_id=?").run(JSON.stringify({ ...out.ir, fidelity, revision }), revision, out.cursor, id);
@@ -182,11 +192,19 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
       return { revision: (await loadDocument(id)).revision, canUndo: false, canRedo: false };
     },
     // New node IDs come from randomUUID here; the normalized forward is stored, so Redo re-creates the same IDs.
-    commitCommands: (id: string, baseRevision: number, commands: EditorCommand[], source: EditSource) =>
+    // E3b R3 `coalesce`: the same style fields again (the client's 1.5 s window) replace the latest step's forward and
+    // keep its inverse — one Undo returns to the value before both; anything else is a normal new step. The revision
+    // still moves (+1): every other tab's CAS goes stale as for any step.
+    commitCommands: (id: string, baseRevision: number, commands: EditorCommand[], source: EditSource, opts: { coalesce?: boolean } = {}) =>
       change(id, baseRevision, source, (ir, cursor) => {
         const forward = prepareCommands(ir, commands, randomUUID);
         const done = applyCommands(ir, forward); // refuses a step over 8 MB (forward + inverse)
-        return { ir: clearNotedFields(done.ir, forward), createdIds: done.createdIds, cursor: cursor + 1, step: { forward: JSON.stringify(forward), inverse: JSON.stringify(done.inverse) } };
+        const last = opts.coalesce && !stepAt(id, cursor + 1) ? stepAt(id, cursor) : undefined;
+        const fold = last !== undefined && sameStyleFields(JSON.parse(last.forward_json), forward);
+        return {
+          ir: clearNotedFields(done.ir, forward), createdIds: done.createdIds, cursor: fold ? cursor : cursor + 1,
+          step: { forward: JSON.stringify(forward), inverse: fold ? last.inverse_json : JSON.stringify(done.inverse) },
+        };
       }),
     undoDocument: (id: string, baseRevision: number) =>
       change(id, baseRevision, "user", (ir, cursor) => {

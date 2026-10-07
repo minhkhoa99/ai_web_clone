@@ -521,3 +521,14 @@ test("E3 §5: affected failing after the step committed is not a 500: 200 with t
   }
   expect((await projectDocuments(getDb()).loadDocument(id)).revision).toBe(1);
 });
+
+test("E3b R3: commands route accepts coalesce and folds a repeated style edit into one History step", async () => {
+  const id = await seed();
+  const root = await rootId(id);
+  const color = (c: string) => [{ op: "setStyle", id: root, target: "base", changes: { color: c } }];
+  expect((await post(commandsRoute, id, { baseRevision: 0, commands: color("red") })).status).toBe(200);
+  expect((await post(commandsRoute, id, { baseRevision: 1, commands: color("blue"), coalesce: true })).status).toBe(200);
+  expect((await post(undoRoute, id, { baseRevision: 2 })).status).toBe(200);
+  expect((await projectDocuments(getDb()).loadDocument(id)).sections[0]!.root.styles.base.color).toBeUndefined();
+  expect((await post(commandsRoute, id, { baseRevision: 3, commands: color("x"), coalesce: "yes" })).status).toBe(400);
+});

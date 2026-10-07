@@ -36,16 +36,16 @@ const command = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("duplicateNode"), id: nodeId, parentId: nodeId, index }),
 ]) satisfies z.ZodType<EditorCommand>;
 const pageId = z.string().min(1).max(200);
-const bodySchema = z.strictObject({ baseRevision: z.number().int().min(0), commands: z.array(command).min(1).max(COMMAND_LIMITS.commands), pageId: pageId.optional() });
+const bodySchema = z.strictObject({ baseRevision: z.number().int().min(0), commands: z.array(command).min(1).max(COMMAND_LIMITS.commands), pageId: pageId.optional(), coalesce: z.boolean().optional() });
 
 // One batch = one History step. Stale baseRevision -> 409 {revision}; returns { revision, createdIds, canUndo, canRedo }
-// (+ `affected` when the editor names its page, E3 §5).
+// (+ `affected` when the editor names its page, E3 §5). `coalesce` (E3b R3): fold a repeated style edit into the latest step.
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
-    const { baseRevision, commands, pageId: page } = await jsonBody(req, bodySchema);
+    const { baseRevision, commands, pageId: page, coalesce } = await jsonBody(req, bodySchema);
     const db = getDb();
     requireEditable(db, requireProject(db, id));
-    return Response.json(await exclusiveEdit(db, id, (store) => withAffected(db, id, store, page, () => store.commitCommands(id, baseRevision, commands, "user"))));
+    return Response.json(await exclusiveEdit(db, id, (store) => withAffected(db, id, store, page, () => store.commitCommands(id, baseRevision, commands, "user", { coalesce }))));
   });
 }

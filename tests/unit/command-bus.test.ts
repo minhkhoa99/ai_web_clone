@@ -122,3 +122,19 @@ test("pushes during a retry stop are applied and queued but not sent until retry
   await tick();
   expect(calls[2]!.body).toMatchObject({ baseRevision: 6, commands: [{ name: "b" }] });
 });
+
+test("E3b R3: the same coalesceKey pushed within 1.5 s of the previous one, at the revision it produced, asks the server to coalesce; another key, a slower edit or a revision moved by another step does not", async () => {
+  let now = 0;
+  const calls: SendBody[] = [];
+  let next = 1;
+  const bus = new CommandBus(1, "pg", async (_op, body) => { calls.push(body); return ok(++next); }, () => {}, () => now);
+  const style = (key: string): Op => ({ kind: "commands", label: key, commands: [{ op: "setStyle", id: "a", target: "base", changes: { color: key } }], coalesceKey: key });
+  bus.push(style("a|base|color")); await tick();
+  now = 1000; bus.push(style("a|base|color")); await tick();
+  now = 2400; bus.push(style("a|base|color")); await tick();
+  now = 4000; bus.push(style("a|base|color")); await tick();
+  now = 4100; bus.push(style("a|base|font-size")); await tick();
+  now = 4200; bus.push({ kind: "undo", label: "Hoàn tác" }); await tick();
+  now = 4300; bus.push(style("a|base|font-size")); await tick();
+  expect(calls.map((c) => c.coalesce ?? false)).toEqual([false, true, true, false, false, false, false]);
+});

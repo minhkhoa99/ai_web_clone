@@ -584,3 +584,26 @@ test("a user edit before the resume wins: the fix tasks are closed, no fix runs,
   expect(after.revision).toBe(1);
   expect(JSON.stringify(after)).toContain('"Mine"');
 });
+
+test("E3b R3: coalesce folds a repeat of the latest step's style fields into that step — one Undo restores the value before both; anything else is a new step", async () => {
+  const { db, store } = setup();
+  const color = (c: string) => [{ op: "setStyle" as const, id: "r", target: "base" as const, changes: { color: c } }];
+  const colorOf = async () => (await store.loadDocument("p")).sections[0]!.root.styles.base.color;
+  await store.commitCommands("p", 0, color("red"), "user");
+  expect(await store.commitCommands("p", 1, color("blue"), "user", { coalesce: true })).toEqual({ revision: 2, createdIds: [], canUndo: true, canRedo: false });
+  expect([historyRows(db, "p"), stateOf(db, "p")]).toEqual([1, { revision: 2, cursor: 1, materialized_revision: 2 }]);
+  await store.undoDocument("p", 2);
+  expect(await colorOf()).toBeUndefined();
+  await store.redoDocument("p", 3);
+  expect(await colorOf()).toBe("blue");
+  // another property: a new step
+  await store.commitCommands("p", 4, [{ op: "setStyle", id: "r", target: "base", changes: { "font-size": "20px" } }], "user", { coalesce: true });
+  expect(historyRows(db, "p")).toBe(2);
+  // a Redo branch (the latest step undone) is never rewritten: a new step that drops the branch
+  await store.undoDocument("p", 5);
+  await store.commitCommands("p", 6, color("green"), "user", { coalesce: true });
+  expect([historyRows(db, "p"), stateOf(db, "p")!.cursor]).toEqual([2, 2]);
+  // a non-style batch never coalesces
+  await store.commitCommands("p", 7, setText("x"), "user", { coalesce: true });
+  expect(historyRows(db, "p")).toBe(3);
+});
