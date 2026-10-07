@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COMMAND_LIMITS, type EditorCommand, type NodeDraft } from "@/core/ir-command";
 import { getDb } from "@/app/_server/db";
 import { handle, jsonBody, requireProject, type IdCtx } from "@/app/_server/http";
+import { withAffected } from "@/app/_server/editor";
 import { exclusiveEdit, requireEditable } from "@/app/_server/session";
 
 export const runtime = "nodejs";
@@ -34,15 +35,17 @@ const command = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("createNode"), parentId: nodeId, index, draft: z.custom<NodeDraft>((v) => typeof v === "object" && v !== null && !Array.isArray(v)) }),
   z.strictObject({ op: z.literal("duplicateNode"), id: nodeId, parentId: nodeId, index }),
 ]) satisfies z.ZodType<EditorCommand>;
-const bodySchema = z.strictObject({ baseRevision: z.number().int().min(0), commands: z.array(command).min(1).max(COMMAND_LIMITS.commands) });
+const pageId = z.string().min(1).max(200);
+const bodySchema = z.strictObject({ baseRevision: z.number().int().min(0), commands: z.array(command).min(1).max(COMMAND_LIMITS.commands), pageId: pageId.optional() });
 
-// One batch = one History step. Stale baseRevision -> 409 {revision}; returns { revision, createdIds, canUndo, canRedo }.
+// One batch = one History step. Stale baseRevision -> 409 {revision}; returns { revision, createdIds, canUndo, canRedo }
+// (+ `affected` when the editor names its page, E3 §5).
 export function POST(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
-    const { baseRevision, commands } = await jsonBody(req, bodySchema);
+    const { baseRevision, commands, pageId: page } = await jsonBody(req, bodySchema);
     const db = getDb();
     requireEditable(db, requireProject(db, id));
-    return Response.json(await exclusiveEdit(db, id, (store) => store.commitCommands(id, baseRevision, commands, "user")));
+    return Response.json(await exclusiveEdit(db, id, (store) => withAffected(db, id, store, page, () => store.commitCommands(id, baseRevision, commands, "user"))));
   });
 }

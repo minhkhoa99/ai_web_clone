@@ -17,6 +17,7 @@ import * as saveRoute from "@/app/api/projects/[id]/editor/save/route";
 import * as promoteRoute from "@/app/api/projects/[id]/editor/promote-layout/route";
 import * as files from "@/app/api/projects/[id]/files/[...path]/route";
 import * as assetsRoute from "@/app/api/projects/[id]/assets/route";
+import { canvasUrlsFor } from "@/app/_server/editor";
 
 // a queued/active job, as the session guards see it (a real queue would start a browser pipeline)
 const busy = vi.hoisted(() => new Set<string>());
@@ -408,4 +409,92 @@ test("E3 §5 upload: an opaque/foreign Origin, a non-loopback Host, a non-multip
   const served = await getFile(id, ...url.split("/files/")[1]!.split("/"));
   expect([served.headers.get("content-type"), served.headers.get("content-security-policy")?.startsWith("sandbox;")]).toEqual(["image/svg+xml", true]);
   expect(await served.text()).toBe('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+});
+
+type AffectedBody = { revision: number; affected: { sections: { id: string; html: string; root: { id: string } }[]; css: string; shellChanged: boolean; interactives: unknown[] } };
+
+test("E3 §5: commands / Undo with pageId return the changed sections (html + resolved root), the stylesheet and the panel components; without it the response is unchanged", async () => {
+  const id = await seed();
+  const doc = await projectDocuments(getDb()).loadDocument(id);
+  const section = doc.sections[0]!, root = section.root.id;
+  const res = await post(commandsRoute, id, { baseRevision: 0, pageId: "home", commands: [{ op: "setStyle", id: root, target: "base", changes: { color: "rgb(1, 2, 3)" } }] });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as AffectedBody;
+  expect(body.revision).toBe(1);
+  expect(body.affected.shellChanged).toBe(false);
+  expect(body.affected.sections.map((s) => s.id)).toEqual([section.id]);
+  expect(body.affected.sections[0]!.html).toContain(`data-ir-id="${root}"`);
+  expect(body.affected.sections[0]!.root.id).toBe(root);
+  expect(body.affected.css).toContain("color:rgb(1, 2, 3)");
+  expect(body.affected.interactives).toEqual([]);
+  const undo = (await (await post(undoRoute, id, { baseRevision: 1, pageId: "home" })).json()) as AffectedBody;
+  expect(undo.affected.sections.map((s) => s.id)).toEqual([section.id]);
+  expect(undo.affected.css).not.toContain("rgb(1, 2, 3)");
+  const plain = await post(commandsRoute, id, { baseRevision: 2, commands: [{ op: "setName", id: root, name: "Đầu trang" }] });
+  expect(await plain.json()).toEqual({ revision: 3, createdIds: [], canUndo: true, canRedo: false });
+  expect((await post(commandsRoute, id, { baseRevision: 3, pageId: "", commands: [{ op: "setName", id: root, name: "x" }] })).status).toBe(400);
+  expect((await post(redoRoute, id, { baseRevision: 3, pageId: 7 })).status).toBe(400);
+});
+
+test("E3 §5: Redo with pageId returns affected; a stale step keeps 409 STALE_REVISION + revision and no affected; an unknown pageId only reloads", async () => {
+  const id = await seed();
+  const root = await rootId(id);
+  await post(commandsRoute, id, { baseRevision: 0, commands: [{ op: "setStyle", id: root, target: "base", changes: { color: "rgb(4, 5, 6)" } }] });
+  await post(undoRoute, id, { baseRevision: 1 });
+  const redo = await post(redoRoute, id, { baseRevision: 2, pageId: "home" });
+  expect(redo.status).toBe(200);
+  expect(((await redo.json()) as AffectedBody).affected.css).toContain("color:rgb(4, 5, 6)");
+  const stale = await post(commandsRoute, id, { baseRevision: 0, pageId: "home", commands: [{ op: "setName", id: root, name: "x" }] });
+  expect([stale.status, await stale.json()]).toEqual([409, expect.objectContaining({ code: "STALE_REVISION", revision: 3 })]);
+  const other = (await (await post(commandsRoute, id, { baseRevision: 3, pageId: "nope", commands: [{ op: "setName", id: root, name: "y" }] })).json()) as AffectedBody;
+  expect(other.affected).toMatchObject({ sections: [], shellChanged: true });
+});
+
+test("E3 §5: GET editor adds the canvas page (html + resolved tree), css, fonts, effects, pages and the asset library; the GrapesJS payload stays for Editor cũ", async () => {
+  const id = await seed();
+  const res = await editorRoute.GET(new Request("http://127.0.0.1/api/projects/x/editor?page=home"), { params: Promise.resolve({ id }) });
+  expect(res.status).toBe(200);
+  const data = (await res.json()) as { page: { id: string; file: string; html: string; shell: { tag: string }; sections: { id: string; root: { id: string } }[] }; css: string; fonts: string[]; effects: string[]; pages: unknown[]; assets: unknown[]; components: unknown[] };
+  expect(data.page.id).toBe("home");
+  expect(data.page.file).toBe("index.html");
+  expect(data.page.html).toContain(`<base href="http://127.0.0.1/api/projects/${id}/files/out/index.html">`);
+  expect(data.page.html).toContain(`<script src="http://127.0.0.1/api/projects/${id}/files/out/js/runtime.js?edit=1"></script>`);
+  expect(data.page.html).toContain("<style data-aiwc-css></style>");
+  expect(data.page.shell.tag).toBe("html");
+  expect(data.page.sections.length).toBeGreaterThan(0);
+  expect(data.page.html).toContain(`data-ir-id="${data.page.sections[0]!.root.id}"`);
+  expect(typeof data.css).toBe("string");
+  expect(data.effects).toEqual(expect.arrayContaining(["sp1-fade-in"]));
+  expect([Array.isArray(data.fonts), Array.isArray(data.assets), data.pages.length]).toEqual([true, true, 1]);
+  expect(Array.isArray(data.components)).toBe(true); // irToGrapes, for ?legacy=1
+});
+
+test("E3 §5: the canvas urls come only from a bare loopback Host (port kept); a Host smuggling a path / userinfo / CSP separator is refused before the canvas is built", async () => {
+  const id = await seed();
+  const get = (host: string) => editorRoute.GET(new Request("http://127.0.0.1/api/projects/x/editor", { headers: { host } }), { params: Promise.resolve({ id }) });
+  const ok = (await (await get("localhost:3000")).json()) as { page: { html: string } };
+  expect(ok.page.html).toContain(`<script src="http://localhost:3000/api/projects/${id}/files/out/js/runtime.js?edit=1"></script>`);
+  expect(ok.page.html).toContain(`script-src http://localhost:3000/api/projects/${id}/files/out/js/runtime.js;`);
+  for (const host of ["127.0.0.1/x;script-src *", "evil@localhost", "localhost:3000/a b", "localhost?x;y", "localhost#;"]) {
+    const res = await get(host);
+    expect([host, res.status, ((await res.json()) as { code: string }).code]).toEqual([host, 403, "FORBIDDEN"]);
+  }
+  expect(() => canvasUrlsFor(new Request("http://127.0.0.1/", { headers: { host: "127.0.0.1/x;script-src *" } }), id)).toThrow();
+  expect(canvasUrlsFor(new Request("http://127.0.0.1/"), "a'b(c)")("index.html").runtime).toBe("http://127.0.0.1/api/projects/a%27b%28c%29/files/out/js/runtime.js?edit=1");
+});
+
+test("E3 §5: an uploaded SVG reaches the canvas only by URL (css url() → assets/<sha>.svg), never inlined into the document", async () => {
+  const id = await seed();
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>';
+  const { key } = (await (await upload(id, fileForm(new File([svg], "dot.svg", { type: "image/svg+xml" })))).json()) as { key: string };
+  const root = await rootId(id);
+  const res = await post(commandsRoute, id, { baseRevision: 0, pageId: "home", commands: [{ op: "setStyle", id: root, target: "base", changes: { "background-image": `url("${key}")` } }] });
+  const { affected } = (await res.json()) as AffectedBody;
+  const file = key.slice(key.lastIndexOf("/") + 1);
+  expect(affected.css).toContain(`assets/${file}`);
+  expect(affected.css).not.toContain("<rect");
+  const data = (await (await getEditor(id)).json()) as { page: { html: string }; css: string; assets: { key: string }[] };
+  expect(data.css).toContain(`assets/${file}`);
+  expect(data.page.html).not.toMatch(/<svg|<rect/);
+  expect(data.assets.map((a) => a.key)).toContain(key);
 });

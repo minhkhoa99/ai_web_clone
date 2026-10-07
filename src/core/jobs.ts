@@ -301,6 +301,11 @@ async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSour
   return { db, projectId, ws, pages: JSON.parse(await readFile(join(ws, "pages.json"), "utf8")) as PageRef[] };
 }
 
+// The emit options the editor renders its canvas and partial updates with (asset map incl. uploads, page urls).
+export async function editorEmit(db: DatabaseSync, projectId: string): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
+  return emitOpts(await editSource(db, projectId));
+}
+
 // The editor's document (SQLite snapshot once adopted, else ir.json migrated) and its display view (compileV2).
 // `adopt` false (export): read through the loader without adopting.
 export async function loadEditable(db: DatabaseSync, projectId: string, adopt = true): Promise<{ doc: IR; ir: LegacyIR; emit: Pick<RenderOpts, "assetMap" | "pageUrls"> }> {
