@@ -822,3 +822,7 @@ select.full { width: 100%; min-height: 38px; }
 .ve-free { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 4px; }
 .ve-free input { min-width: 0; }
 @media (max-width: 1099px) { .ve-grid { grid-template-columns: minmax(0, 1fr); height: auto; } .ve-pane { height: 70vh; } }
+.ve-capture { position: fixed; inset: 0; z-index: 50; cursor: grabbing; }
+.ve-drop { position: absolute; background: color-mix(in srgb, var(--c-primary) 15%, transparent); outline: 2px solid var(--c-primary); }
+.ve-drop.is-bad { background: color-mix(in srgb, var(--c-danger) 15%, transparent); outline-color: var(--c-danger); }
+.ve-drop.is-bad .ve-label { background: var(--c-danger-strong); color: var(--c-on-danger); }

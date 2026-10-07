@@ -17,7 +17,7 @@ export function measure(el: Element, spacing = true): Measured {
     padding: [px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft)],
   };
 }
-const at = (b: Box, z: number): CSSProperties => ({ left: b.x * z, top: b.y * z, width: Math.max(0, b.w * z), height: Math.max(0, b.h * z) });
+export const at = (b: Box, z: number): CSSProperties => ({ left: b.x * z, top: b.y * z, width: Math.max(0, b.w * z), height: Math.max(0, b.h * z) });
 
 export function Overlay({ zoom, hover, selected, parent, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; children?: ReactNode }) {
   return (

@@ -145,3 +145,53 @@ test("E3b Style Manager: switching breakpoint within the 300 ms debounce still s
   await expect.poll(async () => (await nodeById(h1Id))?.styles.base.color, { timeout: 30_000 }).toBe("rgb(200, 30, 60)");
   await page.close();
 });
+
+// drags with the real mouse: down on the element, a few moves (past the 4 px start threshold), up at the target
+async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, opts: { alt?: boolean; shift?: boolean } = {}) {
+  if (opts.alt) await page.keyboard.down("Alt");
+  if (opts.shift) await page.keyboard.down("Shift");
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let k = 1; k <= 8; k++) await page.mouse.move(from.x + ((to.x - from.x) * k) / 8, from.y + ((to.y - from.y) * k) / 8);
+  await page.mouse.up();
+  if (opts.shift) await page.keyboard.up("Shift");
+  if (opts.alt) await page.keyboard.up("Alt");
+}
+const centre = (b: { x: number; y: number; width: number; height: number }) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+
+test("E3b flow drag: the h1 dropped into the features section keeps its id (moveNode across sections, one Undo); dragging a section root onto a node shows a red indicator with its reason and sends nothing", { timeout: 240_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  const features = canvas(page).locator("#features");
+  const featuresId = (await features.getAttribute("data-ir-id"))!;
+  await h1.click();
+  await features.scrollIntoViewIfNeeded();
+  await h1.scrollIntoViewIfNeeded();
+  const fb = (await features.boundingBox())!;
+  // into the section's own 24 px left padding (its cards may be component instances, which refuse children)
+  // the left end of the h1 (its centre lies under the right panel: the 1440 frame is wider than the canvas pane)
+  await drag(page, { ...centre((await h1.boundingBox())!), x: (await h1.boundingBox())!.x + 10 }, { x: fb.x + 6, y: fb.y + fb.height / 2 });
+  await saved(page);
+  await expect.poll(async () => (await allNodes()).find((x) => x.id === featuresId)?.children.some((c) => c.id === h1Id), { timeout: 30_000 }).toBe(true);
+  expect(await canvas(page).locator(`[data-ir-id="${h1Id}"]`).count()).toBe(1);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(async () => (await allNodes()).find((x) => x.id === featuresId)?.children.some((c) => c.id === h1Id), { timeout: 30_000 }).toBe(false);
+  // a section root (Esc from the h1) dragged onto the paragraph: red, reasoned, nothing sent
+  await canvas(page).locator("h1").click();
+  await page.keyboard.press("Escape");
+  const rev = (await payload()).revision;
+  const para = canvas(page).getByText("Plain paragraph text.");
+  const pb = (await para.boundingBox())!, hb = (await canvas(page).locator("h1").boundingBox())!;
+  await page.mouse.move(hb.x + 4, hb.y + 4);
+  await page.mouse.down();
+  for (let k = 1; k <= 6; k++) await page.mouse.move(hb.x + 4, hb.y + 4 + ((pb.y + pb.height / 2 - hb.y - 4) * k) / 6);
+  const bad = page.locator('[data-ui="ui_editor_drop_indicator"].is-bad');
+  await expect.poll(() => bad.isVisible()).toBe(true);
+  expect(await bad.innerText()).toMatch(/Section chỉ đổi thứ tự|chính nó/); // the hero is a section root (or, if not, the p is inside it)
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev);
+  await page.close();
+});

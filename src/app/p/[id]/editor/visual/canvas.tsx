@@ -10,6 +10,8 @@ export type CanvasHandle = {
   element(id: string): HTMLElement | null;
   replace(a: Affected, rootOf: (sectionId: string) => string | undefined): boolean;
   post(message: unknown): void;
+  toDoc(clientX: number, clientY: number): { x: number; y: number }; // parent client px -> frame document px (÷ zoom)
+  hit(x: number, y: number): string | null; // data-ir-id under a document point
 };
 type Props = {
   ref?: Ref<CanvasHandle>;
@@ -17,12 +19,14 @@ type Props = {
   html: string;
   css: string;
   width: number;
+  zoom: number;
   showItems: { root: string; index: number }[];
   children?: ReactNode;
   onPick(id: string, shift: boolean): void;
   onDouble(id: string): void;
   onHover(id: string | null): void;
   onKey(e: KeyboardEvent): void;
+  onPress(id: string, e: PointerEvent): void;
   onFrame(): void;
 };
 // cross-realm: frame nodes are not instances of this window's Element
@@ -32,12 +36,14 @@ const idOf = (t: EventTarget | null): string | null => {
   return el?.closest("[data-ir-id]")?.getAttribute("data-ir-id") ?? null;
 };
 
-export function Canvas({ ref, frameKey, html, css, width, showItems, children, ...on }: Props) {
+export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, children, ...on }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(600);
   const events = useRef(on);
   events.current = on;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const shown = useRef(showItems);
   shown.current = showItems;
   const doc = () => frame.current?.contentDocument ?? null;
@@ -69,6 +75,8 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
       return true;
     },
     post: (m) => frame.current?.contentWindow?.postMessage(m, "*"),
+    toDoc: (cx, cy) => { const r = frame.current!.getBoundingClientRect(); return { x: (cx - r.left) / zoomRef.current, y: (cy - r.top) / zoomRef.current }; },
+    hit: (x, y) => idOf(doc()?.elementFromPoint(x, y) ?? null),
   }));
   useEffect(() => setCss(css), [css]);
   useEffect(() => {
@@ -98,6 +106,7 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
     d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last) { last = id; events.current.onHover(id); } });
     d.documentElement.addEventListener("mouseleave", () => { last = null; events.current.onHover(null); });
     d.addEventListener("keydown", (e) => events.current.onKey(e));
+    d.addEventListener("pointerdown", (e) => { if (e.button !== 0) return; const id = idOf(e.target); if (id) events.current.onPress(id, e); }, true);
     w.addEventListener("scroll", () => events.current.onFrame(), { passive: true });
     new ResizeObserver(() => events.current.onFrame()).observe(d.documentElement);
     show();
