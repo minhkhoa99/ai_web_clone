@@ -51,7 +51,7 @@ function AttrInput({ label, value, onCommit }: { label: string; value: string; o
 export function ElementPanel({ projectId, index, entry, element, bp, assets, onBatch, onUploaded, onMessage }: Props) {
   const [busy, setBusy] = useState(false);
   const node = entry.node;
-  const background = !!element && element.ownerDocument.defaultView!.getComputedStyle(element).backgroundImage !== "none";
+  const background = !!element && element.ownerDocument.defaultView!.getComputedStyle(element).backgroundImage.includes("url("); // a pure gradient is not a replaceable image
   const kind = node.tag === "img" ? "img" : node.tag === "source" ? "source" : background ? "background" : undefined;
   const generated = node.id.startsWith(GENERATED);
   const apply = (asset: LibraryAsset) => {
