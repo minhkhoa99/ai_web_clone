@@ -662,6 +662,7 @@ function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
 export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId: () => string): NormalizedCommand[] {
   checkBatch(commands);
   let current = ir;
+  const created = new Map<number, IRNodeV2>(); // command index -> the root its createNode made (R2 refs)
   return commands.map((raw, i) => {
     const fail = failer(i, raw);
     if (!isObject(raw)) return fail("command must be an object");
@@ -677,7 +678,7 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
       case "resetOverride": normalized = { op: command.op, instanceId: command.instanceId, ...(command.path !== undefined && { path: command.path }) }; break;
       case "detachComponent": normalized = { op: command.op, instanceId: command.instanceId }; break;
       case "updateComponent": normalized = { op: command.op, id: command.id, patch: isObject(command.patch) ? { ...command.patch } : command.patch }; break;
-      case "convertToComponent": normalized = { op: command.op, id: command.id, kind: command.kind, roles: isObject(command.roles) ? { ...command.roles } : command.roles }; break;
+      case "convertToComponent": normalized = { op: command.op, id: resolveRefs(command.id, created, fail), kind: command.kind, roles: isObject(command.roles) ? resolveRefs({ ...command.roles }, created, fail) : command.roles }; break;
       case "unwrapComponent": normalized = { op: command.op, id: command.id }; break;
       case "removeComponentItem": normalized = { op: command.op, id: command.id, itemId: command.itemId }; break;
       case "moveComponentItem": normalized = { op: command.op, id: command.id, itemId: command.itemId, index: command.index }; break;
@@ -704,6 +705,7 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
       }
       default: return fail("unknown command");
     }
+    if (normalized.op === "createNode") created.set(i, normalized.node);
     current = applyOne(current, normalized, fail).ir;
     return normalized;
   });
@@ -715,6 +717,25 @@ function unalias(ir: IRV2, c: EditorCommand, fail: Fail): Unaliased {
   if (!Object.hasOwn(ALIASES, c.op)) return c as Unaliased;
   if (find(ir, (c as { id?: unknown }).id)?.node.interactive?.kind !== "carousel") fail(`${c.op} needs a carousel`);
   return { ...c, op: ALIASES[c.op as keyof typeof ALIASES] } as Unaliased;
+}
+// E3b R2: a later command of the batch may name a node an earlier createNode made as `new:<k>/<path>` (k: that
+// command's index, path: child indexes from its root, "" = the root): the client cannot know server ids yet, and a
+// template + its component stay one batch (one Undo). Resolved here, so History stores real ids. Client JSON: roles
+// nest at most 2 levels (accordion items), so deeper values and prototype keys are refused.
+const NEW_REF = /^new:(\d{1,2})\/((?:\d{1,4}(?:\.\d{1,4}){0,19})?)$/;
+const PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+function resolveRefs<T>(value: T, created: ReadonlyMap<number, IRNodeV2>, fail: Fail, depth = 0): T {
+  if (depth > 4) fail("roles nest too deep");
+  if (typeof value === "string") {
+    const m = NEW_REF.exec(value);
+    if (!m) return value;
+    let node = created.get(Number(m[1])) ?? fail(`${value}: no createNode at index ${m[1]} earlier in this batch`);
+    for (const step of m[2] ? m[2].split(".") : []) node = node.children[Number(step)] ?? fail(`${value}: no such child`);
+    return node.id as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveRefs(v, created, fail, depth + 1)) as T;
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [PROTO_KEYS.has(k) ? fail(`invalid role key: ${k}`) : k, resolveRefs(v, created, fail, depth + 1)])) as T;
+  return value;
 }
 // Copies only the known draft fields (any client-sent id is dropped); checkNewNode validates the values.
 function fromDraft(draft: unknown, allocateId: () => string, fail: Fail, depth = 1, count = { value: 0 }): IRNodeV2 {

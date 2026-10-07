@@ -465,3 +465,27 @@ test("setName trims, holds 1–80 characters, inverts exactly; an instance recor
   expect(overridesOf(out, "card1")).toContain("name");
   expect(card(out, 1).name).toBe("Thẻ giữa");
 });
+
+test("E3b R2: convertToComponent names nodes an earlier createNode of the batch made (new:<k>/<path>); History keeps real ids; bad refs are refused", () => {
+  const ir = fixture();
+  const draft: NodeDraft = { tag: "div", children: [{ tag: "div", styles: { base: { overflow: "hidden" } }, children: [{ tag: "div", children: [{ tag: "div" }, { tag: "div" }] }] }] };
+  const forward = prepareCommands(ir, [
+    { op: "createNode", parentId: "p", index: 0, draft },
+    { op: "convertToComponent", id: "new:0/", kind: "carousel", roles: { viewport: "new:0/0", track: "new:0/0.0", slides: ["new:0/0.0.0", "new:0/0.0.1"] } },
+  ], ids());
+  expect(forward[1]).toEqual({ op: "convertToComponent", id: "new1", kind: "carousel", roles: { viewport: "new2", track: "new3", slides: ["new4", "new5"] } });
+  const done = roundTrip(ir, forward);
+  expect(kids(done.ir)[0]!.interactive).toMatchObject({ kind: "carousel", viewport: "new2", track: "new3", slides: ["new4", "new5"] });
+  expect(done.createdIds).toEqual(["new1"]);
+  for (const ref of ["new:1/", "new:0/9", "new:0/0.0.0.0", "new:7/"]) {
+    expect(() => prepareCommands(ir, [{ op: "createNode", parentId: "p", index: 0, draft }, { op: "convertToComponent", id: ref, kind: "carousel", roles: {} }], ids()), ref).toThrow(/command 1/);
+  }
+  // a plain id that only looks alike is left alone (and then simply not found)
+  expect(() => prepareCommands(ir, [{ op: "convertToComponent", id: "new:x", kind: "carousel", roles: {} }], ids())).toThrow(/not found/);
+  // client JSON: prototype keys and deep nesting are refused before anything resolves
+  const create: EditorCommand = { op: "createNode", parentId: "p", index: 0, draft };
+  const roles = JSON.parse('{"__proto__":{"viewport":"new:0/0"}}') as Record<string, unknown>;
+  expect(() => prepareCommands(ir, [create, { op: "convertToComponent", id: "new:0/", kind: "carousel", roles }], ids())).toThrow(/command 1/);
+  const deep = JSON.parse(`{"x":${"[".repeat(50)}${"]".repeat(50)}}`) as Record<string, unknown>;
+  expect(() => prepareCommands(ir, [create, { op: "convertToComponent", id: "new:0/", kind: "carousel", roles: deep }], ids())).toThrow(/command 1/);
+});
