@@ -126,3 +126,22 @@ test("E3b Style Manager: values with their source (inherited at 768), optimistic
   await expectUi(page, ["ui_editor_style_panel", "ui_editor_style_group", "ui_editor_style_state"]);
   await page.close();
 });
+
+test("E3b Style Manager: switching breakpoint within the 300 ms debounce still sends what was typed at the old one", { timeout: 120_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  await h1.click();
+  const color = fieldIn(page, "color");
+  await expect.poll(() => color.locator("input").inputValue()).toBe("rgb(200, 30, 60)");
+  const rev = (await payload()).revision;
+  await color.locator("input").fill("rgb(0, 128, 0)");
+  await page.getByRole("group", { name: "Thiết bị" }).getByRole("button", { name: "768" }).click();
+  await color.locator("input").fill("rgb(0, 0, 255)");
+  await saved(page);
+  await expect.poll(async () => { const n = await nodeById(h1Id); return [n?.styles.base.color, n?.styles.bp["768"]?.color]; }, { timeout: 30_000 }).toEqual(["rgb(0, 128, 0)", "rgb(0, 0, 255)"]);
+  expect((await payload()).revision).toBe(rev + 2);
+  for (let i = 0; i < 2; i++) { await page.getByRole("button", { name: "Hoàn tác" }).click(); await saved(page); }
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.base.color, { timeout: 30_000 }).toBe("rgb(200, 30, 60)");
+  await page.close();
+});

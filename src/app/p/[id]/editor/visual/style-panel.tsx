@@ -29,14 +29,17 @@ export function StylePanel({ node, element, bp, fonts, onBatch, onMessage }: Pro
   const live = useRef({ node, element });
   live.current = { node, element }; // a section swap replaces the element: timers act on the current one
   const st = state || undefined;
-  useEffect(() => { setDrafts({}); setErrors({}); }, [bp, state]);
+  const flush = () => { for (const p of [...pending.current.values()]) { clearTimeout(p.timer); p.send(); } };
+  // another breakpoint / state: what was typed at the old one is sent there now (the maps are keyed by prop alone)
+  useEffect(() => { flush(); setDrafts({}); setErrors({}); }, [bp, state]);
   // a new server value (a step done, Undo, ↺): drafts already sent give way to it; typed-but-unsent and refused ones stay
   useEffect(() => setDrafts((d) => {
     const keep = Object.entries(d).filter(([p]) => pending.current.has(p) || p in errors);
     return keep.length === Object.keys(d).length ? d : Object.fromEntries(keep);
   }), [node]); // `errors` is read at the node change only
+  const endScrub = useRef<(() => void) | null>(null); // removes a running scrub's window listeners
   // leaving the node (another selection) sends what was typed instead of dropping it under its inline preview
-  useEffect(() => () => { for (const p of [...pending.current.values()]) { clearTimeout(p.timer); p.send(); } }, []);
+  useEffect(() => () => { endScrub.current?.(); flush(); }, []);
 
   const inline = (prop: string, value: string) => {
     const el = live.current.element;
@@ -75,9 +78,12 @@ export function StylePanel({ node, element, bp, fonts, onBatch, onMessage }: Pro
     e.preventDefault();
     const x0 = e.clientX;
     const move = (m: PointerEvent) => { const next = scrub(start, Math.round(m.clientX - x0)); if (next) edit(prop, next); };
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    endScrub.current?.();
+    const end = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); endScrub.current = null; };
+    endScrub.current = end;
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   };
   const field = (prop: string, label: string = prop, compact = false) => {
     const f = fieldOf(node, bp, st, prop);

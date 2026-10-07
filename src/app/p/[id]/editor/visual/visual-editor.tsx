@@ -267,7 +267,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // the selection boxes follow layout changes that resize nothing in the frame (a Style Manager preview, a padding or
   // width change): watch the selected elements' size and inline style (E3a Task 9 carry)
   useEffect(() => {
-    const els = selection.flatMap((sid) => canvas.current?.element(sid) ?? []);
+    const els = selection.slice(0, BAND_LIMIT).flatMap((sid) => canvas.current?.element(sid) ?? []); // bounded
     const w = els[0]?.ownerDocument.defaultView;
     if (!w) return;
     const bump = () => setTick((t) => t + 1);
