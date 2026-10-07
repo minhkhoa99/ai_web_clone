@@ -1,0 +1,38 @@
+"use client";
+// E3 §2 overlay (in the parent window, over the frame): hover box + "tag · tên · W×H", selection boxes with margin
+// (outside) / padding (inside) bands, the parent outlined. Coordinates: the frame's viewport px × zoom (the overlay
+// sits at the frame's origin inside the stage, so the frame's own scroll is already in getBoundingClientRect).
+import type { CSSProperties, ReactNode } from "react";
+import { bands, type Box } from "./model";
+
+export type Measured = { box: Box; margin: [number, number, number, number]; padding: [number, number, number, number] };
+export function measure(el: Element): Measured {
+  const r = el.getBoundingClientRect(), cs = el.ownerDocument.defaultView!.getComputedStyle(el), px = (v: string) => parseFloat(v) || 0;
+  return {
+    box: { x: r.left, y: r.top, w: r.width, h: r.height },
+    margin: [px(cs.marginTop), px(cs.marginRight), px(cs.marginBottom), px(cs.marginLeft)],
+    padding: [px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft)],
+  };
+}
+const at = (b: Box, z: number): CSSProperties => ({ left: b.x * z, top: b.y * z, width: Math.max(0, b.w * z), height: Math.max(0, b.h * z) });
+
+export function Overlay({ zoom, hover, selected, parent, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; children?: ReactNode }) {
+  return (
+    <div className="ve-overlay" aria-hidden="true">
+      {parent && <div className="ve-parent" data-ui="ui_editor_parent_box" style={at(parent.box, zoom)} />}
+      {selected.map(({ id, m }) => (
+        <div key={id}>
+          {bands(m.box, m.margin, false).map((b, i) => <div key={`m${i}`} className="ve-margin" data-ui="ui_editor_spacing" style={at(b, zoom)} />)}
+          {bands(m.box, m.padding, true).map((b, i) => <div key={`p${i}`} className="ve-padding" data-ui="ui_editor_spacing" style={at(b, zoom)} />)}
+          <div className="ve-selected" data-ui="ui_editor_selection_box" data-for={id} style={at(m.box, zoom)} />
+        </div>
+      ))}
+      {hover && (
+        <div className="ve-hover" data-ui="ui_editor_hover_box" data-for={hover.id} style={at(hover.m.box, zoom)}>
+          <span className={hover.m.box.y * zoom < 16 ? "ve-label ve-label-in" : "ve-label"}>{hover.label}</span>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}

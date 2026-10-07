@@ -15,7 +15,8 @@ import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
-import { BPS, indexPage, keyAction, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
+import { BPS, indexPage, keyAction, labelOf, parentOf, pickTarget, siblingsOf, type Batch, type Bp, type DocIndex } from "./model";
+import { measure, Overlay } from "./overlay";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
 type Halt = { kind: "stale" | "unwritten" | "failed"; text: string };
@@ -158,6 +159,15 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
 
   const showItems = (data?.interactives ?? []).flatMap((c) => (c.spec.kind === "carousel" || c.spec.kind === "tabs" ? [{ root: c.rootId, index: c.spec.active }] : []));
   const reload = () => { setHalt(null); setMsg(""); refetch(); };
+  // measured on every render the selection, hover or frame (tick) changes: cheap getBoundingClientRect + computed style
+  void tick;
+  const measured = (nid: string) => { const el = canvas.current?.element(nid); return el ? measure(el) : undefined; };
+  const selectedBoxes = selection.flatMap((sid) => { const m = measured(sid); return m ? [{ id: sid, m }] : []; });
+  const parentId = selection.length === 1 ? parentOf(index, selection[0]!) : undefined;
+  const parentBox = parentId ? measured(parentId) : undefined;
+  const hoverId = hover ? pickTarget(index, hover) : undefined;
+  const hoverM = hoverId ? measured(hoverId) : undefined;
+  const hoverInfo = hoverId && hoverM ? { id: hoverId, m: hoverM, label: `${index.get(hoverId)!.node.tag} · ${labelOf(index.get(hoverId)!)} · ${Math.round(hoverM.box.w)}×${Math.round(hoverM.box.h)}` } : undefined;
   return (
     <div className="ve">
       <div className="editor-toolbar" data-ui="ui_editor_toolbar">
@@ -187,7 +197,9 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} showItems={showItems}
-            onPick={pick} onDouble={double} onHover={setHover} onKey={onKey} onFrame={() => setTick((t) => t + 1)} />
+            onPick={pick} onDouble={double} onHover={setHover} onKey={onKey} onFrame={() => setTick((t) => t + 1)}>
+            <Overlay zoom={1} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} />
+          </Canvas>
         ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}
         <aside className="ve-right panel">
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}

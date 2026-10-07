@@ -168,3 +168,37 @@ test("E3a bus: a reload owed to a shellChanged step still happens when the last 
   await saved(page);
   await page.close();
 });
+
+test("E3a select/hover: hover label tag · name · W×H; click selects the deepest node (box on it) with margin/padding bands and the parent outlined; Shift+click toggles; Esc parent, Ctrl+Enter child, Ctrl+A siblings", { timeout: 120_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  await h1.hover();
+  const hoverBox = page.locator('[data-ui="ui_editor_hover_box"]');
+  await expect.poll(() => hoverBox.getAttribute("data-for")).toBe(h1Id);
+  expect(await hoverBox.innerText()).toMatch(/^h1 · .+ · \d+×\d+$/);
+  await h1.click();
+  const sel = page.locator('[data-ui="ui_editor_selection_box"]');
+  await expect.poll(() => sel.first().getAttribute("data-for")).toBe(h1Id);
+  const [hb, sb] = [(await h1.boundingBox())!, (await sel.first().boundingBox())!];
+  expect(Math.abs(sb.x - hb.x) + Math.abs(sb.y - hb.y) + Math.abs(sb.width - hb.width)).toBeLessThan(3);
+  expect(await page.locator('[data-ui="ui_editor_spacing"]').count()).toBeGreaterThan(0);
+  expect(await page.locator('[data-ui="ui_editor_parent_box"]').count()).toBe(1);
+  await page.locator('[data-ui="ui_editor_canvas_chrome"]').evaluate((el) => { el.scrollLeft = 0; }); // the click scrolled the 1440 frame sideways
+  await parityShot(page, "e3a-overlay-1440");
+  const para = canvas(page).getByText("Plain paragraph text.");
+  await para.click({ modifiers: ["Shift"] });
+  await expect.poll(() => sel.count()).toBe(2);
+  await para.click({ modifiers: ["Shift"] });
+  await expect.poll(() => sel.count()).toBe(1);
+  const heroId = await h1.evaluate((el) => el.parentElement!.getAttribute("data-ir-id"));
+  await page.keyboard.press("Escape");
+  await expect.poll(() => sel.first().getAttribute("data-for")).toBe(heroId);
+  await page.keyboard.press("Control+Enter");
+  await expect.poll(() => sel.first().getAttribute("data-for")).toBe(h1Id);
+  await page.keyboard.press("Control+a");
+  await expect.poll(() => sel.count()).toBe(2); // h1 + p of the hero
+  // a hidden node (site1 .secret, display:none) is never selectable on the canvas
+  expect(await canvas(page).locator(".secret").isVisible()).toBe(false);
+  await page.close();
+});

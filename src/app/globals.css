@@ -785,4 +785,12 @@ select.full { width: 100%; min-height: 38px; }
 .ve-stage { position: relative; margin: 0 auto; }
 .ve-stage iframe { display: block; border: 0; background: #fff; }
 .ve-legacy { margin-inline-start: auto; }
+.ve-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.ve-hover { position: absolute; outline: 1px solid var(--c-accent); }
+.ve-label { position: absolute; left: 0; bottom: 100%; font: var(--t-label-sm); background: var(--c-accent); color: var(--c-on-accent); padding: 1px 4px; white-space: nowrap; }
+.ve-label-in { bottom: auto; top: 0; }
+.ve-selected { position: absolute; outline: 2px solid var(--c-accent-strong); }
+.ve-parent { position: absolute; outline: 1px dashed var(--c-text-3); }
+.ve-margin { position: absolute; background: color-mix(in srgb, var(--c-warn) 25%, transparent); }
+.ve-padding { position: absolute; background: color-mix(in srgb, var(--c-success) 25%, transparent); }
 @media (max-width: 1099px) { .ve-grid { grid-template-columns: minmax(0, 1fr); height: auto; } .ve-pane { height: 70vh; } }

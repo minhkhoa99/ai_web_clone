@@ -207,6 +207,10 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_stale_banner` | `feat_editor` | E3 §7 Banner "Tải lại" (409) / "Thử lại" (lỗi mạng, 503) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_layers` | `feat_editor`, `feat_ir` | E3 §4 cột trái Layers | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_right_tabs` | `feat_editor` | E3 §4 tab Style / Component / Hiệu ứng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_hover_box` | `feat_editor` | E3 §2 khung hover + nhãn `tag · tên · W×H` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_selection_box` | `feat_editor` | E3 §2 khung chọn đậm (nhiều khi Shift) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_spacing` | `feat_editor` | E3 §2 vùng margin/padding của node đang chọn | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_parent_box` | `feat_editor` | E3 §2 node cha highlight nhẹ | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_effects_panel` | `feat_editor` | `effects` | — | build |
 | `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
 | `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" ở rail phải khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |
