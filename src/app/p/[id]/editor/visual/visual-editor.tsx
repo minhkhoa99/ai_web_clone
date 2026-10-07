@@ -23,6 +23,7 @@ import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
 import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { measure, Overlay } from "./overlay";
+import { StylePanel } from "./style-panel";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
 type Halt = { kind: "stale" | "unwritten" | "failed"; text: string };
@@ -48,6 +49,7 @@ function drawText(host: HTMLElement, ir: IRNodeV2, commands: EditorCommand[]): v
   const kids: Drawn[] = structural ? commands.flatMap((c) => (c.op === "createNode" ? [c.draft] : [])) : ir.children;
   host.replaceChildren(...kids.map(draw));
 }
+const BAND_LIMIT = 20;
 const typingIn = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? "")); };
 
 export function VisualEditor({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
@@ -262,12 +264,26 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  // the selection boxes follow layout changes that resize nothing in the frame (a Style Manager preview, a padding or
+  // width change): watch the selected elements' size and inline style (E3a Task 9 carry)
+  useEffect(() => {
+    const els = selection.flatMap((sid) => canvas.current?.element(sid) ?? []);
+    const w = els[0]?.ownerDocument.defaultView;
+    if (!w) return;
+    const bump = () => setTick((t) => t + 1);
+    const ro = new w.ResizeObserver(bump), mo = new w.MutationObserver(bump);
+    for (const el of els) { ro.observe(el); mo.observe(el, { attributes: true, attributeFilter: ["style"] }); }
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [selection, data]);
+
   const showItems = (data?.interactives ?? []).flatMap((c) => (c.spec.kind === "carousel" || c.spec.kind === "tabs" ? [{ root: c.rootId, index: c.spec.active }] : []));
   const reload = () => { setHalt(null); setMsg(""); refetch(); };
   // measured on every render the selection, hover or frame (tick) changes: cheap getBoundingClientRect + computed style
   void tick;
   const measured = (nid: string) => { const el = canvas.current?.element(nid); return el ? measure(el) : undefined; };
-  const selectedBoxes = selection.flatMap((sid) => { const m = measured(sid); return m ? [{ id: sid, m }] : []; });
+  // margin / padding bands (one getComputedStyle each) only for a small selection; a big one gets its boxes alone
+  const spacing = selection.length <= BAND_LIMIT;
+  const selectedBoxes = selection.flatMap((sid) => { const el = canvas.current?.element(sid), m = el && measure(el, spacing); return m ? [{ id: sid, m }] : []; });
   const parentId = selection.length === 1 ? parentOf(index, selection[0]!) : undefined;
   const parentBox = parentId ? measured(parentId) : undefined;
   const hoverId = hover ? pickTarget(index, hover) : undefined;
@@ -309,10 +325,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         <aside className="ve-right panel">
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
             options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
-          {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (
+          {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (<>
+            <StylePanel key={selection[0]} node={index.get(selection[0])!.node} element={canvas.current?.element(selection[0]) ?? null} bp={bp} fonts={data.fonts}
+              onBatch={(b, label, extra) => batch(b, label, extra)} onMessage={setMsg} />
             <ElementPanel projectId={id} index={index} entry={index.get(selection[0])!} element={canvas.current?.element(selection[0]) ?? null} bp={bp} assets={data.assets} onBatch={batch}
               onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} />
-          ) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
+          </>) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
           {data && tab === "component" && (
             <fieldset className="cmp-fieldset" disabled={pending > 0 || loading}>
               <ComponentPanel

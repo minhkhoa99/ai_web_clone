@@ -6,10 +6,13 @@ import type { CSSProperties, ReactNode } from "react";
 import { bands, type Box } from "./model";
 
 export type Measured = { box: Box; margin: [number, number, number, number]; padding: [number, number, number, number] };
-export function measure(el: Element): Measured {
-  const r = el.getBoundingClientRect(), cs = el.ownerDocument.defaultView!.getComputedStyle(el), px = (v: string) => parseFloat(v) || 0;
+// spacing = false: the box alone (no getComputedStyle), for large selections
+export function measure(el: Element, spacing = true): Measured {
+  const r = el.getBoundingClientRect(), box = { x: r.left, y: r.top, w: r.width, h: r.height };
+  if (!spacing) return { box, margin: [0, 0, 0, 0], padding: [0, 0, 0, 0] };
+  const cs = el.ownerDocument.defaultView!.getComputedStyle(el), px = (v: string) => parseFloat(v) || 0;
   return {
-    box: { x: r.left, y: r.top, w: r.width, h: r.height },
+    box,
     margin: [px(cs.marginTop), px(cs.marginRight), px(cs.marginBottom), px(cs.marginLeft)],
     padding: [px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft)],
   };
