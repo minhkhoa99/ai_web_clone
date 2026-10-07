@@ -38,7 +38,9 @@ test("resize (R13): e/s/se for flow nodes, 8 handles for absolute; width/height 
 
 test("padding / gap handles and zoom helpers (R8)", () => {
   expect(spacingCommand("n", 375, "top", 8, 12)).toEqual({ op: "setStyle", id: "n", target: 375, changes: { "padding-top": "20px" } });
-  expect(spacingCommand("n", "base", "gap", 16, -30)).toEqual({ op: "setStyle", id: "n", target: "base", changes: { gap: "0px" } });
+  // one gap axis at a time: the other one (row-gap / column-gap) is never written
+  expect(spacingCommand("n", "base", "column-gap", 16, -30)).toEqual({ op: "setStyle", id: "n", target: "base", changes: { "column-gap": "0px" } });
+  expect(spacingCommand("n", 768, "row-gap", 16, 8)).toEqual({ op: "setStyle", id: "n", target: 768, changes: { "row-gap": "24px" } });
   expect([clampZoom(0.1), clampZoom(3), clampZoom(0.506)]).toEqual([0.25, 2, 0.51]);
   expect([zoomStep(1, 1), zoomStep(1, -1), zoomStep(0.6, -1), zoomStep(2, 1), zoomStep(0.25, -1)]).toEqual([1.25, 0.75, 0.5, 2, 0.25]);
   expect([wheelZoom(1, -100), wheelZoom(1, 100), wheelZoom(1.95, -1)]).toEqual([1.1, 0.91, 2]);
@@ -56,7 +58,7 @@ test("edge cases: zero-size boxes, non-finite zoom, every produced value passes 
   const all = [
     ...handlesFor(true).flatMap((handle) => resizeCommands({ id: "n", target: "base", handle, start, dx: -500, dy: 300.4, keepRatio: handle === "ne" })),
     ...freeCommands({ id: "n", parentId: "p", parentStatic: true, target: "base", box, width: 199.6, parentBox: box, parentBorder: { top: 0, left: 0 }, parentScroll: { top: 0, left: 0 }, margin: { top: 0, left: 0 } }),
-    spacingCommand("n", "base", "left", 4, 2.5), spacingCommand("n", "base", "gap", 4, 2.5),
+    spacingCommand("n", "base", "left", 4, 2.5), spacingCommand("n", "base", "column-gap", 4, 2.5), spacingCommand("n", "base", "row-gap", 4, 2.5),
   ];
   for (const c of all) if (c?.op === "setStyle") for (const [p, v] of Object.entries(c.changes)) expect(isSafeCss(p, v), `${p}: ${v}`).toBe(true);
 });
@@ -69,5 +71,5 @@ test("non-finite measurements emit nothing (isSafeCss accepts \"NaNpx\"): empty 
     expect(resizeCommands({ id: "n", target: "base", handle, start, dx, dy, keepRatio }), `${handle} ${dx} ${keepRatio}`).toEqual([]);
   }
   expect(resizeCommands({ id: "n", target: "base", handle: "e", start: { ...start, left: NaN }, dx: 10, dy: 0, keepRatio: false })).toEqual([]);
-  expect([spacingCommand("n", "base", "top", NaN, 4), spacingCommand("n", "base", "gap", 4, Infinity), spacingCommand("n", "base", "left", -Infinity, 0)]).toEqual([undefined, undefined, undefined]);
+  expect([spacingCommand("n", "base", "top", NaN, 4), spacingCommand("n", "base", "row-gap", 4, Infinity), spacingCommand("n", "base", "left", -Infinity, 0)]).toEqual([undefined, undefined, undefined]);
 });

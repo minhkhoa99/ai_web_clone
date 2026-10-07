@@ -5,11 +5,11 @@
 // once. Cancelled (nothing sent, the preview put back, the release click swallowed) by Escape, a blur, a lost
 // pointerup, a reload or a result swapping the canvas, and (but for a flow drag) a scroll of the frame: the measured
 // boxes would no longer match.
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { PanelComponent } from "@/core/interactive";
 import type { EditorCommand } from "@/core/ir-command";
 import type { CanvasHandle } from "./canvas";
-import { axisOf, dropZone, freeCommands, indicator, resizeCommands, spacingCommand, type Axis, type Handle, type ResizeInput, type Side } from "./gestures";
+import { axisOf, dropZone, freeCommands, indicator, resizeCommands, spacingCommand, type Axis, type GapAxis, type Handle, type ResizeInput, type Side } from "./gestures";
 import { ancestorsOf, dropCommand, guard, guardParent, isTextHost, pickTarget, styleTarget, type Batch, type Box, type Bp, type DocIndex } from "./model";
 import { measure } from "./overlay";
 import { snap, SNAP_PX, type Guide } from "./snap";
@@ -20,7 +20,7 @@ type Flow = { kind: "flow"; id: string; drop?: Drop };
 type Free = { kind: "free"; id: string; parentId: string; el: HTMLElement; parent: HTMLElement; start: Point; box: Box; width: number; others: Box[]; guides: Guide[]; dx: number; dy: number; prevTranslate: string };
 // R13: a handle previews inline (the node's own inline values kept in `prev`, put back on end) at the current breakpoint
 type Resize = { kind: "resize"; id: string; el: HTMLElement; prev: Record<string, string>; handle: Handle; start: Point; size: ResizeInput["start"]; dx: number; dy: number; shift: boolean };
-type Spacing = { kind: "spacing"; id: string; el: HTMLElement; prev: Record<string, string>; what: Side | "gap"; axis: Axis; start: Point; from: number; delta: number };
+type Spacing = { kind: "spacing"; id: string; el: HTMLElement; prev: Record<string, string>; what: Side | GapAxis; start: Point; from: number; delta: number };
 export type Gesture = Flow | Free | Resize | Spacing; // Tasks 10–11: insert / pan
 export type GestureLive = { data: { interactives: PanelComponent[] } | null; index: DocIndex; selection: string[]; bp: Bp; zoom: number };
 type Point = { x: number; y: number };
@@ -28,7 +28,7 @@ type Extra = { apply?(): void; rollback?(): void };
 type HandlePress = { button: number; clientX: number; clientY: number; shiftKey: boolean; stopPropagation(): void; preventDefault(): void };
 const SNAP_SIBLINGS = 200; // ponytail: the first 200 siblings are snap targets, a spatial index if a parent ever holds more
 const SIZE_PROPS = ["width", "height", "top", "left"];
-const spacingProp = (what: Side | "gap") => (what === "gap" ? "gap" : `padding-${what}`);
+const spacingProp = (what: Side | GapAxis) => (what === "column-gap" || what === "row-gap" ? what : `padding-${what}`);
 const unpaint = (g: Resize | Spacing) => { for (const [p, v] of Object.entries(g.prev)) g.el.style.setProperty(p, v); };
 const paint = (g: Resize | Spacing, commands: EditorCommand[]) => {
   unpaint(g); // a property the last move set but this one does not (Shift released) goes back too
@@ -52,6 +52,8 @@ export function useGestures(o: {
     if (g?.kind === "resize" || g?.kind === "spacing") unpaint(g); // likewise
     drag.current.stop?.(); drag.current.stop = undefined; setG(null);
   };
+  // the editor unmounts mid-gesture: listeners off, preview back, nothing sent
+  useEffect(() => () => { if (drag.current.gesture) endGesture(); }, []); // endGesture reads refs only: the first render's copy is enough
   // interrupted with the button still held (Escape, a blur, a reload, a result swapping the canvas): nothing is sent and
   // the click the frame fires on release is swallowed (reset by the next press). true = a gesture was cancelled
   const cancelGesture = (): boolean => { if (!drag.current.gesture) return false; drag.current.dropped = true; endGesture(); return true; };
@@ -106,22 +108,27 @@ export function useGestures(o: {
       margin: { top: px(cs.marginTop), left: px(cs.marginLeft) },
     });
   };
-  // the gap band between the first two element children of a flex / grid node: side by side -> the column gap (x),
-  // else the row gap (y). undefined: not flex / grid, or fewer than two rendered children
+  // the gap band between the first two laid-out children of a flex / grid node (display:none and absolute / fixed ones
+  // skipped): side by side (either order: rtl, row-reverse) -> the column gap (x); stacked -> the row gap (y). undefined
+  // when not flex / grid, fewer than two such children, or neither clearly (diagonal / overlapping): no gap handle
   const gapOf = (nid: string): { box: Box; axis: Axis } | undefined => {
-    const c = canvas.current, el = c?.element(nid);
-    if (!c || !el || !/flex|grid/.test(el.ownerDocument.defaultView!.getComputedStyle(el).display)) return undefined;
+    const c = canvas.current, el = c?.element(nid), win = el?.ownerDocument.defaultView;
+    if (!c || !el || !win || !/flex|grid/.test(win.getComputedStyle(el).display)) return undefined;
     const kids: Box[] = [];
     for (const k of live.current.index.get(nid)?.children ?? []) {
-      const ke = c.element(k);
-      if (ke) kids.push(measure(ke, false).box);
+      const ke = c.element(k), cs = ke && win.getComputedStyle(ke);
+      if (ke && cs && cs.display !== "none" && cs.position !== "absolute" && cs.position !== "fixed") kids.push(measure(ke, false).box);
       if (kids.length === 2) break;
     }
     const [a, b] = kids;
     if (!a || !b) return undefined;
-    return b.x >= a.x + a.w - 0.5
-      ? { axis: "x", box: { x: a.x + a.w, y: a.y, w: Math.max(4, b.x - a.x - a.w), h: a.h } }
-      : { axis: "y", box: { x: a.x, y: a.y + a.h, w: a.w, h: Math.max(4, b.y - a.y - a.h) } };
+    const apart = (p: number, ps: number, q: number, qs: number) => Math.abs(p + ps / 2 - (q + qs / 2)) >= (ps + qs) / 2 - 0.5; // no overlap on this axis
+    const x = apart(a.x, a.w, b.x, b.w), y = apart(a.y, a.h, b.y, b.h);
+    if (x === y) return undefined;
+    const [s, e] = (x ? a.x <= b.x : a.y <= b.y) ? [a, b] : [b, a];
+    return x
+      ? { axis: "x", box: { x: s.x + s.w, y: s.y, w: Math.max(4, e.x - s.x - s.w), h: s.h } }
+      : { axis: "y", box: { x: s.x, y: s.y + s.h, w: s.w, h: Math.max(4, e.y - s.y - s.h) } };
   };
   // a handle press (this window): the one selected node, not refused; the start point in frame document px
   const handleStart = (e: HandlePress) => {
@@ -143,13 +150,13 @@ export function useGestures(o: {
     setG({ kind: "resize", id: s.nid, el: s.el, prev: Object.fromEntries(SIZE_PROPS.map((p) => [p, s.el.style.getPropertyValue(p)])), handle, start: s.start, size, dx: 0, dy: 0, shift: e.shiftKey });
     hold(s.d);
   };
-  const startSpacing = (what: Side | "gap", e: HandlePress) => {
-    const s = handleStart(e);
-    if (!s) return;
-    const axis = what === "gap" ? gapOf(s.nid)?.axis ?? "x" : "y";
-    const from = parseFloat(s.cs.getPropertyValue(what === "gap" ? (axis === "x" ? "column-gap" : "row-gap") : `padding-${what}`)) || 0; // "normal" gap = 0
-    const prop = spacingProp(what);
-    setG({ kind: "spacing", id: s.nid, el: s.el, prev: { [prop]: s.el.style.getPropertyValue(prop) }, what, axis, start: s.start, from, delta: 0 });
+  // the gap band writes only its own axis (column-gap / row-gap), never the shorthand
+  const startSpacing = (side: Side | "gap", e: HandlePress) => {
+    const s = handleStart(e), axis = s && side === "gap" ? gapOf(s.nid)?.axis : undefined;
+    if (!s || (side === "gap" && !axis)) return;
+    const what: Side | GapAxis = side !== "gap" ? side : axis === "x" ? "column-gap" : "row-gap", prop = spacingProp(what);
+    const from = parseFloat(s.cs.getPropertyValue(prop)) || 0; // "normal" gap = 0
+    setG({ kind: "spacing", id: s.nid, el: s.el, prev: { [prop]: s.el.style.getPropertyValue(prop) }, what, start: s.start, from, delta: 0 });
     hold(s.d);
   };
   // nothing for a press without movement (a click on a handle)
@@ -176,7 +183,7 @@ export function useGestures(o: {
     }
     if (g.kind === "spacing") {
       const dx = p.x - g.start.x, dy = p.y - g.start.y;
-      const delta = g.what === "top" ? dy : g.what === "bottom" ? -dy : g.what === "left" ? dx : g.what === "right" ? -dx : g.axis === "x" ? dx : dy;
+      const delta = g.what === "top" || g.what === "row-gap" ? dy : g.what === "bottom" ? -dy : g.what === "right" ? -dx : dx; // left, column-gap
       const n = { ...g, delta };
       drag.current.gesture = n;
       paint(n, spacingOf(n));

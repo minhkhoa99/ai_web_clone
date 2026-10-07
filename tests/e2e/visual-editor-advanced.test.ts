@@ -300,9 +300,11 @@ test("E3b resize: the e handle at 768 writes width in the 768 layer only (1440 u
   expect((await payload()).revision).toBe(rev);
   await page.getByRole("group", { name: "Thiết bị" }).getByRole("button", { name: "1440" }).click();
   await expect.poll(() => h1.evaluate((el) => el.getBoundingClientRect().width)).toBe(width1440);
-  // the gap band of the features grid (cards side by side: the column gap, dragged along x): 16 + 8 = 24px at Desktop
+  // the gap band of the features grid (cards side by side: the column gap, dragged along x): 16 + 8 = 24px at Desktop;
+  // the row gap (and the `gap` shorthand) untouched
   const features = canvas(page).locator("#features");
   const featuresId = (await features.getAttribute("data-ir-id"))!;
+  const baseBefore = (await nodeById(featuresId))!.styles.base;
   await features.click({ position: { x: 6, y: 6 } });
   const gap = page.locator('[data-ui="ui_editor_spacing_handle"][data-side="gap"]');
   await expect.poll(() => gap.count()).toBe(1);
@@ -310,7 +312,10 @@ test("E3b resize: the e handle at 768 writes width in the 768 layer only (1440 u
   const gb = (await gap.boundingBox())!;
   await drag(page, centre(gb), { x: centre(gb).x + 8, y: centre(gb).y });
   await saved(page);
-  await expect.poll(async () => (await nodeById(featuresId))?.styles.base.gap, { timeout: 30_000 }).toBe("24px");
+  await expect.poll(async () => (await nodeById(featuresId))?.styles.base["column-gap"], { timeout: 30_000 }).toBe("24px");
+  const baseAfter = (await nodeById(featuresId))!.styles.base;
+  expect([baseAfter["row-gap"], baseAfter.gap]).toEqual([baseBefore["row-gap"], baseBefore.gap]);
+  expect(await features.evaluate((el) => getComputedStyle(el).rowGap)).toBe("16px");
   for (let i = 0; i < 3; i++) { await page.getByRole("button", { name: "Hoàn tác" }).click(); await saved(page); }
   await expect.poll(async () => (await nodeById(h1Id))?.styles.bp["768"]?.width, { timeout: 30_000 }).toBeUndefined();
   await page.close();

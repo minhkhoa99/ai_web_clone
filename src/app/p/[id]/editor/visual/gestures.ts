@@ -56,9 +56,11 @@ export function resizeCommands(i: ResizeInput): EditorCommand[] {
   if (north) changes.top = px(i.start.top + i.start.h - h);
   return Object.values(changes).every((v) => v !== undefined) ? [{ op: "setStyle", id: i.id, target: i.target, changes: changes as Record<string, string> }] : [];
 }
-export function spacingCommand(id: string, target: StyleTarget, what: Side | "gap", start: number, delta: number): EditorCommand | undefined {
+export type GapAxis = "column-gap" | "row-gap";
+// one padding side or one gap axis (never the `gap` shorthand: it would overwrite the other axis)
+export function spacingCommand(id: string, target: StyleTarget, what: Side | GapAxis, start: number, delta: number): EditorCommand | undefined {
   const v = px(start + delta, 0);
-  return v ? { op: "setStyle", id, target, changes: { [what === "gap" ? "gap" : `padding-${what}`]: v } } : undefined;
+  return v ? { op: "setStyle", id, target, changes: { [what.endsWith("gap") ? what : `padding-${what}`]: v } } : undefined;
 }
 
 // R8: Ctrl± and the buttons walk the presets; Ctrl+wheel ×1.1 per notch; "Vừa khung" = (pane − 16) / bp; all clamped 25–200 %
