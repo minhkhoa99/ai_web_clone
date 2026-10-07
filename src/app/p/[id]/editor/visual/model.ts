@@ -33,7 +33,7 @@ export type Row = { id: string; depth: number; label: string; type: IRNodeV2["ty
 export type Zone = "before" | "after" | "inside";
 export type Box = { x: number; y: number; w: number; h: number };
 export type Clip = { draft: NodeDraft; count: number };
-export type KeyAction = "undo" | "redo" | "delete" | "duplicate" | "hide" | "copy" | "paste" | "up" | "down" | "child" | "parent" | "siblings";
+export type KeyAction = "undo" | "redo" | "delete" | "duplicate" | "hide" | "copy" | "paste" | "up" | "down" | "child" | "parent" | "siblings" | "zoomIn" | "zoomOut" | "zoomReset";
 
 const GEN_MSG = "Phần tử này thuộc component instance — sửa ở main hoặc Tách khỏi component (Detach).";
 const INSTANCE_MSG = "Cấu trúc bên trong instance lấy từ main — sửa ở main hoặc Tách khỏi component (Detach).";
@@ -312,6 +312,9 @@ export function keyAction(e: { key: string; ctrlKey: boolean; metaKey: boolean; 
   if (mod && key === "v") return "paste";
   if (mod && key === "a") return "siblings";
   if (mod && key === "Enter") return "child";
+  if (mod && (key === "=" || key === "+")) return "zoomIn";
+  if (mod && key === "-") return "zoomOut";
+  if (mod && key === "0") return "zoomReset";
   if (mod) return undefined;
   if (e.altKey && key === "ArrowUp") return "up";
   if (e.altKey && key === "ArrowDown") return "down";

@@ -159,6 +159,7 @@ test("keys, style targets, images", () => {
   expect([k("z", { ctrlKey: true }), k("Z", { ctrlKey: true, shiftKey: true }), k("y", { ctrlKey: true }), k("z", { metaKey: true })]).toEqual(["undo", "redo", "redo", "undo"]);
   expect([k("Delete"), k("d", { ctrlKey: true }), k("h"), k("H"), k("c", { ctrlKey: true }), k("v", { ctrlKey: true })]).toEqual(["delete", "duplicate", "hide", "hide", "copy", "paste"]);
   expect([k("ArrowUp", { altKey: true }), k("ArrowDown", { altKey: true }), k("Enter", { ctrlKey: true }), k("Escape"), k("a", { ctrlKey: true })]).toEqual(["up", "down", "child", "parent", "siblings"]);
+  expect([k("=", { ctrlKey: true }), k("+", { ctrlKey: true, shiftKey: true }), k("-", { metaKey: true }), k("0", { ctrlKey: true })]).toEqual(["zoomIn", "zoomIn", "zoomOut", "zoomReset"]);
   expect([k("h", { ctrlKey: true }), k("x"), keyAction({ key: "Delete", ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }, true)]).toEqual([undefined, undefined, undefined]);
   expect([styleTarget(1440), styleTarget(768), styleTarget(375), styleTarget(768, "hover")]).toEqual(["base", 768, 375, "hover"]);
   const index = ix();
