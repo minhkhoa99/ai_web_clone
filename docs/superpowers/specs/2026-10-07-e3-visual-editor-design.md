@@ -200,3 +200,18 @@ Mục tiêu: thay editor GrapesJS bằng một visual editor chạy thẳng trê
 - Vẽ vector hay hình khối.
 - Chỉnh sửa bằng mã code.
 - Animation timeline (giữ panel "Hiệu ứng" hiện có).
+
+## 11. Rulings khi triển khai E3a (2026-10-07)
+
+Quyết định phát sinh khi viết plan E3a (R1–R20, `docs/superpowers/plans/2026-10-07-e3a-visual-editor-core.md`) và khi review từng task, chép lại để spec khớp code:
+- `affected.sections[i] = { id, html, root }` (gốc section đã resolve) + `affected.interactives`; chỉ khi body có `pageId`; Undo/Redo cũng trả. Lỗi sau khi đã commit → `affected` rỗng + `shellChanged: true` (client tải lại), không trả 500.
+- Section "bị chạm" = view đã compile **hoặc** gốc section đã resolve khác nhau (nên `setName` / `setHidden` cũng làm mới section); shell/title/meta/thứ tự section đổi hoặc > 20 → `shellChanged`.
+- Tài liệu canvas: `<base>` về `out/<page>`, meta CSP chỉ cho `runtime.js`, `<style data-aiwc-css>`; tên hàm thật `renderSectionsHtml` / `emitSection` / `renderSite`. Site xuất ra không đổi khi không truyền tham số canvas.
+- Upload: key `https://upload.aiwc.invalid/<sha>.<ext>` trong `uploads.json`, gộp vào asset map; multipart cần `Origin` trùng host; kiểm magic bytes; SVG lọc theo allowlist (~65 phần tử) và chỉ dùng qua `<img>` / `url()`, không bao giờ inline. Lỗi 413 hiện tiếng Việt; file > 25 MB bị chặn ngay ở client.
+- Loopback: chỉ nhận `Host` là host thuần + cổng tuỳ chọn; Host lạ → 403.
+- Command bus: 1 request đang bay + hàng đợi ≤ 20; op áp lạc quan lúc `push`, `apply()` tự ghi trạng thái trước, `rollback()` khôi phục; bị từ chối → gỡ ngược rồi phát lại phần còn trong hàng.
+- Nhân bản / dán bỏ `id`, `aria-controls`, `aria-labelledby`, `for` để không trùng id HTML. Alt+↑/↓ bỏ qua node chữ chỉ có khoảng trắng; đổi thứ tự ở mép bị từ chối.
+- Mắt / H = `setHidden` + `display:none` ở base; layer tree không có dòng `#text`, dòng gốc mang nhãn "Trang <path>"; E3a chưa cho chuyển node sang section khác.
+- Sửa chữ: setText khi cấu trúc giữ nguyên, thay con trong một batch khi chỉ còn chữ + b/i/a/br (giữ style + attr an toàn), còn lại từ chối. Dán chỉ lấy text thuần, xuống dòng khi dán thành dấu cách; Shift+Enter = `<br>`; Enter khi bị từ chối giữ nguyên chế độ sửa; bỏ qua Enter/Esc khi IME đang gõ. Ctrl+C khi đang bôi đen chữ để trình duyệt tự copy.
+- Panel ảnh: thay `src` + `srcset` + `<source>` trong `<picture>` cùng một batch; nền chỉ coi là ảnh khi có `url(`; href qua allowlist an toàn.
+- "Editor cũ" = `?legacy=1`; "Edit main" của E1 không nằm trong E3a (thêm vào E3b).

@@ -311,6 +311,7 @@ Các sửa spec parity (`2026-09-24-sp1-ui-stitch-parity-design.md`) theo ruling
 - **§4.7 (số query danh sách lịch sử):** route `/api/projects` GET chạy tối đa **4** câu SQL cố định mỗi request, đúng chữ spec (không phụ thuộc số dòng): `counts`, `rows`, `agg` (theo phase), `errs` (lastError); `total` suy ra từ `counts` theo `group` (không có query `total` riêng).
 - **Subtitle 1 trang (`ui_history_row_subtitle`):** số trang chỉ hiện ở chế độ crawl: `"Crawl · <n> trang · bắt đầu <RelTime>"`; dự án `mode=single` hiện `"1 trang · bắt đầu <RelTime>"` (không lặp "1 trang · 1 trang" như format spec §3.2 gốc). Draft chưa chọn trang giữ `"<mode> · chưa chọn trang · tạo <RelTime>"`.
 - **D1 (tự host icon):** Material Symbols Outlined tự host dưới dạng SVG subset đã commit `src/app/_ui/icons.gen.ts`, sinh bởi `scripts/gen-icons.mjs` (đọc `@material-symbols/svg-400`); không dùng icon font hay CDN lúc chạy.
+- **E3a icons:** `title`, `link`, `touch_app`, `input`, `movie`, `shapes`, `widgets`, `crop_square`, `upload` thêm vào subset `icons.gen.ts` (sinh lại bằng `npm run icons`).
 
 ## Hardening sau lần chạy thật (2026-09-26)
 
