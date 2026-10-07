@@ -106,6 +106,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [locked, setLocked] = useState(viewOnly);
   const editable = !locked;
   const styleFlush = useRef<(() => void) | null>(null); // the Style panel's "send what is typed now"
+  // Xong / Esc: a debounced Style edit typed in the mode is sent now, still mapped to the main (the panel stays mounted)
+  const leaveMain = () => { styleFlush.current?.(); setEditMain(null); };
   const endEdit = useRef<(() => void) | null>(null); // the open inline text's "save and close"
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
   const toggles = useRef<Record<"left" | "right", HTMLButtonElement | null>>({ left: null, right: null });
@@ -154,7 +156,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         // allSections spans every page: a merge, or an Undo/Redo that changed nothing on this page (another page's step,
         // a merge's layout), reloads so the Section card is current
         if (e.op.kind === "commands" ? e.op.commands.some((c) => c.op === "promoteLayout") : !e.result.affected?.shellChanged && !e.result.affected?.sections.length) drift.current = true;
-        return e.op.kind === "commands" ? applyResult(e.result, !!e.op.keepSelection, e.op.mainRoot) : applyResult(e.result);
+        // an Undo / Redo while editing main creates main nodes: shown under their generated ids in the open instance
+        return e.op.kind === "commands" ? applyResult(e.result, !!e.op.keepSelection, e.op.mainRoot) : applyResult(e.result, false, live.current.open ?? undefined);
       case "refused": return setMsg(e.message);
       case "full": return setMsg("Đang lưu… chờ chút");
       case "stale": {
@@ -337,7 +340,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       case "paste": { if (!clip.current) return; e.preventDefault(); batch(pasteBatch(ix, comps, clip.current, first), "Dán"); return; }
       case "parent": {
         e.preventDefault();
-        if (live.current.open && (!first || first === live.current.open)) { setEditMain(null); return; } // R18: Esc at the instance root leaves
+        if (live.current.open && (!first || first === live.current.open)) { leaveMain(); return; } // R18: Esc at the instance root leaves
         const p = first ? parentOf(ix, first) : undefined;
         return select(p ? [p] : []);
       }
@@ -498,7 +501,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           <div className="ve-main-bar" data-ui="ui_editor_edit_main_bar">
             <Icon name="widgets" size={16} />
             <span className="t-body-sm">Đang sửa main component — thay đổi áp cho mọi instance chưa override thuộc tính đó.</span>
-            <Button onClick={() => setEditMain(null)}>Xong</Button>
+            <Button onClick={leaveMain}>Xong</Button>
           </div>
         )}
         {data ? (

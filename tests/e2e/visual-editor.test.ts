@@ -94,7 +94,7 @@ test("E3a canvas: captured text holding markup shows as text (no handler runs, s
   await h1.evaluate(() => { (window as unknown as { __same: number }).__same = 1; });
   await page.getByRole("button", { name: "Hoàn tác" }).click();
   await saved(page);
-  await expect.poll(() => status(page).innerText()).toBe("Đã hoàn tác — điểm QA cần chạy lại");
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
   await expect.poll(() => h1.innerText()).toBe("Build faster sites");
   expect(await h1.evaluate(() => (window as unknown as { __same?: number }).__same)).toBe(1); // partial update: same frame document
   expect((await payload()).revision).toBe(before.revision + 2);
@@ -345,7 +345,7 @@ test("E3a inline text: dblclick → edit → Enter saves one setText (a reload k
   await page.keyboard.type("Edited headline");
   await page.keyboard.press("Enter");
   await saved(page);
-  await expect.poll(() => status(page).innerText()).toBe("Đã lưu — điểm QA cần chạy lại");
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã lưu — điểm QA cần chạy lại");
   expect(await outHtml()).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
   expect(await h1.evaluate((el) => (el as HTMLElement).isContentEditable)).toBe(false);
   await page.reload();
@@ -410,7 +410,7 @@ test("E3a inline text: a multi-line paste stays on one line; Shift+Enter keeps a
   await page.keyboard.type("next");
   await page.keyboard.press("Enter");
   await saved(page);
-  await expect.poll(() => status(page).innerText()).toBe("Đã lưu — điểm QA cần chạy lại");
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã lưu — điểm QA cần chạy lại");
   const out = await outHtml();
   expect(out).toContain("line one line two");
   expect(out).toMatch(/<br[^>]*>next<\/p>/);

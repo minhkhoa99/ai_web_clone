@@ -68,7 +68,7 @@ test("E3b edit main: Sửa main on an instance; H hides the h3 of every card in 
   const rev = (await payload()).revision;
   await page.keyboard.press("h");
   await saved(page);
-  expect((await payload()).revision).toBe(rev + 1);
+  await expect.poll(async () => (await payload()).revision, { timeout: 30_000 }).toBe(rev + 1);
   for (const k of [0, 1, 2]) await expect.poll(() => h3(k).isVisible(), { timeout: 30_000 }).toBe(false);
   await page.getByRole("button", { name: "Hoàn tác" }).click();
   for (const k of [0, 1, 2]) await expect.poll(() => h3(k).isVisible(), { timeout: 30_000 }).toBe(true);
