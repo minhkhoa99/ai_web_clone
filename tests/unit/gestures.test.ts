@@ -58,5 +58,16 @@ test("edge cases: zero-size boxes, non-finite zoom, every produced value passes 
     ...freeCommands({ id: "n", parentId: "p", parentStatic: true, target: "base", box, width: 199.6, parentBox: box, parentBorder: { top: 0, left: 0 }, parentScroll: { top: 0, left: 0 }, margin: { top: 0, left: 0 } }),
     spacingCommand("n", "base", "left", 4, 2.5), spacingCommand("n", "base", "gap", 4, 2.5),
   ];
-  for (const c of all) if (c.op === "setStyle") for (const [p, v] of Object.entries(c.changes)) expect(isSafeCss(p, v), `${p}: ${v}`).toBe(true);
+  for (const c of all) if (c?.op === "setStyle") for (const [p, v] of Object.entries(c.changes)) expect(isSafeCss(p, v), `${p}: ${v}`).toBe(true);
+});
+
+test("non-finite measurements emit nothing (isSafeCss accepts \"NaNpx\"): empty batch for free/resize, undefined for spacing", () => {
+  const free = { id: "n", parentId: "p", parentStatic: true, target: "base" as const, box, width: 100, parentBox: box, parentBorder: { top: 0, left: 0 }, parentScroll: { top: 0, left: 0 }, margin: { top: 0, left: 0 } };
+  expect([freeCommands({ ...free, margin: { top: NaN, left: 0 } }), freeCommands({ ...free, width: Infinity }), freeCommands({ ...free, parentScroll: { top: 0, left: -Infinity } })]).toEqual([[], [], []]);
+  const start = { w: 100, h: 50, top: 10, left: 20 };
+  for (const handle of handlesFor(true)) for (const [dx, dy] of [[Infinity, Infinity], [NaN, NaN], [-Infinity, -Infinity]] as const) for (const keepRatio of [false, true]) {
+    expect(resizeCommands({ id: "n", target: "base", handle, start, dx, dy, keepRatio }), `${handle} ${dx} ${keepRatio}`).toEqual([]);
+  }
+  expect(resizeCommands({ id: "n", target: "base", handle: "e", start: { ...start, left: NaN }, dx: 10, dy: 0, keepRatio: false })).toEqual([]);
+  expect([spacingCommand("n", "base", "top", NaN, 4), spacingCommand("n", "base", "gap", 4, Infinity), spacingCommand("n", "base", "left", -Infinity, 0)]).toEqual([undefined, undefined, undefined]);
 });

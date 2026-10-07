@@ -5,6 +5,8 @@ import type { Box, Zone } from "./model";
 export type Axis = "x" | "y";
 export type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 export type Side = "top" | "right" | "bottom" | "left";
+// isSafeCss only checks the string's shape ("NaNpx" passes), so a non-finite measurement must stop the gesture here
+const px = (n: number, min = -Infinity): string | undefined => (Number.isFinite(n) ? `${Math.max(min, Math.round(n))}px` : undefined);
 
 // the outer quarters (along the parent's main axis) insert before / after; the middle half of a container drops inside
 export function dropZone(box: Box, point: { x: number; y: number }, axis: Axis, container: boolean): Zone {
@@ -23,11 +25,13 @@ export const axisOf = (display: string, direction: string): Axis => (display.inc
 export type FreeInput = { id: string; parentId: string; parentStatic: boolean; target: StyleTarget; box: Box; width: number; parentBox: Box; parentBorder: { top: number; left: number }; parentScroll: { top: number; left: number }; margin: { top: number; left: number } };
 // R6: from the parent's padding box (its border box minus the border, plus its scroll), the node's margin removed
 export function freeCommands(i: FreeInput): EditorCommand[] {
-  const left = Math.round(i.box.x - i.parentBox.x - i.parentBorder.left + i.parentScroll.left - i.margin.left);
-  const top = Math.round(i.box.y - i.parentBox.y - i.parentBorder.top + i.parentScroll.top - i.margin.top);
+  const left = px(i.box.x - i.parentBox.x - i.parentBorder.left + i.parentScroll.left - i.margin.left);
+  const top = px(i.box.y - i.parentBox.y - i.parentBorder.top + i.parentScroll.top - i.margin.top);
+  const width = px(i.width);
+  if (!left || !top || !width) return [];
   return [
     ...(i.parentStatic ? [{ op: "setStyle" as const, id: i.parentId, target: i.target, changes: { position: "relative" } }] : []),
-    { op: "setStyle", id: i.id, target: i.target, changes: { position: "absolute", left: `${left}px`, top: `${top}px`, width: `${Math.round(i.width)}px` } },
+    { op: "setStyle", id: i.id, target: i.target, changes: { position: "absolute", left, top, width } },
   ];
 }
 
@@ -35,6 +39,7 @@ export const handlesFor = (absolute: boolean): Handle[] => (absolute ? ["n", "s"
 export type ResizeInput = { id: string; target: StyleTarget; handle: Handle; start: { w: number; h: number; top: number; left: number }; dx: number; dy: number; keepRatio: boolean };
 // R13: width/height px (≥ 1) at the target; a w/n handle keeps the opposite edge still by moving left/top
 export function resizeCommands(i: ResizeInput): EditorCommand[] {
+  if (![i.dx, i.dy, i.start.w, i.start.h, i.start.top, i.start.left].every(Number.isFinite)) return []; // clamping would hide ±Infinity
   const east = i.handle.includes("e"), west = i.handle.includes("w"), south = i.handle.includes("s"), north = i.handle.includes("n");
   let w = i.start.w + (east ? i.dx : west ? -i.dx : 0), h = i.start.h + (south ? i.dy : north ? -i.dy : 0);
   const horizontal = east || west, vertical = north || south;
@@ -44,15 +49,16 @@ export function resizeCommands(i: ResizeInput): EditorCommand[] {
   }
   w = Math.max(1, Math.round(w));
   h = Math.max(1, Math.round(h));
-  const changes: Record<string, string> = {};
-  if (horizontal || i.keepRatio) changes.width = `${w}px`;
-  if (vertical || i.keepRatio) changes.height = `${h}px`;
-  if (west) changes.left = `${Math.round(i.start.left + i.start.w - w)}px`;
-  if (north) changes.top = `${Math.round(i.start.top + i.start.h - h)}px`;
-  return [{ op: "setStyle", id: i.id, target: i.target, changes }];
+  const changes: Record<string, string | undefined> = {};
+  if (horizontal || i.keepRatio) changes.width = px(w);
+  if (vertical || i.keepRatio) changes.height = px(h);
+  if (west) changes.left = px(i.start.left + i.start.w - w);
+  if (north) changes.top = px(i.start.top + i.start.h - h);
+  return Object.values(changes).every((v) => v !== undefined) ? [{ op: "setStyle", id: i.id, target: i.target, changes: changes as Record<string, string> }] : [];
 }
-export function spacingCommand(id: string, target: StyleTarget, what: Side | "gap", start: number, delta: number): EditorCommand {
-  return { op: "setStyle", id, target, changes: { [what === "gap" ? "gap" : `padding-${what}`]: `${Math.max(0, Math.round(start + delta))}px` } };
+export function spacingCommand(id: string, target: StyleTarget, what: Side | "gap", start: number, delta: number): EditorCommand | undefined {
+  const v = px(start + delta, 0);
+  return v ? { op: "setStyle", id, target, changes: { [what === "gap" ? "gap" : `padding-${what}`]: v } } : undefined;
 }
 
 // R8: Ctrl± and the buttons walk the presets; Ctrl+wheel ×1.1 per notch; "Vừa khung" = (pane − 16) / bp; all clamped 25–200 %
