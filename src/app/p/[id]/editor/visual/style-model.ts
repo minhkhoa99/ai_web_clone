@@ -57,8 +57,11 @@ export function clearField(node: IRNodeV2, bp: Bp, state: StateName | undefined,
 export function setField(node: IRNodeV2, bp: Bp, state: StateName | undefined, prop: string, value: string): Batch {
   if (viewOnly(node)) return { error: VIEW_ONLY_MSG };
   const v = value.trim();
-  // empty = remove the prop from this layer (nothing to send when the layer has none)
-  if (v === "") return layer(node, bp, state)?.[prop] !== undefined ? unset(node, bp, state, prop) : { commands: [] };
+  // empty = ↺ on this layer (same instance rules as clearField); nothing to send when the layer sets nothing
+  if (v === "") {
+    const f = fieldOf(node, bp, state, prop);
+    return !f || f.source === "desktop" ? { commands: [] } : clearField(node, bp, state, prop);
+  }
   if (!isSafeCss(prop, v)) return { error: `Giá trị CSS không hợp lệ cho ${prop.slice(0, 80)}.` };
   return { commands: [{ op: "setStyle", id: node.id, target: styleTarget(bp, state), changes: { [prop]: v } }] };
 }

@@ -34,6 +34,14 @@ test("setField / clearField: one setStyle at the bp/state target; unsafe CSS ref
   expect(setField({ ...node(), id: "instance:1:x:n" }, 1440, undefined, "color", "red")).toEqual({ error: expect.stringMatching(/instance/) });
 });
 
+test("an empty value clears with ↺ semantics: no-op when inherited or unset, resetOverride on an overridden instance field, refused when it comes from main", () => {
+  expect(setField(node(), 768, undefined, "font-size", "")).toEqual({ commands: [] });
+  expect(setField(node(), 1440, undefined, "width", " ")).toEqual({ commands: [] });
+  const inst = node({ component: { id: "c", role: "instance", sourceId: "m", overrides: ["styles.base.color"] } });
+  expect(setField(inst, 1440, undefined, "color", "")).toEqual({ commands: [{ op: "resetOverride", instanceId: "n", path: "styles.base.color" }] });
+  expect(setField(inst, 1440, undefined, "font-size", "")).toEqual({ error: expect.stringMatching(/main/) });
+});
+
 test("catalog, other properties, scrubbing numbers, coalesce keys", () => {
   expect(GROUPS.map((g) => g.label)).toEqual(["Layout", "Kích thước", "Khoảng cách", "Chữ", "Hiển thị", "Biến đổi"]);
   expect(GROUPS.flatMap((g) => g.props)).toEqual(expect.arrayContaining(["display", "flex-direction", "grid-template-columns", "z-index", "min-width", "padding-left", "letter-spacing", "box-shadow", "rotate"]));
