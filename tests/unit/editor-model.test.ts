@@ -23,7 +23,7 @@ const page = () => ({
       n("box", "div", [n("img", "img", [], { type: "image", attrs: { src: "a.png", srcset: "a.png 1x" } })]),
       n("pic", "picture", [n("src1", "source", [], { attrs: { srcset: "b.webp" } }), n("img2", "img", [], { type: "image", attrs: { src: "b.png" } })]),
       n("gone", "div", [n("inner", "span")], { hidden: true }),
-      n("bad", "div", [n("frame", "iframe", [], { type: "media" }), n("ok", "em", [], { attrs: { onclick: "x", title: "t" }, styles: { base: { color: "red", width: "1px;}" }, bp: {}, state: {}, pseudo: {} } })]),
+      n("bad", "div", [n("frame", "iframe", [], { type: "media" }), n("ok", "em", [], { attrs: { onclick: "x", title: "t", id: "hero-cta", "aria-controls": "menu", for: "f" }, styles: { base: { color: "red", width: "1px;}" }, bp: {}, state: {}, pseudo: {} } })]),
     ]) },
     { id: "s2", name: "Footer", layoutId: "L", root: n("r2", "footer", [
       n("inst", "div", [n("instance:4:inst:m1", "span"), n("ic", "span")], { component: { id: "c", role: "instance", sourceId: "m" } }),
@@ -73,7 +73,7 @@ test("selection: #text and hidden nodes resolve to a pickable ancestor; parent n
   expect(parentOf(index, "h")).toBe("r1");
   expect(parentOf(index, "r1")).toBeUndefined();
   expect(siblingsOf(index, "h")).toEqual(["h", "p", "box", "pic", "bad"]);
-  expect(topMost(index, ["bt", "p", "h"])).toEqual(["p", "h"]);
+  expect(topMost(index, ["bt", "p", "h", "p"])).toEqual(["p", "h"]);
   expect([isTextHost(index.get("h")!.node), isTextHost(index.get("p")!.node), isTextHost(index.get("box")!.node)]).toEqual([true, true, false]);
   expect(bands({ x: 10, y: 10, w: 100, h: 50 }, [1, 2, 3, 4], false)).toEqual([
     { x: 6, y: 9, w: 106, h: 1 }, { x: 110, y: 10, w: 2, h: 50 }, { x: 6, y: 60, w: 106, h: 3 }, { x: 6, y: 10, w: 4, h: 50 },
@@ -103,6 +103,7 @@ test("batches: delete top-most (a section by its placeholder), duplicate in desc
   expect(hideBatch(index, ["body"], true)).toEqual({ error: expect.any(String) });
   expect(reorderBatch(index, [], ["p", "box"], 1)).toEqual({ commands: [{ op: "moveNode", id: "box", parentId: "r1", index: 3 }, { op: "moveNode", id: "p", parentId: "r1", index: 2 }] });
   expect(reorderBatch(index, [], ["h"], -1)).toEqual({ error: expect.any(String) });
+  expect(reorderBatch(index, [], ["gone", "bad"], 1)).toEqual({ error: "Đã ở đầu / cuối danh sách." }); // bad is last: nothing moves
   expect(renameBatch(index, "h", "  Tiêu đề  ")).toEqual({ commands: [{ op: "setName", id: "h", name: "Tiêu đề" }] });
   expect(renameBatch(index, "h", " ")).toEqual({ error: expect.stringMatching(/1–80/) });
   const many = Array.from({ length: 26 }, (_, i) => `x${i}`);
@@ -121,6 +122,8 @@ test("drop: before/after/inside with the index counted after lifting; into itsel
   expect(dropCommand(index, [], "h", "track", "after")).toEqual({ error: expect.stringMatching(/section khác/) });
   expect(dropCommand(index, [], "r2", "r1", "before")).toEqual({ commands: [{ op: "moveNode", id: "ph2", parentId: "body", index: 0 }] });
   expect(dropCommand(index, [], "r2", "h", "after")).toEqual({ error: expect.stringMatching(/section/) });
+  expect(dropCommand(index, [], "r1", "r2", "before")).toEqual({ error: expect.stringMatching(/chỗ cũ/) });
+  expect(dropCommand(index, [], "h", "p", "before")).toEqual({ error: expect.stringMatching(/chỗ cũ/) });
   const split = indexPage({ shell: n("html", "html", [n("body", "body", [n("pa", "#section", [], { attrs: { "data-section": "a" } }), n("main", "main", [n("pb", "#section", [], { attrs: { "data-section": "b" } })])])]),
     sections: [{ id: "a", name: "A", root: n("ra", "div") }, { id: "b", name: "B", root: n("rb", "div") }] });
   expect(dropCommand(split, [], "ra", "rb", "after")).toEqual({ commands: [{ op: "moveNode", id: "pa", parentId: "main", index: 1 }] });
@@ -133,7 +136,7 @@ test("clipboard: one subtree as a draft without ids, unsafe tags/attrs/CSS dropp
   expect(clip).toEqual({ count: 2, draft: { tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [
     { tag: "em", type: "container", attrs: { title: "t" }, styles: { base: { color: "red" }, bp: {}, state: {}, pseudo: {} }, children: [] },
   ] } });
-  expect(JSON.stringify(clip)).not.toMatch(/"id"|parentId|iframe|onclick/);
+  expect(JSON.stringify(clip)).not.toMatch(/"id"|parentId|iframe|onclick|hero-cta|aria-controls|"for"/);
   expect(copyClip(index, "nav")).toEqual({ error: expect.any(String) });
   if ("error" in clip) throw new Error("clip");
   expect(pasteBatch(index, [], clip, "h")).toEqual({ commands: [{ op: "createNode", parentId: "r1", index: 1, draft: clip.draft }] });

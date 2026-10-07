@@ -340,8 +340,11 @@ function applyTree(ir: IRV2, c: Extract<Plain, { op: "createNode" | "restoreNode
     if (source.some((n) => n.component)) fail("component nodes cannot be duplicated yet");
     if (!Array.isArray(c.newIds) || c.newIds.length !== source.length) fail("newIds must match the copied subtree");
     const next = c.newIds.values();
-    // a copy was never captured: no box; R12: a copy is static (no interactive); parentIds are re-stamped by insert
-    const copy = ({ box: _box, interactive: _interactive, ...n }: IRNodeV2): IRNodeV2 => ({ ...n, id: next.next().value as string, children: n.children.map(copy) });
+    // a copy was never captured: no box; R12: a copy is static (no interactive) and repeats no html id / id reference;
+    // parentIds are re-stamped by insert
+    const copy = ({ box: _box, interactive: _interactive, ...n }: IRNodeV2): IRNodeV2 => ({
+      ...n, id: next.next().value as string, attrs: Object.fromEntries(Object.entries(n.attrs).filter(([k]) => !STRIP_ON_COPY.has(k))), children: n.children.map(copy),
+    });
     const created = copy(node);
     return { ...insert(ir, c.parentId, c.index, created, fail), inverse: { op: "deleteNode", id: created.id }, created: created.id };
   }

@@ -109,6 +109,27 @@ test("deleteNode and duplicateNode invert exactly; duplicate gets fresh IDs", ()
   expect([copy.id, ...copy.children.map((x) => x.id)]).toEqual(["new2", "new3", "new4"]);
 });
 
+test("duplicateNode strips html ids and id references from every copied node (R12); the original keeps them; undo is exact", () => {
+  const base = fixture();
+  const withIds = { ...base, sections: base.sections.map((s, i) => i ? s : { ...s, root: n("p", "div", [
+    n("a", "label", [n("in", "input", [], { attrs: { id: "email", "aria-controls": "x", title: "t" } })], { attrs: { for: "email", "aria-labelledby": "y" } }), n("b", "p"),
+  ]) }) };
+  const { ir: out } = roundTrip(withIds, prepareCommands(withIds, [{ op: "duplicateNode", id: "a", parentId: "p", index: 2 }], ids()));
+  expect(kids(out)[0]!.attrs).toEqual({ for: "email", "aria-labelledby": "y" });
+  expect(kids(out)[0]!.children[0]!.attrs).toEqual({ id: "email", "aria-controls": "x", title: "t" });
+  expect(kids(out)[2]!.attrs).toEqual({});
+  expect(kids(out)[2]!.children[0]!.attrs).toEqual({ title: "t" });
+});
+
+test("a section placeholder moves into another shell parent (body -> main) and back on undo", () => {
+  const base = fixture();
+  const ir = { ...base, pages: [{ ...base.pages[0]!, shell: n("html", "html", [n("body", "body", [
+    n("ph1", "#section", [], { attrs: { "data-section": "s1" } }), n("main", "main", [n("ph2", "#section", [], { attrs: { "data-section": "s2" } })]),
+  ])]) }] };
+  const moved = roundTrip(ir, [{ op: "moveNode", id: "ph1", parentId: "main", index: 1 }]).ir;
+  expect(moved.pages[0]!.sectionIds).toEqual(["s2", "s1"]);
+});
+
 test("protected roots, cycles and owner boundaries are refused", () => {
   const ir = fixture();
   const refused: EditorCommand[] = [

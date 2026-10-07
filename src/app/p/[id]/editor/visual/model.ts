@@ -41,6 +41,8 @@ const SHELL_MSG = "Khung trang (shell) chỉ cho đổi thứ tự hoặc xoá s
 const KIND_VI: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const TYPE_VI: Record<IRNodeV2["type"], string> = { container: "Khung", text: "Chữ", image: "Ảnh", link: "Link", button: "Nút", input: "Ô nhập", media: "Media", svg: "SVG", "component-root": "Component" };
 const VOID = new Set(["area", "br", "col", "embed", "hr", "img", "input", "source", "track", "wbr"]);
+const STRIP_ON_COPY = new Set(["id", "aria-controls", "aria-labelledby", "for"]); // mirrors ir-command (R12: no duplicate html ids)
+const SAME_PLACE = "Vị trí thả trùng chỗ cũ — không có gì thay đổi.";
 const INLINE = new Set(["#text", "b", "i", "strong", "em", "a", "br", "span", "small", "code", "u", "s", "sub", "sup"]);
 
 export function indexPage(page: Pick<CanvasPage, "shell" | "sections">): DocIndex {
@@ -136,7 +138,7 @@ export function siblingsOf(index: DocIndex, id: string): string[] {
 }
 export function topMost(index: DocIndex, ids: readonly string[]): string[] {
   const set = new Set(ids);
-  return ids.filter((id) => !ancestorsOf(index, id).slice(1).some((a) => set.has(a)));
+  return [...set].filter((id) => !ancestorsOf(index, id).slice(1).some((a) => set.has(a)));
 }
 export function isTextHost(node: IRNodeV2): boolean {
   const inline = (c: IRNodeV2): boolean => INLINE.has(c.tag) && c.children.every(inline);
@@ -212,9 +214,10 @@ export function reorderBatch(index: DocIndex, components: readonly PanelComponen
   const commands: EditorCommand[] = [];
   for (const id of order) {
     const e = index.get(id)!, count = index.get(e.parent!)!.node.children.length, to = e.index + delta;
-    if (to >= 0 && to < count) commands.push({ op: "moveNode", id: e.subject, parentId: e.parent!, index: to });
+    if (to < 0 || to >= count) return { error: "Đã ở đầu / cuối danh sách." }; // all or nothing
+    commands.push({ op: "moveNode", id: e.subject, parentId: e.parent!, index: to });
   }
-  return commands.length ? capped(commands) : { error: "Đã ở đầu / cuối danh sách." };
+  return capped(commands);
 }
 export function dropCommand(index: DocIndex, components: readonly PanelComponent[], dragId: string, overId: string, zone: Zone): Batch {
   const drag = index.get(dragId), over = index.get(overId);
@@ -223,6 +226,7 @@ export function dropCommand(index: DocIndex, components: readonly PanelComponent
     if (over.sectionName === undefined || zone === "inside") return { error: "Section chỉ đổi thứ tự với section khác." };
     let at = over.index + (zone === "after" ? 1 : 0);
     if (drag.parent === over.parent && drag.index < at) at -= 1;
+    if (drag.parent === over.parent && at === drag.index) return { error: SAME_PLACE };
     return { commands: [{ op: "moveNode", id: drag.subject, parentId: over.parent!, index: at }] }; // placeholders may sit in different shell parents
   }
   const why = guard(index, components, dragId, "move");
@@ -235,6 +239,7 @@ export function dropCommand(index: DocIndex, components: readonly PanelComponent
   if (index.get(parentId)!.sectionId !== drag.sectionId) return { error: "Chưa chuyển được phần tử sang section khác." }; // R11 (E3b lifts it)
   let at = zone === "inside" ? over.node.children.length : over.index + (zone === "after" ? 1 : 0);
   if (parentId === drag.parent && drag.index < at) at -= 1;
+  if (parentId === drag.parent && at === drag.index) return { error: SAME_PLACE };
   return { commands: [{ op: "moveNode", id: drag.subject, parentId, index: at }] };
 }
 
@@ -256,7 +261,7 @@ export function copyClip(index: DocIndex, id: string): Clip | { error: string } 
     count++;
     if (depth > LIMITS.depth) deep = true;
     if (n.tag === "#text") return { tag: "#text", text: n.text ?? "" };
-    const d: NodeDraft = { tag: n.tag, ...(n.type !== "component-root" && { type: n.type }), attrs: Object.fromEntries(Object.entries(n.attrs).filter(([k, v]) => isSafeAttr(n.tag, k, v))), styles: cleanStyles(n.styles), children: n.children.map((c) => draftOf(c, depth + 1)).filter((c): c is NodeDraft => c !== null) };
+    const d: NodeDraft = { tag: n.tag, ...(n.type !== "component-root" && { type: n.type }), attrs: Object.fromEntries(Object.entries(n.attrs).filter(([k, v]) => !STRIP_ON_COPY.has(k) && isSafeAttr(n.tag, k, v))), styles: cleanStyles(n.styles), children: n.children.map((c) => draftOf(c, depth + 1)).filter((c): c is NodeDraft => c !== null) };
     if (n.name) d.name = n.name;
     if (n.hidden) d.hidden = true;
     return d;
