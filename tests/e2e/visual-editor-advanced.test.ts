@@ -253,3 +253,65 @@ test("E3b Alt+drag: the paragraph becomes absolute where dropped (its static par
   expect((await payload()).revision).toBe(rev2);
   await page.close();
 });
+
+test("E3b resize: the e handle at 768 writes width in the 768 layer only (1440 unchanged); a padding handle writes padding-top at the breakpoint; one Undo each", { timeout: 240_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  const width1440 = await h1.evaluate((el) => el.getBoundingClientRect().width);
+  await page.getByRole("group", { name: "Thiết bị" }).getByRole("button", { name: "768" }).click();
+  await h1.click();
+  const e = page.locator('[data-ui="ui_editor_resize_handle"][data-handle="e"]');
+  await expect.poll(() => e.isVisible()).toBe(true);
+  expect(await page.locator('[data-ui="ui_editor_resize_handle"]').count()).toBe(3); // flow node: e, s, se (R13)
+  await e.scrollIntoViewIfNeeded(); // the 768 frame is wider than the canvas pane here: its right edge needs the pane scrolled
+  const hb = (await e.boundingBox())!;
+  const before = await h1.evaluate((el) => el.getBoundingClientRect().width);
+  await drag(page, centre(hb), { x: hb.x + hb.width / 2 - 120, y: hb.y + hb.height / 2 });
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.bp["768"]?.width, { timeout: 30_000 }).toBe(`${Math.round(before - 120)}px`);
+  expect((await nodeById(h1Id))!.styles.base.width).toBeUndefined();
+  const top = page.locator('[data-ui="ui_editor_spacing_handle"][data-side="top"]');
+  const tb = (await top.boundingBox())!;
+  await drag(page, centre(tb), { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 + 12 });
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.bp["768"]?.["padding-top"], { timeout: 30_000 }).toBe("12px");
+  // cancelled mid-gesture (Escape on a resize, a frame scroll on a padding drag): the preview goes back, nothing is sent
+  const rev = (await payload()).revision;
+  const inline = (prop: string) => h1.evaluate((el, p) => (el as HTMLElement).style.getPropertyValue(p), prop);
+  const half = async (b: { x: number; y: number; width: number; height: number }, dx: number, dy: number) => {
+    await page.mouse.move(centre(b).x, centre(b).y);
+    await page.mouse.down();
+    for (let k = 1; k <= 4; k++) await page.mouse.move(centre(b).x + (dx * k) / 4, centre(b).y + (dy * k) / 4);
+  };
+  await e.scrollIntoViewIfNeeded();
+  await half((await e.boundingBox())!, -40, 0);
+  await expect.poll(() => inline("width")).not.toBe("");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => inline("width")).toBe("");
+  await page.mouse.up();
+  await half((await top.boundingBox())!, 0, 20);
+  await expect.poll(() => inline("padding-top")).not.toBe("");
+  await canvas(page).locator("body").evaluate(() => window.scrollBy(0, 30));
+  await expect.poll(() => inline("padding-top")).toBe("");
+  expect(await page.locator(".ve-capture").count()).toBe(0);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev);
+  await page.getByRole("group", { name: "Thiết bị" }).getByRole("button", { name: "1440" }).click();
+  await expect.poll(() => h1.evaluate((el) => el.getBoundingClientRect().width)).toBe(width1440);
+  // the gap band of the features grid (cards side by side: the column gap, dragged along x): 16 + 8 = 24px at Desktop
+  const features = canvas(page).locator("#features");
+  const featuresId = (await features.getAttribute("data-ir-id"))!;
+  await features.click({ position: { x: 6, y: 6 } });
+  const gap = page.locator('[data-ui="ui_editor_spacing_handle"][data-side="gap"]');
+  await expect.poll(() => gap.count()).toBe(1);
+  await gap.scrollIntoViewIfNeeded();
+  const gb = (await gap.boundingBox())!;
+  await drag(page, centre(gb), { x: centre(gb).x + 8, y: centre(gb).y });
+  await saved(page);
+  await expect.poll(async () => (await nodeById(featuresId))?.styles.base.gap, { timeout: 30_000 }).toBe("24px");
+  for (let i = 0; i < 3; i++) { await page.getByRole("button", { name: "Hoàn tác" }).click(); await saved(page); }
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.bp["768"]?.width, { timeout: 30_000 }).toBeUndefined();
+  await page.close();
+});

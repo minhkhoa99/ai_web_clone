@@ -829,3 +829,8 @@ select.full { width: 100%; min-height: 38px; }
 .ve-guide { position: absolute; outline: 1px solid var(--c-danger); }
 .ve-measure { position: absolute; outline: 1px dashed var(--c-warn); }
 .ve-measure .ve-label { background: var(--c-warn); color: var(--c-on-warn); bottom: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.ve-handle { position: absolute; width: 8px; height: 8px; background: var(--c-bg); border: 2px solid var(--c-primary); pointer-events: auto; }
+.ve-handle.is-n, .ve-handle.is-s { cursor: ns-resize; } .ve-handle.is-e, .ve-handle.is-w { cursor: ew-resize; }
+.ve-handle.is-ne, .ve-handle.is-sw { cursor: nesw-resize; } .ve-handle.is-nw, .ve-handle.is-se { cursor: nwse-resize; }
+.ve-spacing-handle { position: absolute; background: var(--c-success); border-radius: 2px; pointer-events: auto; cursor: grab; }
+.ve-spacing-handle.is-gap { background: color-mix(in srgb, var(--c-accent) 60%, transparent); }

@@ -2,7 +2,8 @@
 // E3 §2 overlay (in the parent window, over the frame): hover box + "tag · tên · W×H", selection boxes with margin
 // (outside) / padding (inside) bands, the parent outlined. Coordinates: the frame's viewport px × zoom (the overlay
 // sits at the frame's origin inside the stage, so the frame's own scroll is already in getBoundingClientRect).
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { Handle, Side } from "./gestures";
 import { bands, type Box } from "./model";
 
 export type Measured = { box: Box; margin: [number, number, number, number]; padding: [number, number, number, number] };
@@ -18,8 +19,32 @@ export function measure(el: Element, spacing = true): Measured {
   };
 }
 export const at = (b: Box, z: number): CSSProperties => ({ left: b.x * z, top: b.y * z, width: Math.max(0, b.w * z), height: Math.max(0, b.h * z) });
+export type Handles = { id: string; list: Handle[]; onHandle(h: Handle, e: ReactPointerEvent): void; onSpacing(side: Side | "gap", e: ReactPointerEvent): void; gap?: Box };
+const HANDLE = 8;
+// R13 handles (8 px, inside the box: a full-width node's edge is the frame's edge, where the overlay clips) and the
+// padding bars (24 × 4 px at each inner padding edge, kept inside the box); handles drawn last so they win an overlap
+function HandleLayer({ m, zoom, handles }: { m: Measured; zoom: number; handles: Handles }) {
+  const { box: b, padding: [pt, pr, pb, pl] } = m;
+  const along = (start: number, size: number, lo: boolean, hi: boolean) => (hi ? (start + size) * zoom - HANDLE : lo ? start * zoom : (start + size / 2) * zoom - HANDLE / 2);
+  const bars: Record<Side, Box> = {
+    top: { x: b.x + b.w / 2 - 12, y: Math.max(b.y, b.y + pt - 2), w: 24, h: 4 },
+    bottom: { x: b.x + b.w / 2 - 12, y: Math.min(b.y + b.h - 4, b.y + b.h - pb - 2), w: 24, h: 4 },
+    left: { x: Math.max(b.x, b.x + pl - 2), y: b.y + b.h / 2 - 12, w: 4, h: 24 },
+    right: { x: Math.min(b.x + b.w - 4, b.x + b.w - pr - 2), y: b.y + b.h / 2 - 12, w: 4, h: 24 },
+  };
+  return (
+    <>
+      {(Object.keys(bars) as Side[]).map((s) => <div key={s} className="ve-spacing-handle" data-ui="ui_editor_spacing_handle" data-side={s} style={at(bars[s], zoom)} onPointerDown={(e) => handles.onSpacing(s, e)} />)}
+      {handles.gap && <div className="ve-spacing-handle is-gap" data-ui="ui_editor_spacing_handle" data-side="gap" style={at(handles.gap, zoom)} onPointerDown={(e) => handles.onSpacing("gap", e)} />}
+      {handles.list.map((h) => (
+        <div key={h} className={`ve-handle is-${h}`} data-ui="ui_editor_resize_handle" data-handle={h} onPointerDown={(e) => handles.onHandle(h, e)}
+          style={{ left: along(b.x, b.w, h.includes("w"), h.includes("e")), top: along(b.y, b.h, h.includes("n"), h.includes("s")) }} />
+      ))}
+    </>
+  );
+}
 
-export function Overlay({ zoom, hover, selected, parent, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; children?: ReactNode }) {
+export function Overlay({ zoom, hover, selected, parent, handles, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; handles?: Handles; children?: ReactNode }) {
   return (
     <div className="ve-overlay" aria-hidden="true">
       {parent && <div className="ve-parent" data-ui="ui_editor_parent_box" style={at(parent.box, zoom)} />}
@@ -30,6 +55,7 @@ export function Overlay({ zoom, hover, selected, parent, children }: { zoom: num
           <div className="ve-selected" data-ui="ui_editor_selection_box" data-for={id} style={at(m.box, zoom)} />
         </div>
       ))}
+      {handles && selected.length === 1 && selected[0]!.id === handles.id && <HandleLayer m={selected[0]!.m} zoom={zoom} handles={handles} />}
       {hover && (
         <div className="ve-hover" data-ui="ui_editor_hover_box" data-for={hover.id} style={at(hover.m.box, zoom)}>
           <span className={hover.m.box.y * zoom < 16 ? "ve-label ve-label-in" : "ve-label"}>{hover.label}</span>

@@ -19,6 +19,7 @@ import { ComponentPanel } from "../component-panel/component-panel";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { EffectsCard, ElementPanel } from "./element-panel";
+import { handlesFor } from "./gestures";
 import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
 import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
@@ -69,6 +70,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<RightTab>("style");
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
+  const editable = true; // Task 13: !viewOnly
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
   const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
@@ -296,6 +298,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const parentBox = parentId ? measured(parentId) : undefined;
   const hoverId = hover ? pickTarget(index, hover) : undefined;
   const hoverM = hoverId ? measured(hoverId) : undefined;
+  // R13 / Task 8 decision: absolute and fixed nodes get all 8 handles, others (sticky too: in flow) e / s / se
+  const handleEl = selection.length === 1 && editable ? canvas.current?.element(selection[0]!) : null;
+  const handles = handleEl ? (() => {
+    const pos = handleEl.ownerDocument.defaultView!.getComputedStyle(handleEl).position, gap = gestures.gapOf(selection[0]!);
+    return { id: selection[0]!, list: handlesFor(pos === "absolute" || pos === "fixed"), onHandle: gestures.startResize, onSpacing: gestures.startSpacing, ...(gap && { gap: gap.box }) };
+  })() : undefined;
   const hoverInfo = hoverId && hoverM ? { id: hoverId, m: hoverM, label: `${index.get(hoverId)!.node.tag} · ${labelOf(index.get(hoverId)!)} · ${Math.round(hoverM.box.w)}×${Math.round(hoverM.box.h)}` } : undefined;
   return (
     <div className="ve">
@@ -327,7 +335,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={1} showItems={showItems}
             onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onPress={gestures.onPress} onFrame={() => setTick((t) => t + 1)}>
-            <Overlay zoom={1} hover={hoverInfo} selected={selectedBoxes} parent={parentBox}>
+            <Overlay zoom={1} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles}>
               {gesture?.kind === "flow" && gesture.drop && (
                 <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, 1)}>
                   {!gesture.drop.ok && <span className="ve-label">{gesture.drop.reason}</span>}
