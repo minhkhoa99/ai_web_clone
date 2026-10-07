@@ -14,11 +14,11 @@ import { CHOICES, clearField, fieldOf, GROUPS, otherProps, scrub, setField, SOUR
 
 export const STYLE_DEBOUNCE_MS = 300;
 type Extra = { coalesceKey?: string; apply?: () => void; rollback?: () => void };
-type Props = { node: IRNodeV2; element: HTMLElement | null; bp: Bp; fonts: string[]; onBatch(b: Batch, label: string, extra: Extra): void; onMessage(text: string): void };
+type Props = { node: IRNodeV2; element: HTMLElement | null; bp: Bp; fonts: string[]; onBatch(b: Batch, label: string, extra: Extra): void; onMessage(text: string): void; flushRef?: { current: (() => void) | null } };
 const SIDES = ["top", "right", "bottom", "left"] as const;
 const SPACING_LABEL: Record<(typeof SIDES)[number], string> = { top: "trên", right: "phải", bottom: "dưới", left: "trái" };
 
-export function StylePanel({ node, element, bp, fonts, onBatch, onMessage }: Props) {
+export function StylePanel({ node, element, bp, fonts, onBatch, onMessage, flushRef }: Props) {
   const [state, setState] = useState<"" | StateName>("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -40,6 +40,12 @@ export function StylePanel({ node, element, bp, fonts, onBatch, onMessage }: Pro
   const endScrub = useRef<(() => void) | null>(null); // removes a running scrub's window listeners
   // leaving the node (another selection) sends what was typed instead of dropping it under its inline preview
   useEffect(() => () => { endScrub.current?.(); flush(); }, []);
+  // the editor sends what is typed now before it turns view-only (R9); flush reads refs only: one registration
+  useEffect(() => {
+    if (!flushRef) return;
+    flushRef.current = flush;
+    return () => { if (flushRef.current === flush) flushRef.current = null; };
+  }, []); // flushRef: the editor's stable ref
 
   const inline = (prop: string, value: string) => {
     const el = live.current.element;

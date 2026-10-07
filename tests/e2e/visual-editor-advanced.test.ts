@@ -492,3 +492,31 @@ test("E3b responsive: no sideways scroll at 1440; at 768 the panels are drawers 
   expect(await page.locator('[data-ui="ui_editor_layer_row"][draggable="true"]').count()).toBe(0);
   await page.close();
 });
+
+test("E3b responsive: a Style edit typed just before the window narrows below 768 is saved once (flushed at the switch); after it, keyboard edits send nothing", { timeout: 180_000 }, async () => {
+  const page = await open(1440, 900);
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  await h1.click();
+  const color = fieldIn(page, "color");
+  await expect.poll(() => color.locator("input").inputValue()).toBe("rgb(200, 30, 60)");
+  const rev = (await payload()).revision;
+  await color.locator("input").fill("rgb(0, 128, 0)");
+  await page.setViewportSize({ width: 375, height: 800 }); // within the 300 ms debounce
+  await expect.poll(() => page.locator('[data-ui="ui_editor_viewonly_notice"]').count()).toBe(1);
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.base.color, { timeout: 30_000 }).toBe("rgb(0, 128, 0)");
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev + 1);
+  await h1.click();
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev + 1);
+  expect(await status(page).innerText()).toBe("Dùng màn hình ≥ 768px để chỉnh sửa");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.base.color, { timeout: 30_000 }).toBe("rgb(200, 30, 60)");
+  await page.close();
+});

@@ -2,7 +2,7 @@
 // E3 visual editor (spec §1–§4): the server's page in a canvas frame, the command bus for every edit, partial canvas
 // updates from `affected`. Selection lives here; panels render from the resolved page tree (model.indexPage).
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import type { CanvasPayload } from "@/core/editor-canvas";
 import type { PanelComponent } from "@/core/interactive";
@@ -69,17 +69,14 @@ const panKey = (t: EventTarget | null): boolean => {
   return el === document.body || el === document.documentElement || (el as Element).matches?.('[data-ui="ui_editor_canvas_chrome"]') === true;
 };
 
-// a media query as state (client only: false on the server render)
+// a media query as state: right from the first client render (false on the server render and while hydrating)
 function useMedia(query: string): boolean {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
+  const subscribe = useCallback((cb: () => void) => {
     const m = window.matchMedia(query);
-    const sync = () => setOn(m.matches);
-    sync();
-    m.addEventListener("change", sync);
-    return () => m.removeEventListener("change", sync);
+    m.addEventListener("change", cb);
+    return () => m.removeEventListener("change", cb);
   }, [query]);
-  return on;
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false);
 }
 const VIEW_ONLY = "Dùng màn hình ≥ 768px để chỉnh sửa";
 
@@ -104,7 +101,11 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // R9: up to 1099px the side panels are drawers; below 768px the editor only views and selects
   const narrow = useMedia("(max-width: 1099px)");
   const viewOnly = useMedia("(max-width: 767.98px)");
-  const editable = !viewOnly;
+  // the gate follows viewOnly one step late: the transition effect below saves what was typed first, then locks
+  const [locked, setLocked] = useState(viewOnly);
+  const editable = !locked;
+  const styleFlush = useRef<(() => void) | null>(null); // the Style panel's "send what is typed now"
+  const endEdit = useRef<(() => void) | null>(null); // the open inline text's "save and close"
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
   const toggles = useRef<Record<"left" | "right", HTMLButtonElement | null>>({ left: null, right: null });
   const panels = useRef<Record<"left" | "right", HTMLElement | null>>({ left: null, right: null });
@@ -194,10 +195,10 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   }, [id, pageId, load, initialPage]); // send / onEvent read `live` and setters only: no stale state
 
   // false = not queued (the bus already said why: full / stale); no bus yet = the page is still loading
-  // view-only (R9): nothing is queued from this render on — an edit begun while editable (an open inline text, a
-  // Style field's debounce) holds the earlier render's run and still lands
+  // view-only (R9): the gate is read at call time, so no callback captured earlier (a debounce, an upload's follow-up)
+  // gets past it
   const run = (op: Op): boolean => {
-    if (!editable) { setMsg(VIEW_ONLY); return false; }
+    if (!live.current.editable) { setMsg(VIEW_ONLY); return false; }
     setMsg("");
     if (!bus.current) { setMsg("Editor chưa sẵn sàng."); return false; }
     return bus.current.push(op);
@@ -236,6 +237,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (editing.current?.isConnected) return true; // one edit at a time; a swapped-out host no longer counts
     const before = el.innerHTML; // the server's render: trusted
     editing.current = el;
+    endEdit.current = () => finish(true);
     // Enter keeps the edit open on a refusal ("Esc để huỷ"); blur / Esc always end it
     const finish = (save: boolean, keepOnError = false) => {
       if (editing.current !== el) return;
@@ -243,6 +245,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       const b = save && node ? textBatch(node, el as unknown as DomLike) : undefined;
       if (b && "error" in b && keepOnError) { setMsg(b.error); return; }
       editing.current = null;
+      endEdit.current = null;
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("blur", onBlur);
       el.removeAttribute("contenteditable");
@@ -347,15 +350,25 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     <IconButton icon={side === "left" ? "layers" : "edit"} label={`${drawer === side ? "Đóng" : "Mở"} ${name}`} aria-expanded={drawer === side} aria-controls={`ve-${side}`}
       ref={(b) => { toggles.current[side] = b; }} onClick={() => (drawer === side ? closeDrawer() : openDrawer(side))} />
   );
-  // turning view-only mid-edit: the drag is cancelled, an open inline text saved (its run is the editable render's),
-  // the Style drawer and the Thêm tab closed
+  // R9 transition to view-only, deliberately in this order: a drag in progress is cancelled (nothing sent); what was
+  // typed while editable — a focused right-panel field (committed by its blur), the Style panel's pending (debounced)
+  // fields, an open inline text — is saved now, while the gate is still open (one batch each). Then the gate closes:
+  // from here on run() refuses every op. The Style drawer and the Thêm tab close (the focus, if it was there, goes to
+  // the Layers toggle).
   useEffect(() => {
-    if (!viewOnly) return;
+    if (!viewOnly) { setLocked(false); return; }
+    const a = document.activeElement as HTMLElement | null;
+    const inRight = !!a && (a === toggles.current.right || !!panels.current.right?.contains(a));
     gestures.cancelGesture();
-    editing.current?.blur();
+    if (inRight) a.blur(); // a field that commits on blur (alt, href) commits now
+    styleFlush.current?.();
+    endEdit.current?.();
+    live.current.editable = false; // closed now, not at the next render
+    setLocked(true);
+    if (inRight) toggles.current.left?.focus();
     setDrawer((d) => (d === "right" ? null : d));
     setLeft("layers");
-  }, [viewOnly]); // gestures.cancelGesture / editing read refs only: no stale state
+  }, [viewOnly]); // gestures.cancelGesture and the refs only: no stale state
   useEffect(() => { if (!narrow) setDrawer(null); }, [narrow]); // wide again: the panels are columns
   // "Vừa khung": the breakpoint's width across the pane (R8)
   const fit = () => { const w = canvas.current?.pane()?.clientWidth; if (w) setZoom(fitZoom(w, bp)); };
@@ -418,7 +431,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         </span>
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
       </div>
-      {viewOnly && <Banner tone="info" icon="phone_iphone" data-ui="ui_editor_viewonly_notice" title={VIEW_ONLY}>Ở màn hình này chỉ xem và chọn phần tử.</Banner>}
+      {!editable && <Banner tone="info" icon="phone_iphone" data-ui="ui_editor_viewonly_notice" title={VIEW_ONLY}>Ở màn hình này chỉ xem và chọn phần tử.</Banner>}
       {halt && (
         <Banner tone={halt.kind === "stale" ? "warn" : "danger"} icon="warning" data-ui="ui_editor_stale_banner" title={halt.text}
           actions={halt.kind === "failed"
@@ -475,10 +488,10 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
             options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
           {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (<>
-            <StylePanel key={selection[0]} node={index.get(selection[0])!.node} element={canvas.current?.element(selection[0]) ?? null} bp={bp} fonts={data.fonts}
+            <StylePanel key={selection[0]} node={index.get(selection[0])!.node} element={canvas.current?.element(selection[0]) ?? null} bp={bp} fonts={data.fonts} flushRef={styleFlush}
               onBatch={(b, label, extra) => batch(b, label, extra)} onMessage={setMsg} />
             <ElementPanel projectId={id} index={index} entry={index.get(selection[0])!} element={canvas.current?.element(selection[0]) ?? null} bp={bp} assets={data.assets} onBatch={batch}
-              onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} />
+              onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} canEdit={() => live.current.editable} />
           </>) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
           {data && tab === "component" && (
             <fieldset className="cmp-fieldset" disabled={pending > 0 || loading}>

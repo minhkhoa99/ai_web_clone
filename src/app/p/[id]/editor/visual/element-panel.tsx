@@ -35,7 +35,7 @@ export function uploadError(status: number, body: { code?: string; message?: str
 }
 
 export type Optimistic = { apply(): void; rollback(): void };
-type Props = { projectId: string; index: DocIndex; entry: Entry; element: HTMLElement | null; bp: Bp; assets: LibraryAsset[]; onBatch(b: Batch, label: string, optimistic?: Optimistic): void; onUploaded(a: LibraryAsset): void; onMessage(text: string): void };
+type Props = { projectId: string; index: DocIndex; entry: Entry; element: HTMLElement | null; bp: Bp; assets: LibraryAsset[]; onBatch(b: Batch, label: string, optimistic?: Optimistic): void; onUploaded(a: LibraryAsset): void; onMessage(text: string): void; canEdit?(): boolean };
 
 // an uncontrolled text box that saves on Enter / leaving it, once per value (Enter then blur is one save)
 function AttrInput({ label, value, onCommit }: { label: string; value: string; onCommit(v: string): void }) {
@@ -48,7 +48,7 @@ function AttrInput({ label, value, onCommit }: { label: string; value: string; o
   );
 }
 
-export function ElementPanel({ projectId, index, entry, element, bp, assets, onBatch, onUploaded, onMessage }: Props) {
+export function ElementPanel({ projectId, index, entry, element, bp, assets, onBatch, onUploaded, onMessage, canEdit = () => true }: Props) {
   const [busy, setBusy] = useState(false);
   const node = entry.node;
   const background = !!element && element.ownerDocument.defaultView!.getComputedStyle(element).backgroundImage.includes("url("); // a pure gradient is not a replaceable image
@@ -86,6 +86,8 @@ export function ElementPanel({ projectId, index, entry, element, bp, assets, onB
       // the route's key and url, never built here
       const asset = { key: body.key, url: body.url, size: file.size, type: body.key.slice(body.key.lastIndexOf(".") + 1) };
       onUploaded(asset);
+      // the editor went view-only (R9) during the upload: the file is in the library, nothing is sent
+      if (!canEdit()) return onMessage("Ảnh đã tải lên nhưng chưa gắn — đang ở chế độ chỉ xem.");
       apply(asset);
     } catch {
       onMessage("Tải ảnh lỗi (mất kết nối) — thử lại.");
