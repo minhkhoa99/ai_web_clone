@@ -45,6 +45,9 @@ test("padding / gap handles and zoom helpers (R8)", () => {
   expect([zoomStep(1, 1), zoomStep(1, -1), zoomStep(0.6, -1), zoomStep(2, 1), zoomStep(0.25, -1)]).toEqual([1.25, 0.75, 0.5, 2, 0.25]);
   expect([wheelZoom(1, -100), wheelZoom(1, 100), wheelZoom(1.95, -1)]).toEqual([1.1, 0.91, 2]);
   expect([fitZoom(736, 1440), fitZoom(616, 375), fitZoom(100, 1440)]).toEqual([0.5, 1.6, 0.25]);
+  // floored, never rounded up: the fitted frame never overflows the pane (612 / 1440 = 0.425 -> 0.42, not 0.43)
+  expect(fitZoom(628, 1440)).toBe(0.42);
+  expect(fitZoom(628, 1440) * 1440).toBeLessThanOrEqual(628 - 16);
   expect(ZOOM.presets).toEqual([0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2]);
 });
 

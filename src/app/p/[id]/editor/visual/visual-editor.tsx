@@ -54,6 +54,16 @@ function drawText(host: HTMLElement, ir: IRNodeV2, commands: EditorCommand[]): v
 }
 const BAND_LIMIT = 20;
 const typingIn = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? "")); };
+// Space pans only from the canvas: anywhere in the frame but a text being typed (its content is not interactive in the
+// editor), or this page's body / the canvas pane with no dialog open. A focused button, link, tab, tree row… keeps
+// Space for its own activation (keyboard access).
+const panKey = (t: EventTarget | null): boolean => {
+  const el = t as (Node & Partial<HTMLElement>) | null;
+  if (!el || typingIn(el)) return false;
+  if ((el.ownerDocument ?? el) !== document) return true; // the canvas frame
+  if (document.querySelector("dialog[open], [aria-modal='true']")) return false;
+  return el === document.body || el === document.documentElement || (el as Element).matches?.('[data-ui="ui_editor_canvas_chrome"]') === true;
+};
 
 export function VisualEditor({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
   const [pageId, setPageId] = useState(initialPage); // "" = the API's default page
@@ -229,7 +239,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (child) select([child]);
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === " " && !typingIn(e.target)) { gestures.spaceKey(true); e.preventDefault(); return; } // Space+drag pans
+    if (e.key === " " && panKey(e.target)) { gestures.spaceKey(true); e.preventDefault(); return; } // Space+drag pans
     if (e.key === "Escape" && gestures.cancelGesture()) { e.preventDefault(); return; }
     const action = keyAction(e, typingIn(e.target));
     if (!action) return;

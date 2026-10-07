@@ -364,9 +364,16 @@ test("E3b zoom: Ctrl+- to 50 % scales the frame and the overlay, a click still s
   await expect.poll(() => label.innerText()).toBe("110%");
   await page.keyboard.press("Control+0");
   await expect.poll(() => label.innerText()).toBe("100%");
-  // pan: the 1440 frame is wider than the pane
-  const rev = (await payload()).revision;
+  // Space on a focused toolbar button activates it (keyboard access), it never enters pan mode
   const sx = await pane.evaluate((p) => p.scrollLeft);
+  await page.getByRole("button", { name: "Thu nhỏ" }).focus();
+  await page.keyboard.press(" ");
+  await expect.poll(() => label.innerText()).toBe("75%");
+  await page.keyboard.press("Control+0");
+  await expect.poll(() => label.innerText()).toBe("100%");
+  // pan (Space with the focus in the canvas): the 1440 frame is wider than the pane
+  const rev = (await payload()).revision;
+  await frame.focus();
   await page.keyboard.down(" ");
   const fb = (await frame.boundingBox())!;
   await drag(page, { x: fb.x + 400, y: fb.y + 200 }, { x: fb.x + 100, y: fb.y + 200 });

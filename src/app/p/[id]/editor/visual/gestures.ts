@@ -71,4 +71,5 @@ export function zoomStep(z: number, dir: 1 | -1): number {
   return dir > 0 ? (p.find((x) => x > z + 1e-9) ?? ZOOM.max) : ([...p].reverse().find((x) => x < z - 1e-9) ?? ZOOM.min);
 }
 export const wheelZoom = (z: number, deltaY: number): number => clampZoom(z * (deltaY < 0 ? 1.1 : 1 / 1.1));
-export const fitZoom = (paneWidth: number, bp: number): number => clampZoom((paneWidth - 16) / bp);
+// floored to 2 decimals (clampZoom alone rounds, which could overflow the pane by a few px)
+export const fitZoom = (paneWidth: number, bp: number): number => clampZoom(Math.floor(((paneWidth - 16) / bp) * 100 + 1e-9) / 100);
