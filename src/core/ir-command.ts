@@ -23,11 +23,13 @@ export type NodeDraft = {
   styles?: Partial<NodeStyles>;
   children?: NodeDraft[];
 };
+export const MAX_NAME = 80; // E3 §5: a layer name, trimmed
 type Edit =
   | { op: "setStyle"; id: string; target: StyleTarget; changes: Record<string, string | null> }
   | { op: "setText"; id: string; text: string }
   | { op: "setAttribute"; id: string; name: string; value: string | null }
   | { op: "setHidden"; id: string; hidden: boolean }
+  | { op: "setName"; id: string; name: string }
   | { op: "promoteLayout"; sectionIds: string[] }
   | { op: "resetOverride"; instanceId: string; path?: string }
   | { op: "detachComponent"; instanceId: string }
@@ -228,7 +230,7 @@ function setStyle(styles: NodeStyles, target: unknown, changes: unknown, fail: F
   if (Object.keys(decl).length) next[key!] = decl; else delete next[key!]; // an empty override is no override
   return { ...styles, [group]: next };
 }
-function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" | "restoreProps" }>, fail: Fail): Step {
+function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" | "setName" | "restoreProps" }>, fail: Fail): Step {
   const found = need(ir, c.id, fail);
   const { id, parentId, children, ...old } = found.node;
   let props: NodeProps;
@@ -239,7 +241,12 @@ function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "
     if (typeof c.text !== "string") fail("text must be a string");
     props = { ...old, text: c.text };
   } else if (found.node.tag === "#text") return fail(`${c.op} on a #text node`);
-  else if (c.op === "setHidden") {
+  else if (c.op === "setName") {
+    if (typeof c.name !== "string") fail("name must be a string");
+    const name = c.name.trim();
+    if (name.length < 1 || name.length > MAX_NAME) fail(`name must be 1–${MAX_NAME} characters`);
+    props = { ...old, name };
+  } else if (c.op === "setHidden") {
     if (typeof c.hidden !== "boolean") fail("hidden must be a boolean");
     if (found.tree.kind === "pages" && (found.node.tag === "html" || found.node.tag === "body")) fail(`the page ${found.node.tag} cannot be hidden`);
     const { hidden: _hidden, ...shown } = old;
@@ -260,13 +267,14 @@ function applyProps(ir: IRV2, c: Extract<Plain, { op: "setStyle" | "setText" | "
 
 // An instance edit marks the paths it sets, so resolveComponents keeps them over the main; a main edit needs nothing,
 // the resolver already takes every non-overridden path from the main.
-function overridden(ir: IRV2, node: IRNodeV2, c: Extract<Edit, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" }>, fail: Fail): NonNullable<IRNodeV2["component"]> {
+function overridden(ir: IRV2, node: IRNodeV2, c: Extract<Edit, { op: "setStyle" | "setText" | "setAttribute" | "setHidden" | "setName" }>, fail: Fail): NonNullable<IRNodeV2["component"]> {
   const ref = node.component!;
   const main = ir.components.find((m) => m.id === ref.id);
   if (!main || !preorder(main.root).some((n) => n.id === ref.sourceId)) fail(`instance node ${node.id} has no main source: edit the main or detach it`);
   let paths: string[];
   if (c.op === "setText") paths = ["text"];
   else if (c.op === "setHidden") paths = ["hidden"];
+  else if (c.op === "setName") paths = ["name"];
   else if (c.op === "setAttribute") paths = [`attrs.${c.name}`];
   else {
     const [group, key] = styleTarget(c.target, fail);
@@ -607,7 +615,7 @@ const guard = <T>(run: () => T, fail: Fail): T => {
 function applyOne(ir: IRV2, c: HistoryCommand, fail: Fail): Step {
   if (!isObject(c)) return fail("command must be an object");
   switch (c.op) {
-    case "setStyle": case "setText": case "setAttribute": case "setHidden": case "restoreProps":
+    case "setStyle": case "setText": case "setAttribute": case "setHidden": case "setName": case "restoreProps":
       return applyProps(ir, c, fail);
     case "promoteLayout": return applyLayout(ir, c, fail);
     case "restoreLayout": return restoreLayout(ir, c, fail);
@@ -649,6 +657,7 @@ export function prepareCommands(ir: IRV2, commands: EditorCommand[], allocateId:
       case "setStyle": normalized = { op: command.op, id: command.id, target: command.target, changes: command.changes }; break;
       case "setText": normalized = { op: command.op, id: command.id, text: command.text }; break;
       case "setAttribute": normalized = { op: command.op, id: command.id, name: command.name, value: command.value }; break;
+      case "setName": normalized = { op: command.op, id: command.id, name: command.name }; break;
       case "setHidden": normalized = { op: command.op, id: command.id, hidden: command.hidden }; break;
       case "promoteLayout": normalized = { op: command.op, sectionIds: Array.isArray(command.sectionIds) ? [...command.sectionIds] : command.sectionIds }; break;
       case "resetOverride": normalized = { op: command.op, instanceId: command.instanceId, ...(command.path !== undefined && { path: command.path }) }; break;

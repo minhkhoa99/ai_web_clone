@@ -333,3 +333,13 @@ test("GET editor: the page's components for the panel and the 1440 capture shot"
   expect(res.interactives).toEqual([]);
   expect(res.shot).toBe(`/api/projects/${id}/files/pages/${res.pageId}/shots/1440.png`);
 });
+
+test("E3 §5: setName passes zod and commits; a non-string name is a 400 VALIDATION", async () => {
+  const id = await seed();
+  const root = await rootId(id);
+  const ok = await post(commandsRoute, id, { baseRevision: 0, commands: [{ op: "setName", id: root, name: "Đầu trang" }] });
+  expect([ok.status, await ok.json()]).toEqual([200, { revision: 1, createdIds: [], canUndo: true, canRedo: false }]);
+  expect((await projectDocuments(getDb()).loadDocument(id)).sections[0]!.root.name).toBe("Đầu trang");
+  const bad = await post(commandsRoute, id, { baseRevision: 1, commands: [{ op: "setName", id: root, name: 5 }] });
+  expect([bad.status, ((await bad.json()) as { code: string }).code]).toEqual([400, "VALIDATION"]);
+});

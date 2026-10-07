@@ -416,3 +416,18 @@ test("promoteLayout dropping a section that holds instances round-trips instance
   expect(undone.ir.components[0]!.instanceIds).toEqual(["card0", "card1", "card2"]);
   expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out);
 });
+
+test("setName trims, holds 1–80 characters, inverts exactly; an instance records a name override; #text and placeholders are refused", () => {
+  const ir = fixture();
+  const named = roundTrip(ir, [{ op: "setName", id: "a", name: "  Tiêu đề chính  " }]).ir;
+  expect(kids(named)[0]!.name).toBe("Tiêu đề chính");
+  expect(prepareCommands(ir, [{ op: "setName", id: "a", name: "x".repeat(80) }], ids())).toEqual([{ op: "setName", id: "a", name: "x".repeat(80) }]);
+  for (const name of ["", "   ", "x".repeat(81)]) expect(() => prepareCommands(ir, [{ op: "setName", id: "a", name }], ids()), JSON.stringify(name)).toThrow(/1–80/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "a", name: 5 as never }])).toThrow(/string/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "ta", name: "t" }])).toThrow(/#text/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "ph1", name: "t" }])).toThrow(/placeholder/);
+  const cards = cardsIr();
+  const out = roundTrip(cards, [{ op: "setName", id: "card1", name: "Thẻ giữa" }]).ir;
+  expect(overridesOf(out, "card1")).toContain("name");
+  expect(card(out, 1).name).toBe("Thẻ giữa");
+});

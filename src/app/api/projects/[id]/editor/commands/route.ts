@@ -16,6 +16,7 @@ const command = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("setText"), id: nodeId, text: z.string() }),
   z.strictObject({ op: z.literal("setAttribute"), id: nodeId, name: z.string(), value: z.string().nullable() }),
   z.strictObject({ op: z.literal("setHidden"), id: nodeId, hidden: z.boolean() }),
+  z.strictObject({ op: z.literal("setName"), id: nodeId, name: z.string() }),
   z.strictObject({ op: z.literal("promoteLayout"), sectionIds: z.array(nodeId).max(100) }),
   z.strictObject({ op: z.literal("resetOverride"), instanceId: nodeId, path: z.string().optional() }),
   z.strictObject({ op: z.literal("detachComponent"), instanceId: nodeId }),
