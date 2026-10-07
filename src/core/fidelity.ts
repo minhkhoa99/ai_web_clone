@@ -309,21 +309,3 @@ export function refreshFidelity(before: FidelityItem[], after: IRV2, captures: P
   }
   return capFidelity(out);
 }
-
-// Editor save (grapes-adapter `skipped`): `#<element id>[:state] [media]` style rules with no IR target become
-// unsupported style-target items. `irIdOf` maps the GrapesJS element id to the IR node id (data-ir-id) when known;
-// refused attribute entries (`<id> [name]`) are not clone gaps and are ignored.
-export function styleTargetFidelity(pageId: string, skipped: string[], irIdOf: (elementId: string) => string | undefined = () => undefined): FidelityItem[] {
-  const out: FidelityItem[] = [];
-  for (const entry of skipped.slice(0, MAX_FIDELITY_ITEMS)) {
-    const m = /^#(\S+?)(?::(\S+))?(?:\s+(.+))?$/.exec(entry);
-    if (!m) continue;
-    const nodeId = irIdOf(m[1]!);
-    const target = `${m[2] ? `:${m[2]}` : ""}${m[3] ? ` @media ${m[3]}` : ""}`.trim();
-    out.push({
-      pageId, feature: "style-target", status: "unsupported", ...(nodeId && { nodeId, sourceRef: nodeId }),
-      note: clip(`Style ${target} không biểu diễn được trong IR (chỉ base, 768, 375 và hover/focus/active ở base); không được lưu`),
-    });
-  }
-  return out;
-}

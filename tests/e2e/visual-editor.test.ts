@@ -53,7 +53,7 @@ async function open(width = 1440, height = 1000): Promise<Page> {
   return page;
 }
 
-test("E3a shell: the new editor by default — sandboxed srcdoc frame based on out/, one runtime script, CSP; links never navigate; breakpoints resize the frame; Editor cũ keeps GrapesJS; no sideways scroll at 1440", { timeout: 120_000 }, async () => {
+test("E3a shell: the new editor by default — sandboxed srcdoc frame based on out/, one runtime script, CSP; links never navigate; breakpoints resize the frame; the old ?legacy=1 URL opens it too; no sideways scroll at 1440", { timeout: 120_000 }, async () => {
   const page = await open();
   await parityShot(page, "e3a-shell-1440"); // before any click scrolls the canvas
   const frame = page.locator('[data-ui="ui_editor_canvas_frame"]');
@@ -65,7 +65,7 @@ test("E3a shell: the new editor by default — sandboxed srcdoc frame based on o
   expect(await h1.evaluate(() => document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? "")).toContain("script-src ");
   await canvas(page).getByRole("link", { name: "Features" }).click();
   expect(await h1.evaluate(() => location.href)).toBe("about:srcdoc");
-  await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_bp_switch", "ui_editor_save_state", "ui_editor_legacy_link", "ui_editor_layers", "ui_editor_canvas_chrome", "ui_editor_canvas_frame", "ui_editor_right_tabs"]);
+  await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_bp_switch", "ui_editor_save_state", "ui_editor_layers", "ui_editor_canvas_chrome", "ui_editor_canvas_frame", "ui_editor_right_tabs"]);
   expect(await page.getByRole("group", { name: "Thiết bị" }).getByRole("button").allInnerTexts()).toEqual(["1440", "768", "375"]);
   await page.getByRole("group", { name: "Thiết bị" }).getByRole("button", { name: "768" }).click();
   await expect.poll(() => frame.evaluate((f) => f.getBoundingClientRect().width)).toBe(768);
@@ -73,10 +73,7 @@ test("E3a shell: the new editor by default — sandboxed srcdoc frame based on o
   expect(await noSideScroll(page)).toBe(true);
   await expectIconButtonsLabelled(page);
   await expectNoDrift(page);
-  await page.getByRole("link", { name: "Editor cũ" }).click();
-  await page.waitForURL(/legacy=1/);
-  await page.frameLocator("iframe.gjs-frame").locator("h1").waitFor({ timeout: 30_000 });
-  await page.getByRole("link", { name: "Editor mới" }).click();
+  await page.goto(`${app!.base}/p/${projectId}/editor?legacy=1`);
   await canvas(page).locator("h1").waitFor({ timeout: 30_000 });
   await page.close();
 });

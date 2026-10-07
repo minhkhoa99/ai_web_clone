@@ -1,5 +1,4 @@
 import { canvasPayload } from "@/core/editor-canvas";
-import { irToGrapes } from "@/core/grapes-adapter";
 import { panelComponents } from "@/core/interactive";
 import { loadEditable, projectDocuments } from "@/core/jobs";
 import { assetLibrary } from "@/core/upload";
@@ -11,10 +10,9 @@ import { ensureOutput, requireEditable } from "@/app/_server/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// One page of the document's display view (components resolved, classes derived) as GrapesJS JSON (?page=<pageId>,
-// default the first page), plus the project's sections as blocks, the revision that view is at and the Undo/Redo
-// flags (read after any pending output repair). E3 §5 (R6): + the canvas page (server-built document, resolved tree),
-// css, fonts, effects, pages and the image asset library; the GrapesJS payload stays for "Editor cũ".
+// One page of the document for the visual editor (E3 §5): the canvas payload, the Component panel's view, the 1440
+// shot, the asset library, the revision and the Undo/Redo flags (?page=<pageId>, default the first page; read after
+// any pending output repair). `allSections` (every page) feeds the Section card's "Gộp thành layout" (E3b R10).
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
@@ -28,11 +26,11 @@ export function GET(req: Request, { params }: IdCtx) {
     });
     const pageId = new URL(req.url).searchParams.get("page") ?? ir.pages[0]?.id ?? "";
     if (!ir.pages.some((p) => p.id === pageId)) throw new ApiError(404, "NOT_FOUND", `page ${pageId} not found`);
-    // the revision of the document shown (a Save diffs against exactly that revision)
-    // + the Component panel's view of this page (E2 §7; `components` is GrapesJS') and the 1440 shot for item thumbnails
+    // the revision of the document shown (commands go against exactly that revision)
+    // + the Component panel's view of this page (E2 §7) and the 1440 shot for item thumbnails
     const shot = `/api/projects/${encodeURIComponent(id)}/files/pages/${encodeURIComponent(pageId)}/shots/1440.png`;
     const canvas = canvasPayload(doc, pageId, emit, canvasUrlsFor(req, id), ir);
     const assets = await assetLibrary(workspaceOf(id), emit.assetMap, (file) => `/api/projects/${encodeURIComponent(id)}/files/${file}`);
-    return Response.json({ ...irToGrapes(ir, pageId, emit), ...(await store.historyState(id)), revision: doc.revision, interactives: panelComponents(doc, pageId), shot, ...canvas, assets });
+    return Response.json({ ...(await store.historyState(id)), revision: doc.revision, interactives: panelComponents(doc, pageId), shot, ...canvas, assets });
   });
 }

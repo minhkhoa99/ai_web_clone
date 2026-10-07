@@ -339,7 +339,7 @@ export function imageBatch(index: DocIndex, id: string, kind: "img" | "source" |
   if (parent?.node.tag === "picture") for (const c of parent.node.children) if (c.tag === "source") commands.push({ op: "setAttribute", id: c.id, name: "srcset", value: key });
   return capped(commands);
 }
-// the Component panel's role choices: the node + descendants (≤ max), like the GrapesJS selectionOf
+// the Component panel's role choices: the node + descendants (≤ max)
 export function outlineOf(index: DocIndex, id: string, max = 100): { id: string; label: string; depth: number }[] {
   const out: { id: string; label: string; depth: number }[] = [];
   const walk = (nid: string, depth: number): void => {

@@ -748,11 +748,9 @@ select.full { width: 100%; min-height: 38px; }
 
 /* === Screen: editor === */
 .editor-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
-.editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
-@media (max-width: 1099px) { .editor-grid { grid-template-columns: minmax(0, 1fr); } }
 .editor-sections { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.ve-left .editor-sections { max-height: 20vh; } /* the Section card under the layer tree leaves the tree its room */
 /* E2 §7 Component panel (no mockup: existing tokens / _ui components) */
-.editor-rail { min-width: 0; }
 .cmp-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .cmp-fieldset:empty { display: none; }
 .cmp-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-sm); }
@@ -769,14 +767,6 @@ select.full { width: 100%; min-height: 38px; }
 .cmp-form input[type="number"], .cmp-form select, .cmp-wizard select { width: 100%; }
 .cmp-error { color: var(--c-danger); }
 .cmp-actions { display: flex; flex-wrap: wrap; gap: var(--s-sm); }
-.editor-shell { overflow: hidden; }
-/* GrapesJS theme on the Stitch tokens (spec §3.8) */
-.editor-shell .gjs-one-bg { background-color: var(--c-surface-low); }
-.editor-shell .gjs-two-color { color: var(--c-text-2); }
-.editor-shell .gjs-three-bg { background-color: var(--c-surface-high); color: var(--c-text); }
-.editor-shell .gjs-four-color, .editor-shell .gjs-four-color-h:hover { color: var(--c-primary); }
-.editor-shell .gjs-pn-panel, .editor-shell .gjs-blocks-c, .editor-shell .gjs-sm-sector, .editor-shell .gjs-layer, .editor-shell .gjs-block { border-color: var(--c-border); }
-.editor-shell .gjs-editor, .editor-shell .gjs-pn-btn, .editor-shell .gjs-block, .editor-shell .gjs-sm-sector-title, .editor-shell .gjs-layer-name { font: var(--t-label-md); }
 /* === Screen: visual editor (E3) === */
 .ve { display: flex; flex-direction: column; gap: var(--s-sm); min-width: 0; }
 .ve-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: var(--s-sm); height: calc(100vh - 210px); min-height: 480px; }
@@ -784,7 +774,6 @@ select.full { width: 100%; min-height: 38px; }
 .ve-pane { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
 .ve-stage { position: relative; margin: 0 auto; }
 .ve-stage iframe { display: block; border: 0; background: #fff; }
-.ve-legacy { margin-inline-start: auto; }
 .ve-zoom { display: inline-flex; align-items: center; gap: 2px; }
 .ve-zoom > span { min-width: 44px; text-align: center; }
 .ve-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }

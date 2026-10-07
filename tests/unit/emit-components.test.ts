@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { compileV2, EMBED_CSP, HIDDEN_RULE, renderSite } from "@/core/emit-html";
-import { grapesToCommands, irToGrapes, type GrapesComponent } from "@/core/grapes-adapter";
+import { EMBED_CSP, HIDDEN_RULE, renderSite } from "@/core/emit-html";
+import { canvasPayload } from "@/core/editor-canvas";
 import { embedSrc, videoAttrs, type CarouselSpec, type VideoSpec } from "@/core/interactive";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
 
@@ -30,6 +30,7 @@ const site = (): IRV2 => ({
   layouts: [], components: [], tokens: {}, cssom: { keyframes: [], fontFace: [], vars: {} }, interactions: [], fidelity: [],
 });
 const opts = { assetMap: {}, pageUrls: { p1: "https://x.test/" } };
+const canvasHtml = (ir: IRV2) => canvasPayload(ir, "p1", opts, () => ({ base: "http://127.0.0.1/out/index.html", runtime: "http://127.0.0.1/out/js/runtime.js?edit=1" })).page.html;
 
 test("root gets data-c + data-c-cfg (ids, no source/confidence), parts get data-c-role, loop clones are not emitted", () => {
   const html = renderSite(site(), opts)["index.html"]!;
@@ -60,15 +61,11 @@ test("stripIds keeps data-ir-id only on nodes the cfg references (R6)", () => {
   expect(html).not.toContain('data-ir-id="plain"');
 });
 
-test("canvas: data-c* attributes shown, clone hidden, an untouched save diffs to no command", () => {
-  const ir = site();
-  const project = irToGrapes(compileV2(ir), "p1", opts);
-  const root = project.components[0]!;
-  expect(root.attributes["data-c"]).toBe("carousel");
-  const track = root.components![0]!.components![0]!;
-  expect(track.components!.map((c: GrapesComponent) => c.attributes["data-ir-id"])).toEqual(["s0", "s1"]);
-  const json = JSON.parse(JSON.stringify({ components: project.components, styles: [] }));
-  expect(grapesToCommands(ir, "p1", json, opts)).toEqual([]);
+test("canvas: the editor frame carries the data-c* attributes the edit-mode runtime reads; the loop clone is not in it", () => {
+  const html = canvasHtml(site());
+  expect(html).toMatch(/<section[^>]*data-c="carousel"/);
+  expect(html.match(/data-c-role="slide"/g)).toHaveLength(2);
+  expect(html).not.toContain('data-ir-id="clone"');
 });
 
 test("nested components: a carousel root that is a tabs panel carries both, roles join without collision", () => {
@@ -164,19 +161,18 @@ test("a breakpoint override cannot defeat the carousel base rules (768 flex-shri
   expect(at768).toMatch(/color:red/); // other overrides stay
 });
 
-test("canvas shows the spec's video flags and the rewritten embed src (not the captured ones); an untouched save diffs to no command", () => {
+test("canvas shows the spec's video flags and the rewritten embed src (not the captured ones)", () => {
   const ir = site();
   ir.sections[0]!.root.children.push(
     { id: "v", parentId: "root", tag: "video", type: "media", attrs: { controls: "", loop: "" }, styles: css(), children: [],
       interactive: { kind: "video", source: "native", confidence: "guessed", node: "v", mode: "native", autoplay: true, muted: true, loop: false, controls: false } },
     { id: "if", parentId: "root", tag: "iframe", type: "media", attrs: { src: "https://www.youtube.com/embed/abc123" }, styles: css(), children: [], interactive: embed },
   );
-  const project = irToGrapes(compileV2(ir), "p1", opts);
-  const byId = (id: string) => project.components[0]!.components!.find((c: GrapesComponent) => c.attributes["data-ir-id"] === id)!.attributes;
-  expect(byId("v")).toMatchObject({ autoplay: "", muted: "", playsinline: "" });
-  expect(byId("v")).not.toHaveProperty("controls");
-  expect(byId("v")).not.toHaveProperty("loop");
-  expect(byId("if").src).toBe("https://www.youtube-nocookie.com/embed/abc123?autoplay=1&mute=1");
-  const json = JSON.parse(JSON.stringify({ components: project.components, styles: [] }));
-  expect(grapesToCommands(ir, "p1", json, opts)).toEqual([]);
+  const html = canvasHtml(ir);
+  const video = /<video[^>]*data-ir-id="v"[^>]*>/.exec(html)![0];
+  expect(video).toContain('autoplay=""');
+  expect(video).toContain('muted=""');
+  expect(video).toContain('playsinline=""');
+  expect(video).not.toMatch(/\scontrols|\sloop/);
+  expect(html).toContain('src="https://www.youtube-nocookie.com/embed/abc123?autoplay=1&amp;mute=1"');
 });

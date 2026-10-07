@@ -15,7 +15,7 @@ const TONE = { supported: "success", partial: "warn", unsupported: "danger" } as
 const FID = { supported: "hỗ trợ", partial: "một phần", unsupported: "không hỗ trợ" } as const;
 const OPENS = new Set(["modal", "dropdown", "menu"]); // no item list: the canvas opens the whole component
 
-// E2 §7: plain React over the document + commands (no GrapesJS import); E3 reuses it as is. Only edit-time state here.
+// E2 §7: plain React over the document + commands; the visual editor (E3) uses it as is. Only edit-time state here.
 // onShow(root, k) shows item k on the canvas (postMessage, never saved); onShow(root, -1) closes it again.
 export function ComponentPanel({ document: doc, selectedId, revision: _revision, onCommands, onShow }: { document: PanelDocument; selectedId: string | null; revision: number; onCommands(commands: EditorCommand[]): void; onShow(rootId: string, index: number): void }) {
   const [wizard, setWizard] = useState(false);

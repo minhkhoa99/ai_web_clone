@@ -193,17 +193,16 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_code_viewer_wrap_toggle` | `feat_emit_html` | client | — | build |
 | `ui_code_viewer_build_status` | `feat_export` | `listOut` + `stat` (`mapLimit(8)`) | footer | build |
 
-## `/p/[id]/editor` ↔ `screen_editor` — visual editor E3 (GrapesJS ở "Editor cũ" tới hết E3a), không có mockup Stitch (chỉ token + chrome)
+## `/p/[id]/editor` ↔ `screen_editor` — visual editor E3, không có mockup Stitch (chỉ token + chrome)
 
 | ui_id | Feature | API / nguồn | Mockup (vùng) | Trạng thái |
 |---|---|---|---|---|
 | `ui_editor_page_header` | `feat_editor` | — | — | build |
-| `ui_editor_toolbar` | `feat_editor` | `GET …/editor`, `POST …/editor/{commands,undo,redo}` + `pageId`, `?page=`, `?legacy=1` | — | build |
-| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | khung canvas E3; GrapesJS chỉ ở `?legacy=1` | — | build |
+| `ui_editor_toolbar` | `feat_editor` | `GET …/editor`, `POST …/editor/{commands,undo,redo}` + `pageId`, `?page=` (`?legacy=1` cũ bị bỏ qua — vẫn mở editor mới) | — | build |
+| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | khung canvas E3 | — | build |
 | `ui_editor_canvas_frame` | `feat_editor`, `feat_ir` | E3 §1 iframe `srcdoc` sandbox (`page.html` của `GET …/editor`), click → chọn, link/form không điều hướng | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_bp_switch` | `feat_editor` | E3 §1 SegmentedControl "Thiết bị" 1440/768/375 = độ rộng iframe + `target` của setStyle | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_save_state` | `feat_editor` | E3 §4 "Đã lưu" / "Đang lưu…" theo command bus | không có trong mockup, dùng token/component sẵn có | build |
-| `ui_editor_legacy_link` | `feat_editor` | E3 §2 link "Editor cũ" → `?legacy=1` (chỉ E3a) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_stale_banner` | `feat_editor` | E3 §7 Banner "Tải lại" (409) / "Thử lại" (lỗi mạng, 503) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_layers` | `feat_editor`, `feat_ir` | E3 §4 cột trái Layers | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_left_tabs` | `feat_editor` | E3 §3 tab cột trái Layers / Thêm (SegmentedControl tabs) | không có trong mockup, dùng token/component sẵn có | build |
@@ -232,7 +231,7 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_measure` | `feat_editor` | E3 §3 giữ Alt + hover: px tới node đang chọn | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_resize_handle` | `feat_editor`, `feat_ir` | E3 §3 8 handle resize (R13: node theo luồng / sticky chỉ e / s / se, absolute / fixed đủ 8 — trên/trái ghi top/left); Shift khoá tỉ lệ — `setStyle` width/height[/top/left] px ở breakpoint hiện tại, một lần kéo = một bước Undo; Esc / cuộn canvas = huỷ | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_spacing_handle` | `feat_editor`, `feat_ir` | E3 §3 kéo mép trong: padding-top/right/bottom/left, gap (flex/grid, giữa hai con đầu) — `setStyle` px ≥ 0 ở breakpoint hiện tại, một lần kéo = một bước Undo | không có trong mockup, dùng token/component sẵn có | build |
-| `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
+| `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | E3b R10 Card "Section" ở cuối tab Layers: `allSections` (mọi trang) của `GET …/editor`, chọn ≥ 2 → "Gộp thành layout" = `promoteLayout` qua `POST …/editor/commands` (một batch, một bước Undo) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" (E3: tab Component của bảng phải) khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_header` | `feat_editor`, `feat_interaction_scan` | E2 §7 kind · nguồn · độ tin cậy + Badge Fidelity; dòng nhắc "Clone lại để đọc cấu hình thật" khi `guessed` — `interactives[].spec`, `fidelity` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_component_items` | `feat_editor`, `feat_interaction_scan` | E2 §7 danh sách item (thumbnail cắt từ shot 1440 + tên), kéo thả + nút ↑↓, Nhân bản, Xoá; bấm item → canvas hiện item đó (`aiwc:show`) — `POST …/editor/commands` add/remove/moveComponentItem; `shot` | không có trong mockup, dùng token/component sẵn có | build |

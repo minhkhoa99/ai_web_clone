@@ -11,8 +11,10 @@ import type { IRNodeV2 } from "@/core/ir-v2";
 import { isSafeAttr } from "@/core/safe-names";
 import type { LibraryAsset } from "@/core/upload";
 import { api, errorText } from "@/app/_ui/api";
+import { Badge } from "@/app/_ui/Badge";
 import { Banner } from "@/app/_ui/Banner";
 import { Button } from "@/app/_ui/Button";
+import { Card } from "@/app/_ui/Card";
 import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { ComponentPanel } from "../component-panel/component-panel";
@@ -84,6 +86,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [left, setLeft] = useState<"layers" | "insert">("layers");
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
   const [zoom, setZoom] = useState(1); // R8: view only, never saved
+  const [picked, setPicked] = useState<string[]>([]); // the Section card's choice (R10), sections of any page
   const editable = true; // Task 13: !viewOnly
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
@@ -117,7 +120,13 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const say = (e: BusEvent) => {
     switch (e.type) {
       case "saving": return;
-      case "done": setSaved(true); setMsg(e.op.done ?? DONE[e.op.kind]); return applyResult(e.result, e.op.kind === "commands" && !!e.op.keepSelection);
+      case "done":
+        setSaved(true);
+        setMsg(e.op.done ?? DONE[e.op.kind]);
+        // allSections spans every page: a merge, or an Undo/Redo that changed nothing on this page (another page's step,
+        // a merge's layout), reloads so the Section card is current
+        if (e.op.kind === "commands" ? e.op.commands.some((c) => c.op === "promoteLayout") : !e.result.affected?.shellChanged && !e.result.affected?.sections.length) drift.current = true;
+        return applyResult(e.result, e.op.kind === "commands" && !!e.op.keepSelection);
       case "refused": return setMsg(e.message);
       case "full": return setMsg("Đang lưu… chờ chút");
       case "stale": {
@@ -361,7 +370,6 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
         <span role="status" className="t-label-md text-2">{msg}</span>
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
-        <Link className="ve-legacy" data-ui="ui_editor_legacy_link" href={`/p/${id}/editor?legacy=1${data ? `&page=${encodeURIComponent(data.page.id)}` : ""}`}>Editor cũ</Link>
       </div>
       {halt && (
         <Banner tone={halt.kind === "stale" ? "warn" : "danger"} icon="warning" data-ui="ui_editor_stale_banner" title={halt.text}
@@ -375,6 +383,23 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             options={[{ value: "layers", label: "Layers" }, { value: "insert", label: "Thêm" }]} />
           {left === "insert" && <InsertPanel onInsert={insert} onDragStart={gestures.startInsert} />}
           {left === "layers" && data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
+          {left === "layers" && data && (
+            <Card title="Section" variant="section" data-ui="ui_editor_sections_panel">
+              <p className="t-body-sm text-2">Chọn section ở các trang khác nhau; section chọn đầu tiên thành layout chung.</p>
+              <ul className="editor-sections">
+                {data.allSections.map((s) => (
+                  <li key={s.id}>
+                    <label className="check">
+                      <input type="checkbox" checked={picked.includes(s.id)} onChange={() => setPicked((p) => (p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id]))} />
+                      <span className="mono">{s.name}</span> <span className="text-3">{data.pages.find((p) => p.id === s.pageId)?.path}</span>
+                      {s.layoutId && <Badge tone="primary">Layout chung</Badge>}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <Button onClick={() => { if (commands([{ op: "promoteLayout", sectionIds: picked }], "Gộp layout", { done: "Đã gộp thành layout chung" })) setPicked([]); }} disabled={picked.length < 2 || pending > 0}>Gộp thành layout</Button>
+            </Card>
+          )}
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={zoom} showItems={showItems}

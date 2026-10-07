@@ -11,7 +11,8 @@ export const MAX_AFFECTED_SECTIONS = 20;
 const MAX_FONTS = 50;
 export type CanvasSection = { id: string; name: string; layoutId?: string; root: IRNodeV2 };
 export type CanvasPage = { id: string; file: string; html: string; shell: IRNodeV2; sections: CanvasSection[] };
-export type CanvasPayload = { pages: { id: string; path: string }[]; page: CanvasPage; css: string; fonts: string[]; effects: string[] };
+// allSections: every page's sections (the Section card's "Gộp thành layout", E3b R10)
+export type CanvasPayload = { pages: { id: string; path: string }[]; allSections: { id: string; pageId: string; name: string; layoutId?: string }[]; page: CanvasPage; css: string; fonts: string[]; effects: string[] };
 export type Affected = { sections: { id: string; html: string; root: IRNodeV2 }[]; css: string; shellChanged: boolean; interactives: PanelComponent[] };
 
 // The sections a page shows, in shell order (its placeholders), each once.
@@ -42,6 +43,7 @@ export function canvasPayload(doc: IRV2, pageId: string, opts: RenderOpts, urls:
   const file = pageFileNames(doc.pages).get(pageId)!;
   return {
     pages: doc.pages.map((p) => ({ id: p.id, path: p.path })),
+    allSections: doc.sections.map((s) => ({ id: s.id, pageId: s.pageId, name: s.name, ...(s.layoutId !== undefined && { layoutId: s.layoutId }) })),
     page: { id: pageId, file, html: renderCanvasPage(view, pageId, opts, urls(file)), shell: page.shell, sections: sectionsOf(resolved, pageId) },
     css: renderCanvasCss(view, opts),
     fonts: pageFonts(doc),

@@ -4,7 +4,7 @@ import { migrateIR } from "@/core/ir-migrate";
 import type { IRNodeV2, IRV2, FidelityItem } from "@/core/ir-v2";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
-import { buildFidelity, refreshFidelity, styleTargetFidelity, MAX_FIDELITY_ITEMS } from "@/core/fidelity";
+import { buildFidelity, refreshFidelity, MAX_FIDELITY_ITEMS } from "@/core/fidelity";
 
 const n = (tag: string, children: CaptureNode[] = [], extra: Partial<CaptureNode> = {}): CaptureNode =>
   ({ tag, attrs: {}, bbox: [0, 0, 100, 50], style: {}, children, ...extra });
@@ -150,12 +150,4 @@ test("node-anchored findings are bounded per page and feature with a summary", (
   expect(sticky[0]!.status).toBe("unsupported");
   expect(sticky.at(-1)).toMatchObject({ status: "partial" }); // worst of the 10 omitted, not of the listed ones
   expect(sticky.at(-1)!.note).toContain("10");
-});
-
-test("unrepresentable editor style targets become unsupported style-target items", () => {
-  const items = styleTargetFidelity("p1", ["#i3k:hover (max-width:767.98px)", "#zz (min-width:500px)", "p1:0.1 [onclick]"], (el) => (el === "i3k" ? "p1:0.1.0" : undefined));
-  expect(items).toEqual([
-    { pageId: "p1", feature: "style-target", status: "unsupported", nodeId: "p1:0.1.0", sourceRef: "p1:0.1.0", note: expect.stringContaining(":hover") },
-    { pageId: "p1", feature: "style-target", status: "unsupported", note: expect.stringContaining("(min-width:500px)") },
-  ]);
 });

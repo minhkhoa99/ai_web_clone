@@ -1,5 +1,5 @@
-// Editor smoke: a completed site1 clone (real pipeline, AI steps stubbed) opened in the real GrapesJS
-// editor of a `next build` + `next start` app; one text edited like a user would, saved, re-emitted.
+// Editor smoke: a completed site1 clone (real pipeline, AI steps stubbed) opened in the visual editor
+// of a `next build` + `next start` app; one text edited like a user would, saved, re-emitted.
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -332,7 +332,7 @@ test("code viewer: tree + filter, file header (size, lines), copy = file content
   await context.close();
 });
 
-test("editor: edit one heading in the canvas, save -> exactly one command, out/index.html has the new text; server Undo/Redo; a stale tab is told to reload", async () => {
+test("editor: edit one heading inline (one setText), out/index.html has the new text; server Undo/Redo; a stale tab is told to reload; Esc cancels", async () => {
   const base = app!.base;
   // Taller viewport: the fixed shell header/sidebar leave less room below the fold at the Playwright default
   // (1280x720), which raced a canvas resize against the dblclick and missed the rich-text edit.
@@ -340,33 +340,23 @@ test("editor: edit one heading in the canvas, save -> exactly one command, out/i
   await page.goto(`${base}/p/${projectId}/preview`);
   await page.getByRole("navigation", { name: "Dự án" }).getByRole("link", { name: "Editor" }).click();
   await page.waitForURL(/\/editor$/);
-  await page.goto(`${base}/p/${projectId}/editor?legacy=1`);
-
-  const canvas = page.frameLocator("iframe.gjs-frame");
-  const heading = canvas.locator("h1");
+  const canvasFrame = page.frameLocator('[data-ui="ui_editor_canvas_frame"]');
+  const heading = canvasFrame.locator("h1");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
-  // the canvas resolves urls like the emitted page: based on out/index.html via the files route
   expect(await heading.evaluate(() => document.baseURI)).toBe(`${base}/api/projects/${projectId}/files/out/index.html`);
-  await heading.dblclick(); // GrapesJS rich-text editing
+  const status = page.getByRole("status");
+  const outHtml = async () => (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
+  await heading.dblclick();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Edited headline");
-  await page.getByRole("button", { name: "Lưu" }).click();
-  await expect.poll(() => page.getByRole("status").innerText(), { timeout: 30_000 }).toBe("Đã lưu: 1 thay đổi — điểm QA cần chạy lại");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã lưu — điểm QA cần chạy lại");
   expect(await page.getByRole("link", { name: "Mở Preview" }).getAttribute("href")).toBe(`/p/${projectId}/preview`);
-
-  const html = await (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
-  expect(html).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
-  expect(html).not.toContain("Build faster sites");
-  // the editor reloaded from the saved IR
-  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
-  // QA scores are not recomputed after an edit: flagged stale
+  expect(await outHtml()).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
+  expect(await outHtml()).not.toContain("Build faster sites");
   const preview = (await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { stale: boolean; scores: unknown[] };
   expect(preview.stale).toBe(true);
   expect(preview.scores.length).toBeGreaterThan(0);
-
-  // Hoàn tác / Làm lại: the server History (not GrapesJS' UndoManager); the editor reloads from the document
-  const outHtml = async () => (await fetch(`${base}/api/projects/${projectId}/files/out/index.html`)).text();
-  const status = page.getByRole("status");
   await page.getByRole("button", { name: "Hoàn tác" }).click();
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
@@ -375,77 +365,61 @@ test("editor: edit one heading in the canvas, save -> exactly one command, out/i
   await page.getByRole("button", { name: "Làm lại" }).click();
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã làm lại — điểm QA cần chạy lại");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
-  expect(await outHtml()).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
-
-  // another tab commits first: this tab's Lưu gets 409 and asks for a reload, nothing is overwritten
-  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true); // reloaded
+  // another tab commits first: this tab's edit gets 409 and asks for a reload, nothing is overwritten
   const { revision } = (await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number };
   const irId = (await heading.getAttribute("data-ir-id"))!;
-  const other = await fetch(`${base}/api/projects/${projectId}/editor/commands`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ baseRevision: revision, commands: [{ op: "setAttribute", id: irId, name: "title", value: "other tab" }] }),
-  });
+  const other = await fetch(`${base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: revision, commands: [{ op: "setAttribute", id: irId, name: "title", value: "other tab" }] }) });
   expect(other.status).toBe(200);
   await heading.dblclick();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Lost update");
-  await page.getByRole("button", { name: "Lưu" }).click();
+  await page.keyboard.press("Enter");
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe(`Dự án đã thay đổi ở nơi khác (revision ${revision + 1}). Tải lại để tiếp tục.`);
   expect(await outHtml()).not.toContain("Lost update");
   expect(await outHtml()).toContain('title="other tab"');
-  // "Tải lại" reloads the editor from the server document
   await page.getByRole("button", { name: "Tải lại" }).click();
-  await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Edited headline");
-  expect(await heading.getAttribute("title")).toBe("other tab");
+  await expect.poll(() => heading.getAttribute("title"), { timeout: 30_000 }).toBe("other tab");
+  expect(await heading.innerText()).toBe("Edited headline");
   expect(await page.getByRole("button", { name: "Tải lại" }).count()).toBe(0);
-
-  // text typed but still in rich-text editing is flushed first: Hoàn tác refuses instead of dropping it on reload
-  await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true);
+  // Esc leaves an inline edit without a request
+  const rev = ((await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number }).revision;
   await heading.dblclick();
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.type("Unsaved words");
-  await page.getByRole("button", { name: "Hoàn tác" }).click();
-  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Có thay đổi chưa lưu — Lưu trước khi Hoàn tác / Làm lại / Gộp layout / sửa trong panel Component.");
-  expect(await heading.innerText()).toBe("Unsaved words");
-  expect(await outHtml()).toMatch(/Edited headline<\/h1>/);
+  await page.keyboard.type(" unsaved");
+  await page.keyboard.press("Escape");
+  expect(await heading.innerText()).toBe("Edited headline");
+  expect(((await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number }).revision).toBe(rev);
   await page.close();
 });
 
-test("editor: ?page= opens that page, an unknown one falls back to the default; toolbar + GrapesJS on the tokens", async () => {
+test("editor: ?page= opens that page, an unknown one falls back to the default; toolbar", async () => {
   const base = app!.base;
   // site1's one page is id "index" (from pathIdsFor's slug of "index.html"), never hard-coded "home" (ruling P2)
   const ir = JSON.parse(await readFile(join(workspaceRoot, projectId, "ir.json"), "utf8")) as { pages: { id: string }[] };
   const pageId = ir.pages[0]!.id;
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${base}/p/${projectId}/editor?page=${pageId}&legacy=1`);
+  await page.goto(`${base}/p/${projectId}/editor?page=${pageId}`);
   const select = page.locator('[data-ui="ui_editor_toolbar"] select');
   await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
-  await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_canvas_chrome", "ui_editor_effects_panel", "ui_editor_sections_panel"]);
-  // no more default #444 GrapesJS panels: --c-surface-low
-  await expect.poll(() => page.locator(".editor-shell .gjs-one-bg").first().evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: 30_000 }).toBe("rgb(25, 28, 35)");
+  await expectUi(page, ["ui_editor_page_header", "ui_editor_toolbar", "ui_editor_canvas_chrome", "ui_editor_canvas_frame", "ui_editor_sections_panel"]);
+  // the Section card (E3b R10, end of the Layers tab): every page's sections; "Gộp thành layout" needs two
+  const card = page.locator('[data-ui="ui_editor_sections_panel"]');
+  expect(await card.locator("li").count()).toBeGreaterThan(0);
+  await card.locator('input[type="checkbox"]').first().check();
+  expect(await card.getByRole("button", { name: "Gộp thành layout" }).isDisabled()).toBe(true);
+  await card.locator('input[type="checkbox"]').first().uncheck();
   expect(await page.getByRole("group", { name: "Thiết bị" }).getByRole("button").allInnerTexts()).toEqual(["1440", "768", "375"]);
   expect(await page.getByRole("button", { name: "Hoàn tác" }).getAttribute("title")).toBe("Hoàn tác");
   expect(await page.getByRole("button", { name: "Làm lại" }).getAttribute("title")).toBe("Làm lại");
-  // no default GrapesJS panel is left with an empty (Font Awesome, unloaded) icon: every visible one has a real
-  // svg + title (ruling P19 fix round 1 #1), and the duplicate device dropdown (#2) is gone
-  const gjsButtons = page.locator(".editor-shell .gjs-pn-btn");
-  expect(await gjsButtons.count()).toBe(4);
-  for (const btn of await gjsButtons.all()) {
-    expect(await btn.getAttribute("title")).toBeTruthy();
-    expect(await btn.locator("svg").count()).toBe(1);
-  }
-  expect(await page.locator(".editor-shell .gjs-pn-devices-c").count()).toBe(0);
   await expectNoDrift(page);
   await parityShot(page, "editor");
 
-  // tablet: toolbar + editor-grid (stacked below ~1100px) never force a horizontal page scroll
+  // tablet: the toolbar and the editor grid never force a horizontal page scroll
   await page.setViewportSize({ width: 768, height: 900 });
   await shotAt(page, "editor-768");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "scrollWidth at 768").toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.goto(`${base}/p/${projectId}/editor?page=nope&legacy=1`);
+  await page.goto(`${base}/p/${projectId}/editor?page=nope`);
   await expect.poll(() => select.inputValue(), { timeout: 30_000 }).toBe(pageId);
   expect(await page.getByRole("status").innerText()).toBe("");
   await page.close();
@@ -456,9 +430,11 @@ test("editor API: recovery (spec §3, ghi đè R69) — failed/interrupted/pause
   const post = (path: string, body: unknown) =>
     fetch(`${base}/api/projects/${projectId}/editor/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const { revision } = (await (await fetch(`${base}/api/projects/${projectId}/editor`)).json()) as { revision: number };
-  expect((await post("save", { baseRevision: revision, pageId: "nope", project: { components: [] } })).status).toBe(400);
-  expect((await post("promote-layout", { baseRevision: revision, sectionIds: ["x"] })).status).toBe(400);
-  expect((await post("save", { pageId: "nope", project: { components: [] } })).status).toBe(400); // no baseRevision
+  expect((await post("commands", { baseRevision: revision, commands: [{ op: "promoteLayout", sectionIds: ["x"] }] })).status).toBe(400);
+  expect((await post("commands", { commands: [{ op: "promoteLayout", sectionIds: ["x"] }] })).status).toBe(400); // no baseRevision
+  // the old save / promote-layout routes are gone: 404, not 500 (E3b R15)
+  expect((await post("save", { baseRevision: revision, pageId: "nope", project: { components: [] } })).status).toBe(404);
+  expect((await post("promote-layout", { baseRevision: revision, sectionIds: ["x", "y"] })).status).toBe(404);
   try {
     // running: not a recoverable status regardless of the clone
     db!.prepare("UPDATE projects SET status='running' WHERE id=?").run(projectId);
@@ -484,7 +460,7 @@ test("editor API: recovery (spec §3, ghi đè R69) — failed/interrupted/pause
   }
 });
 
-test("recovery (fix round 1 review): editor save on a non-completed project closes outstanding fix tasks — the manual edit wins, a later resume won't re-fix (and clobber) that section", async () => {
+test("recovery (fix round 1 review): an editor edit on a non-completed project closes outstanding fix tasks — the manual edit wins, a later resume won't re-fix (and clobber) that section", async () => {
   const base = app!.base;
   const ir = JSON.parse(await readFile(join(workspaceRoot, projectId, "ir.json"), "utf8")) as { pages: { id: string }[]; sections: { id: string; pageId: string }[] };
   const pageId = ir.pages[0]!.id;
@@ -495,26 +471,12 @@ test("recovery (fix round 1 review): editor save on a non-completed project clos
   db!.prepare("INSERT INTO tasks(id,project_id,phase,key,status) VALUES(?,?,'fix',?,'pending')").run(randomUUID(), projectId, fixKey);
   db!.prepare("UPDATE projects SET status='failed' WHERE id=?").run(projectId);
   try {
-    type Comp = { type?: string; content?: string; attributes?: Record<string, string>; components?: Comp[] };
-    const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { pageId: string; components: Comp[]; revision: number };
-    const firstText = (cs: Comp[]): Comp | undefined => cs.map((c) => (c.type === "textnode" && c.content?.trim() ? c : firstText(c.components ?? []))).find(Boolean);
-    firstText(data.components)!.content = "Sửa tay";
-    // plus a style GrapesJS can hold but the IR cannot (hover at 375): skipped, recorded as Fidelity, not a History step
-    const styled = (cs: Comp[]): Comp | undefined => cs.map((c) => (c.attributes?.["data-ir-id"] && c.type !== "textnode" && c.components?.length ? c : styled(c.components ?? []))).find(Boolean);
-    const target = styled(data.components)!;
-    target.attributes!.id = "ifid";
-    const styles = [{ selectors: ["#ifid"], style: { color: "red" }, state: "hover", mediaText: "(max-width: 767.98px)", atRuleType: "media" }];
-    const save = await fetch(`${base}/api/projects/${projectId}/editor/save`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseRevision: data.revision, pageId: data.pageId, project: { components: data.components, styles } }),
-    });
-    const saved = (await save.json()) as { ops: number; revision: number; skipped: string[] };
-    expect([save.status, saved.ops, saved.skipped.length]).toEqual([200, 1, 1]);
-    const lost = ((await (await fetch(`${base}/api/projects/${projectId}/preview`)).json()) as { fidelity: FidelityItem[] }).fidelity.filter((x) => x.feature === "style-target");
-    expect(lost).toEqual([expect.objectContaining({ pageId, status: "unsupported", sourceRef: target.attributes!["data-ir-id"] })]);
-    const after = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { revision: number };
-    expect(after.revision).toBe(saved.revision); // the Fidelity update moved no revision: an open tab still saves
+    type Tree = { id: string; tag: string; text?: string; children: Tree[] };
+    const walkT = (x: Tree): Tree[] => [x, ...x.children.flatMap(walkT)];
+    const data = (await (await fetch(`${base}/api/projects/${projectId}/editor?page=${pageId}`)).json()) as { revision: number; page: { sections: { root: Tree }[] } };
+    const text = data.page.sections.flatMap((s) => walkT(s.root)).find((x) => x.tag === "#text" && x.text?.trim() && !x.id.startsWith("instance:"))!;
+    const res = await fetch(`${base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: data.revision, pageId, commands: [{ op: "setText", id: text.id, text: "Sửa tay" }] }) });
+    expect(res.status).toBe(200);
     const fixTask = db!.prepare("SELECT status,error_code,error_msg FROM tasks WHERE project_id=? AND phase='fix' AND key=?").get(projectId, fixKey) as {
       status: string;
       error_code: string | null;
@@ -600,8 +562,8 @@ test("v1 → v2: Preview reads a v1 project without migrating it; the editor ado
 
   // Editor: the first read adopts the migrated document at revision 0 — QA of the v1 output stale, ir.json the v2 mirror
   const page = await browser.newPage({ viewport: { width: 1280, height: 1080 } });
-  await page.goto(`${base}/p/${id}/editor?legacy=1`);
-  const heading = page.frameLocator("iframe.gjs-frame").locator("h1");
+  await page.goto(`${base}/p/${id}/editor`);
+  const heading = page.frameLocator('[data-ui="ui_editor_canvas_frame"]').locator("h1");
   await expect.poll(() => heading.innerText(), { timeout: 30_000 }).toBe("Build faster sites");
   expect(docRow()).toEqual({ revision: 0, cursor: 0, materialized_revision: 0 });
   expect(await json("ir.json")).toMatchObject({ version: 2, revision: 0 });
@@ -612,8 +574,8 @@ test("v1 → v2: Preview reads a v1 project without migrating it; the editor ado
   await heading.dblclick();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Upgraded headline");
-  await page.getByRole("button", { name: "Lưu" }).click();
-  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã lưu: 1 thay đổi — điểm QA cần chạy lại");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã lưu — điểm QA cần chạy lại");
   await expect.poll(() => page.getByRole("button", { name: "Hoàn tác" }).isEnabled(), { timeout: 30_000 }).toBe(true);
   await page.getByRole("button", { name: "Hoàn tác" }).click();
   await expect.poll(() => status.innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
