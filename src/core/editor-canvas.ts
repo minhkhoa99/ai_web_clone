@@ -49,21 +49,22 @@ export function canvasPayload(doc: IRV2, pageId: string, opts: RenderOpts, urls:
   };
 }
 
-// R4: a section changed when its resolved root differs; the page itself (shell, title, meta, section order) changing or
-// more than 20 sections -> the client reloads the page.
+// R4: a section changed when its compiled root differs. Compiled, not just resolved: compileV2 also writes roles from
+// specs in other sections (a modal trigger, a dropdown panel) and class names that a hash collision elsewhere can
+// widen. The page itself (shell, title, meta, section order) changing or more than 20 sections -> the client reloads.
 export function affectedOf(before: IRV2, after: IRV2, pageId: string, opts: RenderOpts): Affected {
-  const a = resolveComponents(before), b = resolveComponents(after);
+  const va = compileV2(before), vb = compileV2(after);
   const json = (x: unknown) => JSON.stringify(x);
   const interactives = panelComponents(after, pageId);
-  const pa = a.pages.find((p) => p.id === pageId), pb = b.pages.find((p) => p.id === pageId);
+  const pa = va.pages.find((p) => p.id === pageId), pb = vb.pages.find((p) => p.id === pageId);
   const reload: Affected = { sections: [], css: "", shellChanged: true, interactives };
   if (!pa || !pb || json(pa) !== json(pb)) return reload;
-  const rootIn = (ir: IRV2, id: string) => ir.sections.find((s) => s.id === id)?.root;
-  const changed = pageSectionIds(b, pageId).filter((id) => json(rootIn(a, id)) !== json(rootIn(b, id)));
+  const rootIn = (view: LegacyIR, id: string) => view.sections.find((s) => s.id === id)?.root;
+  const changed = pageSectionIds(after, pageId).filter((id) => json(rootIn(va, id)) !== json(rootIn(vb, id)));
   if (changed.length > MAX_AFFECTED_SECTIONS) return reload;
-  const view = compileV2(after);
-  const html = renderSectionsHtml(view, changed, opts);
-  return { sections: changed.map((id) => ({ id, html: html.get(id)!, root: rootIn(b, id)! })), css: renderCanvasCss(view, opts), shellChanged: false, interactives };
+  const resolved = new Map(resolveComponents(after).sections.map((s) => [s.id, s.root]));
+  const html = renderSectionsHtml(vb, changed, opts);
+  return { sections: changed.map((id) => ({ id, html: html.get(id)!, root: resolved.get(id)! })), css: renderCanvasCss(vb, opts), shellChanged: false, interactives };
 }
 
 const FAMILY = /font-family\s*:\s*([^;}]+)/gi;

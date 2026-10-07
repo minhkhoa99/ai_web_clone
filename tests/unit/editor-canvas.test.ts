@@ -99,3 +99,36 @@ test("canvas page and affected sections match the site emit for that page (only 
   const removed = applyCommands(doc(), [{ op: "deleteNode", id: "ph1" }]).ir;
   expect(affectedOf(doc(), removed, "pg", opts)).toMatchObject({ shellChanged: true, sections: [] });
 });
+
+// modal dlg in s0, its trigger b1 in s1 (roles are written from a spec in another section)
+const modalDoc = (withSpec = true): IRV2 => {
+  const d = doc();
+  d.sections[0]!.root.children.push(n("dlg", "div", [n("x", "button")], withSpec ? { interactive: { kind: "modal", source: "aria", confidence: "guessed", triggers: ["b1"], dialog: "dlg", closeOn: ["esc"] } } : {}));
+  d.sections[1]!.root.children.push(n("b1", "button"));
+  return d;
+};
+
+test("affected: unwrapping / converting a modal also re-renders the section holding its trigger", () => {
+  const before = modalDoc();
+  const unwrapped = applyCommands(before, [{ op: "unwrapComponent", id: "dlg" }]).ir;
+  const a = affectedOf(before, unwrapped, "pg", opts);
+  expect(a.sections.map((s) => s.id)).toEqual(["s0", "s1"]);
+  expect(a.sections[1]!.html).not.toContain("data-c-role");
+  const plain = modalDoc(false);
+  const converted = applyCommands(plain, [{ op: "convertToComponent", id: "dlg", kind: "modal", roles: { triggers: ["b1"], dialog: "dlg" } }]).ir;
+  const c = affectedOf(plain, converted, "pg", opts);
+  expect(c.sections.map((s) => s.id)).toEqual(["s0", "s1"]);
+  expect(c.sections[1]!.html).toContain('data-c-role="trigger"');
+});
+
+test("affected: a class renamed by a hash collision re-renders the untouched section that uses it", () => {
+  // z-index 1899 and 4759 share the first 6 hex of their style hash; the first one visited keeps s-69a3b7, the other widens
+  const before = doc();
+  before.sections[1]!.root.children[1]!.styles.base = { "z-index": "1899" };
+  const after = applyCommands(before, [{ op: "setStyle", id: "img0", target: "base", changes: { "z-index": "4759" } }]).ir;
+  expect(canvasPayload(before, "pg", opts, urls).page.html).toContain(`class="s-69a3b7" data-ir-id="img1"`);
+  const a = affectedOf(before, after, "pg", opts);
+  expect(a.sections.map((s) => s.id)).toEqual(["s0", "s1"]);
+  expect(a.sections[1]!.html).toContain("s-69a3b79f");
+  expect(a.css).toContain(".s-69a3b79f");
+});
