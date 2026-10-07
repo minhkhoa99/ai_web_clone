@@ -45,9 +45,11 @@ function HandleLayer({ m, zoom, handles }: { m: Measured; zoom: number; handles:
   );
 }
 
-export function Overlay({ zoom, hover, selected, parent, handles, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; handles?: Handles; children?: ReactNode }) {
+// frame: the instance whose main is being edited (R17)
+export function Overlay({ zoom, hover, selected, parent, handles, frame, children }: { zoom: number; hover?: { id: string; m: Measured; label: string }; selected: { id: string; m: Measured }[]; parent?: Measured; handles?: Handles; frame?: Measured; children?: ReactNode }) {
   return (
     <div className="ve-overlay" aria-hidden="true">
+      {frame && <div className="ve-main-frame" data-ui="ui_editor_edit_main_frame" style={at(frame.box, zoom)} />}
       {parent && <div className="ve-parent" data-ui="ui_editor_parent_box" style={at(parent.box, zoom)} />}
       {selected.map(({ id, m }) => (
         <div key={id}>

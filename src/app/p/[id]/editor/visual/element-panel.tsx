@@ -9,7 +9,7 @@ import { Button } from "@/app/_ui/Button";
 import { Card } from "@/app/_ui/Card";
 import { Field } from "@/app/_ui/Field";
 import { safeHref } from "./inline-text";
-import { generatedNode, guard, imageBatch, labelOf, type Batch, type Bp, type DocIndex, type Entry } from "./model";
+import { generatedNode, guard, imageBatch, instanceRootOf, labelOf, type Batch, type Bp, type DocIndex, type Entry } from "./model";
 
 // mirrors MAX_FILE_BYTES / DEFAULT_BUDGET_BYTES (core/assets is server-side; the unit test pins the values)
 export const UPLOAD_LIMITS = { fileBytes: 25 * 1024 * 1024, projectBytes: 500 * 1024 * 1024 } as const;
@@ -35,7 +35,7 @@ export function uploadError(status: number, body: { code?: string; message?: str
 }
 
 export type Optimistic = { apply(): void; rollback(): void };
-type Props = { projectId: string; index: DocIndex; entry: Entry; element: HTMLElement | null; bp: Bp; assets: LibraryAsset[]; onBatch(b: Batch, label: string, optimistic?: Optimistic): void; onUploaded(a: LibraryAsset): void; onMessage(text: string): void; canEdit?(): boolean };
+type Props = { projectId: string; index: DocIndex; entry: Entry; element: HTMLElement | null; bp: Bp; assets: LibraryAsset[]; onBatch(b: Batch, label: string, optimistic?: Optimistic): void; onUploaded(a: LibraryAsset): void; onMessage(text: string): void; onEditMain(root: string): void; canEdit?(): boolean };
 
 // an uncontrolled text box that saves on Enter / leaving it, once per value (Enter then blur is one save)
 function AttrInput({ label, value, onCommit }: { label: string; value: string; onCommit(v: string): void }) {
@@ -48,12 +48,14 @@ function AttrInput({ label, value, onCommit }: { label: string; value: string; o
   );
 }
 
-export function ElementPanel({ projectId, index, entry, element, bp, assets, onBatch, onUploaded, onMessage, canEdit = () => true }: Props) {
+export function ElementPanel({ projectId, index, entry, element, bp, assets, onBatch, onUploaded, onMessage, onEditMain, canEdit = () => true }: Props) {
   const [busy, setBusy] = useState(false);
   const node = entry.node;
   const background = !!element && element.ownerDocument.defaultView!.getComputedStyle(element).backgroundImage.includes("url("); // a pure gradient is not a replaceable image
   const kind = node.tag === "img" ? "img" : node.tag === "source" ? "source" : background ? "background" : undefined;
   const generated = generatedNode(node);
+  const instance = node.component?.role === "instance" && !generated;
+  const root = instanceRootOf(index, node.id); // undefined while its main is open (mainView cleared the refs)
   const apply = (asset: LibraryAsset) => {
     if (!kind) return;
     const b = imageBatch(index, node.id, kind, asset.key, bp);
@@ -100,10 +102,13 @@ export function ElementPanel({ projectId, index, entry, element, bp, assets, onB
   return (
     <Card title="Phần tử" data-ui="ui_editor_element_card">
       <p className="t-label-md">{`${node.tag} · ${labelOf(entry)}${rect ? ` · ${Math.round(rect.width)}×${Math.round(rect.height)}` : ""}`}</p>
-      {node.component?.role === "instance" && !generated && (
+      {(root || instance) && (
         <div className="cmp-actions">
+          {root && <Button icon="widgets" data-ui="ui_editor_edit_main" onClick={() => onEditMain(root)}>Sửa main</Button>}
+          {instance && <>
           <Button onClick={() => onBatch({ commands: [{ op: "detachComponent", instanceId: node.id }] }, "Tách khỏi component")}>Tách khỏi component</Button>
           <Button variant="ghost" onClick={() => onBatch({ commands: [{ op: "resetOverride", instanceId: node.id }] }, "Bỏ override")}>Bỏ mọi override</Button>
+          </>}
         </div>
       )}
       {generated && <p className="t-body-sm text-2">Phần tử lấy từ main component: bấm Sửa main, hoặc Tách khỏi component ở instance gốc.</p>}

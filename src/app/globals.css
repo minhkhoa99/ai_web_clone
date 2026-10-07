@@ -841,3 +841,9 @@ select.full { width: 100%; min-height: 38px; }
 .ve-handle.is-ne, .ve-handle.is-sw { cursor: nesw-resize; } .ve-handle.is-nw, .ve-handle.is-se { cursor: nwse-resize; }
 .ve-spacing-handle { position: absolute; background: var(--c-success); border-radius: 2px; pointer-events: auto; cursor: grab; }
 .ve-spacing-handle.is-gap { background: color-mix(in srgb, var(--c-accent) 60%, transparent); }
+/* E3b R17: edit-main mode — the bar above the canvas, a dashed frame around the open instance */
+.ve-center { display: flex; flex-direction: column; gap: var(--s-sm); min-width: 0; min-height: 0; }
+.ve-center > .ve-pane { flex: 1; }
+.ve-main-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--c-warn); border-radius: var(--r-md); background: var(--c-surface-high); }
+.ve-main-bar > span { flex: 1; min-width: 0; }
+.ve-main-frame { position: absolute; outline: 2px dashed var(--c-warn); outline-offset: 2px; pointer-events: none; }

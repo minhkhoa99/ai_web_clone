@@ -15,6 +15,7 @@ import { Badge } from "@/app/_ui/Badge";
 import { Banner } from "@/app/_ui/Banner";
 import { Button } from "@/app/_ui/Button";
 import { Card } from "@/app/_ui/Card";
+import { Icon } from "@/app/_ui/Icon";
 import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { ComponentPanel } from "../component-panel/component-panel";
@@ -25,7 +26,7 @@ import { fitZoom, handlesFor, wheelZoom, ZOOM, zoomStep } from "./gestures";
 import { InsertPanel } from "./insert-panel";
 import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
-import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, insertAt, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
+import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, insertAt, instanceRootOf, isTextHost, keyAction, labelOf, mainView, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, toMain, viewIdOf, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { at, measure, Overlay } from "./overlay";
 import { gaps } from "./snap";
 import { StylePanel } from "./style-panel";
@@ -112,13 +113,18 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
   const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
-  const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
-  const live = useRef({ data, index, selection, bp, zoom, editable });
-  live.current = { data, index, selection, bp, zoom, editable };
+  const [editMain, setEditMain] = useState<string | null>(null); // R17: the open instance's root (a canvas id)
+  const raw: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
+  // a reload / an edit that removed the instance closes the mode (the effect below clears editMain too)
+  const open = editMain && raw.get(editMain)?.node.component?.role === "instance" ? editMain : null;
+  // every panel, gesture, shortcut and inline edit reads `index`: while a main is open, its instance without refs
+  const index: DocIndex = useMemo(() => (open ? mainView(raw, open) : raw), [raw, open]);
+  const live = useRef({ data, index, raw, open, selection, bp, zoom, editable });
+  live.current = { data, index, raw, open, selection, bp, zoom, editable };
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
-  const applyResult = (r: StepResult, keepSelection = false) => {
+  const applyResult = (r: StepResult, keepSelection = false, mainRoot?: string) => {
     gestures.cancelGesture(); // a drag's drop was built from the index / DOM this result replaces
     const a = r.affected, d = live.current.data;
     if (!d) return;
@@ -134,7 +140,8 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         page: { ...cur.page, sections: cur.page.sections.map((s) => (fresh.has(s.id) ? { ...s, root: fresh.get(s.id)! } : s)) },
       }),
     });
-    if (!keepSelection) setSelection((s) => (r.createdIds.length ? r.createdIds : s));
+    // R18: a node created in the main shows in the open instance under its generated id
+    if (!keepSelection) setSelection((s) => (r.createdIds.length ? r.createdIds.map((c) => (mainRoot ? viewIdOf(mainRoot, c) : c)) : s));
   };
   // refetch the page; the old bus is dropped at once so nothing more is pushed to it
   const refetch = () => { gestures.cancelGesture(); bus.current = null; setLoading(true); setLoad((x) => x + 1); };
@@ -147,7 +154,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         // allSections spans every page: a merge, or an Undo/Redo that changed nothing on this page (another page's step,
         // a merge's layout), reloads so the Section card is current
         if (e.op.kind === "commands" ? e.op.commands.some((c) => c.op === "promoteLayout") : !e.result.affected?.shellChanged && !e.result.affected?.sections.length) drift.current = true;
-        return applyResult(e.result, e.op.kind === "commands" && !!e.op.keepSelection);
+        return e.op.kind === "commands" ? applyResult(e.result, !!e.op.keepSelection, e.op.mainRoot) : applyResult(e.result);
       case "refused": return setMsg(e.message);
       case "full": return setMsg("Đang lưu… chờ chút");
       case "stale": {
@@ -197,10 +204,18 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // false = not queued (the bus already said why: full / stale); no bus yet = the page is still loading
   // view-only (R9): the gate is read at call time, so no callback captured earlier (a debounce, an upload's follow-up)
   // gets past it
+  // R17: every commands op (panels, gestures, shortcuts, inline text, Thêm) passes here — while a main is open its canvas
+  // ids become the main's (toMain refuses what cannot be one, nothing sent)
   const run = (op: Op): boolean => {
     if (!live.current.editable) { setMsg(VIEW_ONLY); return false; }
     setMsg("");
     if (!bus.current) { setMsg("Editor chưa sẵn sàng."); return false; }
+    const root = live.current.open;
+    if (root && op.kind === "commands") {
+      const m = toMain(live.current.raw, root, op.commands);
+      if ("error" in m) { setMsg(m.error); return false; }
+      op = { ...op, commands: m.commands, mainRoot: root };
+    }
     return bus.current.push(op);
   };
   const commands = (list: EditorCommand[], label: string, extra: Partial<CommandsOp> = {}) => run({ kind: "commands", commands: list, label, ...extra });
@@ -320,7 +335,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         return;
       }
       case "paste": { if (!clip.current) return; e.preventDefault(); batch(pasteBatch(ix, comps, clip.current, first), "Dán"); return; }
-      case "parent": { e.preventDefault(); const p = first ? parentOf(ix, first) : undefined; return select(p ? [p] : []); }
+      case "parent": {
+        e.preventDefault();
+        if (live.current.open && (!first || first === live.current.open)) { setEditMain(null); return; } // R18: Esc at the instance root leaves
+        const p = first ? parentOf(ix, first) : undefined;
+        return select(p ? [p] : []);
+      }
       case "child": { e.preventDefault(); const c = first ? ix.get(first)?.children[0] : undefined; if (c) select([c]); return; }
       case "siblings": { if (!first) return; e.preventDefault(); return select(siblingsOf(ix, first)); }
       // the browser's own page zoom prevented
@@ -364,12 +384,22 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     styleFlush.current?.();
     endEdit.current?.();
     live.current.editable = false; // closed now, not at the next render
+    setEditMain(null); // R18: view-only leaves the edit-main mode (what was typed above went to the main)
     setLocked(true);
     if (inRight) toggles.current.left?.focus();
     setDrawer((d) => (d === "right" ? null : d));
     setLeft("layers");
   }, [viewOnly]); // gestures.cancelGesture and the refs only: no stale state
   useEffect(() => { if (!narrow) setDrawer(null); }, [narrow]); // wide again: the panels are columns
+  // R18: the instance is gone -> leave; a selection in another instance of the same component moves the open instance
+  // there (same main); any other selection outside it leaves
+  useEffect(() => {
+    if (editMain && !open) return setEditMain(null);
+    if (!open || selection.every((sid) => ancestorsOf(raw, sid).includes(open))) return;
+    const cmp = raw.get(open)!.node.component!.id, roots = new Set(selection.map((sid) => instanceRootOf(raw, sid)));
+    const [next] = roots;
+    setEditMain(roots.size === 1 && next && raw.get(next)!.node.component!.id === cmp ? next : null);
+  }, [selection, open, editMain, raw]);
   // "Vừa khung": the breakpoint's width across the pane (R8)
   const fit = () => { const w = canvas.current?.pane()?.clientWidth; if (w) setZoom(fitZoom(w, bp)); };
 
@@ -403,6 +433,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     const pos = handleEl.ownerDocument.defaultView!.getComputedStyle(handleEl).position, gap = gestures.gapOf(selection[0]!);
     return { id: selection[0]!, list: handlesFor(pos === "absolute" || pos === "fixed"), onHandle: gestures.startResize, onSpacing: gestures.startSpacing, ...(gap && { gap: gap.box }) };
   })() : undefined;
+  const mainBox = open ? measured(open) : undefined;
   const hoverInfo = hoverId && hoverM ? { id: hoverId, m: hoverM, label: `${index.get(hoverId)!.node.tag} · ${labelOf(index.get(hoverId)!)} · ${Math.round(hoverM.box.w)}×${Math.round(hoverM.box.h)}` } : undefined;
   return (
     <div className="ve">
@@ -462,11 +493,19 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             </Card>
           )}
         </aside>
+        <div className="ve-center">
+        {open && (
+          <div className="ve-main-bar" data-ui="ui_editor_edit_main_bar">
+            <Icon name="widgets" size={16} />
+            <span className="t-body-sm">Đang sửa main component — thay đổi áp cho mọi instance chưa override thuộc tính đó.</span>
+            <Button onClick={() => setEditMain(null)}>Xong</Button>
+          </div>
+        )}
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={zoom} showItems={showItems}
             onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onKeyUp={onKeyUp} onPress={gestures.onPress}
             onZoomWheel={(dy) => setZoom((z) => wheelZoom(z, dy))} onFrame={() => setTick((t) => t + 1)}>
-            <Overlay zoom={zoom} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles}>
+            <Overlay zoom={zoom} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles} frame={mainBox}>
               {(gesture?.kind === "flow" || gesture?.kind === "insert") && gesture.drop && (
                 <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, zoom)}>
                   {!gesture.drop.ok && <span className="ve-label">{gesture.drop.reason}</span>}
@@ -483,6 +522,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             </Overlay>
           </Canvas>
         ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}
+        </div>
         <aside id="ve-right" ref={(el) => { panels.current.right = el; }} tabIndex={-1} className={`ve-right panel${drawer === "right" ? " is-open" : ""}`} aria-label="Bảng Style">
           {editable && <>
           <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
@@ -491,9 +531,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
             <StylePanel key={selection[0]} node={index.get(selection[0])!.node} element={canvas.current?.element(selection[0]) ?? null} bp={bp} fonts={data.fonts} flushRef={styleFlush}
               onBatch={(b, label, extra) => batch(b, label, extra)} onMessage={setMsg} />
             <ElementPanel projectId={id} index={index} entry={index.get(selection[0])!} element={canvas.current?.element(selection[0]) ?? null} bp={bp} assets={data.assets} onBatch={batch}
-              onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} canEdit={() => live.current.editable} />
+              onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} canEdit={() => live.current.editable}
+              onEditMain={(r) => { setEditMain(r); setMsg("Đang sửa main component"); }} />
           </>) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
-          {data && tab === "component" && (
+          {/* the main's nodes have no component of their own here (toMain refuses component ops): Xong first */}
+          {data && tab === "component" && open && <p className="t-body-sm text-2">Đang sửa main component — bấm Xong để dùng panel Component.</p>}
+          {data && tab === "component" && !open && (
             <fieldset className="cmp-fieldset" disabled={pending > 0 || loading}>
               <ComponentPanel
                 document={{ components: data.interactives, ancestors: selection[0] ? ancestorsOf(index, selection[0]) : [], outline: selection[0] ? outlineOf(index, selection[0]) : [], shot: data.shot }}
