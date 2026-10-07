@@ -4,7 +4,7 @@
 // there) both feed the move / release. A resize / padding / gap handle (R13, in this window's overlay) starts one at
 // once. Cancelled (nothing sent, the preview put back, the release click swallowed) by Escape, a blur, a lost
 // pointerup, a reload or a result swapping the canvas, and (but for a flow drag) a scroll of the frame: the measured
-// boxes would no longer match.
+// boxes would no longer match. A press on a panel "Thêm" template (this window) becomes an insert drag the same way.
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { PanelComponent } from "@/core/interactive";
 import type { EditorCommand } from "@/core/ir-command";
@@ -13,6 +13,7 @@ import { axisOf, dropZone, freeCommands, indicator, resizeCommands, spacingComma
 import { ancestorsOf, dropCommand, guard, guardParent, isTextHost, pickTarget, styleTarget, type Batch, type Box, type Bp, type DocIndex } from "./model";
 import { measure } from "./overlay";
 import { snap, SNAP_PX, type Guide } from "./snap";
+import { dropPosition, insertBatch, type Template } from "./templates";
 
 export type Drop = { key: string; box: Box; ok: boolean; reason?: string; batch?: Batch };
 type Flow = { kind: "flow"; id: string; drop?: Drop };
@@ -23,7 +24,9 @@ type Resize = { kind: "resize"; id: string; el: HTMLElement; prev: Record<string
 type Spacing = { kind: "spacing"; id: string; el: HTMLElement; prev: Record<string, string>; what: Side | GapAxis; start: Point; from: number; delta: number };
 // Space+drag (Task 10): the pane scrolls sideways, the frame vertically; x / y in this window's client px
 type Pan = { kind: "pan"; x: number; y: number; left: number; top: number };
-export type Gesture = Flow | Free | Resize | Spacing | Pan; // Task 11: insert
+// a panel template dragged onto the canvas (Task 11): the same insertion bar, its batch the template's
+type Insert = { kind: "insert"; template: Template; drop?: Drop };
+export type Gesture = Flow | Free | Resize | Spacing | Pan | Insert;
 export type GestureLive = { data: { interactives: PanelComponent[] } | null; index: DocIndex; selection: string[]; bp: Bp; zoom: number };
 type Point = { x: number; y: number };
 type Extra = { apply?(): void; rollback?(): void };
@@ -64,8 +67,9 @@ export function useGestures(o: {
   const spaceKey = (down: boolean) => { space.current = down; if (!down && drag.current.gesture?.kind === "pan") endGesture(); };
   // the click the frame fires right after a drop: true = swallow it
   const consumeDrop = (): boolean => { if (!drag.current.dropped) return false; drag.current.dropped = false; return true; };
-  // the drop under a frame document point: the indicator (blue) with its batch, or red with dropCommand's reason
-  const flowOver = (g: Flow, p: Point): Drop | undefined => {
+  // the drop under a frame document point: the indicator (blue) with its batch, or red with the batch's reason
+  // (dropCommand for a node, dropPosition + insertBatch for a template)
+  const dropOver = (g: Flow | Insert, p: Point): Drop | undefined => {
     const c = canvas.current, ix = live.current.index, comps = live.current.data?.interactives ?? [];
     if (!c) return undefined;
     const raw = c.hit(p.x, p.y), over = raw ? pickTarget(ix, raw) : undefined, el = over ? c.element(over) : null;
@@ -74,9 +78,16 @@ export function useGestures(o: {
     const cs = parentEl?.ownerDocument.defaultView?.getComputedStyle(parentEl);
     const axis = cs ? axisOf(cs.display, cs.flexDirection) : "y";
     // Task 6 carry: the caller decides what is a container — not the dragged node, a void, a text host or a refused parent
-    const container = over !== g.id && !isTextHost(ix.get(over)!.node) && guardParent(ix, comps, over) === undefined;
-    const zone = dropZone(box, p, axis, container), b = dropCommand(ix, comps, g.id, over, zone), ib = indicator(box, zone, axis);
+    const container = (g.kind !== "flow" || over !== g.id) && !isTextHost(ix.get(over)!.node) && guardParent(ix, comps, over) === undefined;
+    const zone = dropZone(box, p, axis, container), ib = indicator(box, zone, axis);
+    const placed = (t: Template): Batch => { const at = dropPosition(ix, comps, over, zone); return "error" in at ? at : insertBatch(t, at); };
+    const b = g.kind === "flow" ? dropCommand(ix, comps, g.id, over, zone) : placed(g.template);
     return { key: `${over}|${zone}|${ib.x},${ib.y},${ib.w},${ib.h}`, box: ib, ok: !("error" in b), ...("error" in b ? { reason: b.error } : { batch: b }) };
+  };
+  // a client point over the visible frame (inside the frame and its scrolling pane: not under a side panel)
+  const overFrame = (q: Point | undefined): boolean => {
+    const c = canvas.current, f = c?.frame()?.getBoundingClientRect(), r = c?.pane()?.getBoundingClientRect();
+    return !!q && !!f && !!r && [f, r].every((b) => q.x >= b.left && q.x <= b.right && q.y >= b.top && q.y <= b.bottom);
   };
   // R6 / R11: Alt+drag measures once at the start — the node, its parent, the snap targets (siblings, parent, the frame's
   // viewport) and the computed width it keeps. undefined = refused (the message says why) or not measurable
@@ -207,7 +218,7 @@ export function useGestures(o: {
       if (JSON.stringify(n.guides) !== JSON.stringify(g.guides)) setG(n); else drag.current.gesture = n;
       return;
     }
-    const drop = flowOver(g, p);
+    const drop = g.kind === "flow" || overFrame(client) ? dropOver(g, p) : undefined;
     if (drop?.key !== g.drop?.key) setG({ ...g, drop });
   };
   // one batch = one revision, one Undo; a refused drop (red) sends nothing
@@ -219,6 +230,7 @@ export function useGestures(o: {
       o.batch({ commands: sized }, g.kind === "resize" ? "Đổi kích thước" : "Khoảng cách", { apply: () => paint(g, sized), rollback: () => unpaint(g) });
     }
     if (g?.kind === "flow" && g.drop?.batch) o.batch(g.drop.batch, "Di chuyển");
+    if (g?.kind === "insert" && g.drop?.batch) o.batch(g.drop.batch, `Thêm ${g.template.label}`);
     if (g?.kind === "free" && free.length) {
       const { el, dx, dy, prevTranslate } = g;
       o.batch({ commands: free }, "Đặt tự do", { apply: () => { el.style.translate = `${dx}px ${dy}px`; }, rollback: () => { el.style.translate = prevTranslate; } });
@@ -280,11 +292,34 @@ export function useGestures(o: {
     d.addEventListener("pointerup", unpress);
     d.addEventListener("pointercancel", unpress);
   };
+  // Task 11: a press on a panel template becomes an insert drag after 4 px (this window's pointer; the capture overlay
+  // takes it from there); without moving, the button's own click inserts after the selection. The click the release
+  // fires (a drop, or a cancel released on the button) is swallowed: consumeDrop until that release's task is over.
+  const startInsert = (template: Template, e: { clientX: number; clientY: number }) => {
+    drag.current.dropped = false;
+    const d = canvas.current?.doc();
+    if (!d || drag.current.gesture) return;
+    const unpress = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", unpress); window.removeEventListener("pointercancel", unpress); };
+    const move = (m: PointerEvent) => {
+      if (m.buttons === 0) return unpress();
+      if (Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 4) return;
+      unpress();
+      drag.current.dropped = true;
+      const release = () => { window.removeEventListener("pointerup", release, true); setTimeout(() => { drag.current.dropped = false; }); };
+      window.addEventListener("pointerup", release, true);
+      setG({ kind: "insert", template });
+      hold(d);
+      capture.onPointerMove(m);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", unpress);
+    window.addEventListener("pointercancel", unpress);
+  };
   // the capture overlay's handlers (parent client px -> frame document px)
   const capture = {
     onPointerMove: (e: { clientX: number; clientY: number; buttons: number; shiftKey: boolean }) => { const p = canvas.current?.toDoc(e.clientX, e.clientY); if (p) gestureMove(p, e.buttons, e.shiftKey, { x: e.clientX, y: e.clientY }); },
     onPointerUp: gestureUp,
     onPointerCancel: endGesture,
   };
-  return { gesture, onPress, cancelGesture, consumeDrop, capture, startResize, startSpacing, gapOf, spaceKey };
+  return { gesture, onPress, cancelGesture, consumeDrop, capture, startResize, startSpacing, gapOf, spaceKey, startInsert };
 }

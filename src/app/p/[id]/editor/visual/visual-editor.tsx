@@ -20,12 +20,14 @@ import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { EffectsCard, ElementPanel } from "./element-panel";
 import { fitZoom, handlesFor, wheelZoom, ZOOM, zoomStep } from "./gestures";
+import { InsertPanel } from "./insert-panel";
 import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
-import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
+import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, insertAt, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { at, measure, Overlay } from "./overlay";
 import { gaps } from "./snap";
 import { StylePanel } from "./style-panel";
+import { insertBatch, type Template } from "./templates";
 import { useGestures } from "./use-gestures";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
@@ -79,6 +81,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [pending, setPending] = useState(0);
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<RightTab>("style");
+  const [left, setLeft] = useState<"layers" | "insert">("layers");
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
   const [zoom, setZoom] = useState(1); // R8: view only, never saved
   const editable = true; // Task 13: !viewOnly
@@ -173,6 +176,14 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const editing = useRef<HTMLElement | null>(null); // the text host being edited
   const gestures = useGestures({ canvas, live, editing, batch, setMsg });
   const { gesture } = gestures;
+  // E3 §3 "Thêm": after the selected node (a section root: last inside it), one batch; a drag's release click never inserts
+  const insert = (t: Template) => {
+    if (gestures.consumeDrop()) return;
+    const { index: ix, data: d, selection: sel } = live.current;
+    const at = insertAt(ix, d?.interactives ?? [], sel[0]);
+    if ("error" in at) return setMsg(at.error);
+    batch(insertBatch(t, at), `Thêm ${t.label}`);
+  };
   // spec §2: the deepest pickable node; Shift toggles it in the selection. flushSync: the overlay is drawn in the
   // same task as the click (§9 hiệu năng)
   const pick = (raw: string, shift: boolean) => {
@@ -360,14 +371,17 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       )}
       <div className="ve-grid">
         <aside className="ve-left panel" data-ui="ui_editor_layers" aria-label="Layers">
-          {data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
+          <SegmentedControl<"layers" | "insert"> label="Bảng bên trái" semantics="tabs" data-ui="ui_editor_left_tabs" value={left} onChange={setLeft}
+            options={[{ value: "layers", label: "Layers" }, { value: "insert", label: "Thêm" }]} />
+          {left === "insert" && <InsertPanel onInsert={insert} onDragStart={gestures.startInsert} />}
+          {left === "layers" && data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
         </aside>
         {data ? (
           <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={zoom} showItems={showItems}
             onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onKeyUp={onKeyUp} onPress={gestures.onPress}
             onZoomWheel={(dy) => setZoom((z) => wheelZoom(z, dy))} onFrame={() => setTick((t) => t + 1)}>
             <Overlay zoom={zoom} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles}>
-              {gesture?.kind === "flow" && gesture.drop && (
+              {(gesture?.kind === "flow" || gesture?.kind === "insert") && gesture.drop && (
                 <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, zoom)}>
                   {!gesture.drop.ok && <span className="ve-label">{gesture.drop.reason}</span>}
                 </div>

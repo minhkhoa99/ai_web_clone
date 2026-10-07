@@ -30,6 +30,8 @@ export const NAMES = [
   "title", "link", "touch_app", "input", "movie", "shapes", "widgets", "crop_square", "upload",
   // visual editor E3b (zoom)
   "zoom_in", "zoom_out", "fit_screen",
+  // visual editor E3b (insert panel)
+  "text_fields", "text_snippet", "add_box", "view_week", "view_agenda", "grid_view", "view_carousel", "tab", "expand_circle_down", "web_asset",
   // sitemap
   "unfold_more", "unfold_less",
 ];

@@ -393,3 +393,60 @@ test("E3b zoom: Ctrl+- to 50 % scales the frame and the overlay, a click still s
   expect(Math.abs(pb.x - sb2.x) + Math.abs(pb.y - sb2.y) + Math.abs(pb.width - sb2.width)).toBeLessThan(3);
   await page.close();
 });
+
+test("E3b insert: Flex hàng after the selection (click) and a Carousel sample dragged under the h1 — one batch each (Carousel = node + component), one Undo removes both; a refused drop is red and sends nothing", { timeout: 240_000 }, async () => {
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  await h1.click();
+  await page.getByRole("tab", { name: "Thêm" }).click();
+  expect(await noSideScroll(page)).toBe(true);
+  const before = (await payload()).revision;
+  await page.getByRole("button", { name: "Flex hàng" }).click();
+  await saved(page);
+  await expect.poll(() => h1.evaluate((el) => el.nextElementSibling && getComputedStyle(el.nextElementSibling).display), { timeout: 30_000 }).toBe("flex");
+  expect((await payload()).revision).toBe(before + 1);
+  // the created node is selected
+  const sel = page.locator('[data-ui="ui_editor_selection_box"]').first();
+  await expect.poll(async () => sel.getAttribute("data-for")).toBe(await h1.evaluate((el) => el.nextElementSibling!.getAttribute("data-ir-id")));
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(() => h1.evaluate((el) => el.nextElementSibling?.tagName)).toBe("P");
+  // drag (the left end of the h1: its centre lies under the right panel at 1440)
+  const item = (await page.getByRole("button", { name: "Carousel" }).boundingBox())!;
+  const hb = (await h1.boundingBox())!, rev0 = (await payload()).revision;
+  await drag(page, centre(item), { x: hb.x + 10, y: hb.y + hb.height - 2 });
+  await saved(page);
+  await expect.poll(() => canvas(page).locator('[data-c="carousel"]').count(), { timeout: 30_000 }).toBeGreaterThan(0);
+  expect(await canvas(page).locator('[data-c="carousel"] [data-c-role="slide"]').count()).toBe(3);
+  expect((await payload()).revision).toBe(rev0 + 1);
+  expect(await h1.evaluate((el) => el.nextElementSibling?.getAttribute("data-c"))).toBe("carousel");
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(() => canvas(page).locator('[data-c="carousel"]').count(), { timeout: 30_000 }).toBe(0);
+  // beside a section root (the features section's top padding): red with the reason, nothing sent on release
+  const rev = (await payload()).revision;
+  const fb = (await canvas(page).locator("#features").boundingBox())!;
+  const text = (await page.getByRole("button", { name: "Text", exact: true }).boundingBox())!;
+  await page.mouse.move(centre(text).x, centre(text).y);
+  await page.mouse.down();
+  for (let s = 1; s <= 6; s++) await page.mouse.move(centre(text).x + ((fb.x + 10 - centre(text).x) * s) / 6, centre(text).y + ((fb.y + 2 - centre(text).y) * s) / 6);
+  const bad = page.locator('[data-ui="ui_editor_drop_indicator"].is-bad');
+  await expect.poll(() => bad.isVisible()).toBe(true);
+  expect(await bad.innerText()).toBe("Thả vào trong section, không đặt cạnh section.");
+  await page.mouse.up();
+  // Escape mid-drag: the gesture ends, released over the item it never inserts (a node is selected: a click would)
+  await h1.click();
+  await page.mouse.move(centre(text).x, centre(text).y);
+  await page.mouse.down();
+  await page.mouse.move(centre(text).x + 20, centre(text).y);
+  await expect.poll(() => page.locator(".ve-capture").count()).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.locator(".ve-capture").count()).toBe(0);
+  await page.mouse.move(centre(text).x, centre(text).y);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev);
+  expect(await canvas(page).locator(`[data-ir-id="${h1Id}"]`).count()).toBe(1);
+  await page.close();
+});
