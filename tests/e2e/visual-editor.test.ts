@@ -390,8 +390,11 @@ test("E3a inline text: dblclick → edit → Enter saves one setText (a reload k
   await expect.poll(() => canvas(page).locator("h1").getAttribute("title"), { timeout: 30_000 }).toBe("other tab");
   expect(await page.getByRole("button", { name: "Tải lại" }).count()).toBe(0);
   // restore the fixture text for the next tests
-  const text = (await allNodes()).find((x) => x.tag === "#text" && x.text === "Edited headline")!;
-  await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: (await payload()).revision, commands: [{ op: "setText", id: text.id, text: "Build faster sites" }, { op: "setAttribute", id: h1Id, name: "title", value: null }] }) });
+  const nodes = await allNodes();
+  const text = nodes.find((x) => x.tag === "#text" && x.text === "Edited headline")!;
+  const bold = nodes.find((x) => x.tag === "#text" && x.text?.includes(" Bold"))!;
+  const restored = await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: (await payload()).revision, commands: [{ op: "setText", id: text.id, text: "Build faster sites" }, { op: "setText", id: bold.id, text: bold.text!.replace(" Bold", "") }, { op: "setAttribute", id: h1Id, name: "title", value: null }] }) });
+  expect(restored.status).toBe(200);
   await page.close();
 });
 
