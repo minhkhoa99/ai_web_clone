@@ -10,7 +10,7 @@ import { isSafeAttr, isSafeCss, tagSchema } from "@/core/safe-names";
 export type Bp = 1440 | 768 | 375;
 export const BPS: readonly Bp[] = [1440, 768, 375];
 // mirrors COMMAND_LIMITS (ir-command imports server modules; the unit test pins the values)
-export const LIMITS = { batch: 50, clipboard: 500, depth: 20 } as const;
+export const LIMITS = { batch: 50, clipboard: 500, depth: 20, name: 80 } as const; // name: MAX_NAME
 export const GENERATED = "instance:"; // resolveComponents' view-only ids of a main's nodes inside an instance
 export const ROW_HEIGHT = 24;
 export const MAX_ROWS = 200;
@@ -35,8 +35,8 @@ export type Box = { x: number; y: number; w: number; h: number };
 export type Clip = { draft: NodeDraft; count: number };
 export type KeyAction = "undo" | "redo" | "delete" | "duplicate" | "hide" | "copy" | "paste" | "up" | "down" | "child" | "parent" | "siblings" | "zoomIn" | "zoomOut" | "zoomReset";
 
-const GEN_MSG = "Phần tử này thuộc component instance — sửa ở main hoặc Tách khỏi component (Detach).";
-const INSTANCE_MSG = "Cấu trúc bên trong instance lấy từ main — sửa ở main hoặc Tách khỏi component (Detach).";
+const GEN_MSG = "Phần tử này thuộc component instance — bấm Sửa main hoặc Tách khỏi component (Detach).";
+const INSTANCE_MSG = "Cấu trúc bên trong instance lấy từ main — bấm Sửa main hoặc Tách khỏi component (Detach).";
 const SHELL_MSG = "Khung trang (shell) chỉ cho đổi thứ tự hoặc xoá section.";
 const KIND_VI: Record<string, string> = { carousel: "Carousel", tabs: "Tabs", accordion: "Accordion", modal: "Modal", dropdown: "Dropdown", menu: "Menu", video: "Video" };
 const TYPE_VI: Record<IRNodeV2["type"], string> = { container: "Khung", text: "Chữ", image: "Ảnh", link: "Link", button: "Nút", input: "Ô nhập", media: "Media", svg: "SVG", "component-root": "Component" };
@@ -148,11 +148,73 @@ export function isTextHost(node: IRNodeV2): boolean {
 function roleOwner(index: DocIndex, components: readonly PanelComponent[], id: string): PanelComponent | undefined {
   return components.find((c) => !inside(index, c.rootId, id) && c.members.some((m) => index.has(m) && inside(index, m, id)));
 }
+// R16: a node the resolver generated for an instance (not stored: commands cannot name it). mainView clears the ref,
+// so the same node is a plain one while its main is being edited
+export const generatedNode = (n: IRNodeV2): boolean => n.id.startsWith(GENERATED) && n.component?.role === "instance";
+// the outermost instance node of the same component holding `id` (its sourceId is the main's root)
+export function instanceRootOf(index: DocIndex, id: string): string | undefined {
+  let root: string | undefined, cmp: string | undefined;
+  for (const at of ancestorsOf(index, id)) {
+    const ref = index.get(at)!.node.component;
+    if (ref?.role !== "instance" || (cmp !== undefined && ref.id !== cmp)) break;
+    root = at; cmp = ref.id;
+  }
+  return root;
+}
+const stripRefs = (n: IRNodeV2): IRNodeV2 => { const { component: _ref, ...rest } = n; return { ...rest, children: n.children.map(stripRefs) }; };
+// R17: edit-main mode — every node of the open instance (#text too) loses its instance ref; ids stay the canvas's
+export function mainView(index: DocIndex, root: string): DocIndex {
+  const view: DocIndex = new Map(index), top = index.get(root);
+  if (!top) return view;
+  const stack = [top.node];
+  while (stack.length) {
+    const node = stack.pop()!, e = index.get(node.id);
+    if (e) view.set(node.id, { ...e, node: stripRefs(e.node) });
+    stack.push(...node.children);
+  }
+  return view;
+}
+const OUTSIDE = "Đang sửa main: chỉ sửa được bên trong instance đang mở — bấm Xong để ra.";
+const OWN_CHILDREN = "Instance này giữ danh sách con riêng (override) — sửa cấu trúc main ở instance khác hoặc Bỏ mọi override.";
+// R17: a batch built on mainView names canvas ids; each becomes its main node (component.sourceId)
+export function toMain(index: DocIndex, root: string, commands: readonly EditorCommand[]): Batch {
+  const top = index.get(root)?.node.component;
+  if (top?.role !== "instance" || !top.sourceId) return { error: "Instance không còn trên trang — bấm Xong rồi chọn lại." };
+  const main = (id: string): string | undefined => {
+    const ref = index.get(id)?.node.component;
+    return ref?.role === "instance" && ref.id === top.id && inside(index, id, root) ? ref.sourceId : undefined;
+  };
+  // the instance's own children list (a `children` override) is not the main's: indexes would not match
+  const ownChildren = (id: string) => !!index.get(id)?.node.component?.overrides?.includes("children");
+  const out: EditorCommand[] = [];
+  for (const c of commands) {
+    if (c.op === "setStyle" || c.op === "setText" || c.op === "setAttribute" || c.op === "setHidden" || c.op === "setName" || c.op === "deleteNode") {
+      if (c.op === "deleteNode" && c.id === root) return { error: "Không xoá gốc main ở đây — bấm Xong rồi xoá instance." };
+      const id = main(c.id);
+      if (!id) return { error: OUTSIDE };
+      out.push({ ...c, id });
+    } else if (c.op === "createNode") {
+      const parentId = main(c.parentId);
+      if (!parentId) return { error: OUTSIDE };
+      if (ownChildren(c.parentId)) return { error: OWN_CHILDREN };
+      out.push({ ...c, parentId });
+    } else if (c.op === "moveNode" || c.op === "duplicateNode") {
+      if (c.id === root) return { error: "Không di chuyển / nhân bản gốc main ở đây — bấm Xong trước." };
+      const id = main(c.id), parentId = main(c.parentId);
+      if (!id || !parentId) return { error: OUTSIDE };
+      if (ownChildren(c.parentId)) return { error: OWN_CHILDREN };
+      out.push({ ...c, id, parentId });
+    } else return { error: "Thao tác này không dùng được khi đang sửa main — bấm Xong trước." };
+  }
+  return { commands: out };
+}
+// R18: a node the server just created in the main shows in the open instance under the resolver's generated id
+export const viewIdOf = (root: string, mainId: string): string => `${GENERATED}${root.length}:${root}:${mainId}`;
 const holdsComponent = (n: IRNodeV2): boolean => !!n.component || n.children.some(holdsComponent);
 export function guard(index: DocIndex, components: readonly PanelComponent[], id: string, op: "delete" | "move" | "duplicate" | "edit"): string | undefined {
   const e = index.get(id);
   if (!e) return "Không tìm thấy phần tử (trang vừa đổi) — tải lại.";
-  if (id.startsWith(GENERATED)) return GEN_MSG;
+  if (generatedNode(e.node)) return GEN_MSG;
   if (op === "edit") return undefined;
   if (e.shell) return SHELL_MSG;
   if (e.parent !== undefined && index.get(e.parent)!.node.component?.role === "instance") return INSTANCE_MSG;
@@ -168,7 +230,7 @@ export function guard(index: DocIndex, components: readonly PanelComponent[], id
 export function guardParent(index: DocIndex, components: readonly PanelComponent[], parentId: string): string | undefined {
   const p = index.get(parentId);
   if (!p) return "Không tìm thấy vị trí thả.";
-  if (parentId.startsWith(GENERATED) || p.node.component?.role === "instance") return INSTANCE_MSG;
+  if (p.node.component?.role === "instance") return INSTANCE_MSG; // a generated node too (it carries the ref)
   if (p.shell) return "Không thả phần tử vào khung trang (shell).";
   if (p.node.tag === "#text" || VOID.has(p.node.tag)) return `Phần tử <${p.node.tag}> không chứa con được.`;
   if (components.some((c) => c.spec.kind === "carousel" && c.spec.track === parentId)) return "Đây là track của carousel — thêm slide bằng nút Thêm trong panel Component.";
@@ -198,7 +260,7 @@ export function hideBatch(index: DocIndex, ids: readonly string[], hidden: boole
   for (const id of topMost(index, ids)) {
     const e = index.get(id);
     if (!e) return { error: "Không tìm thấy phần tử." };
-    if (id.startsWith(GENERATED)) return { error: GEN_MSG };
+    if (generatedNode(e.node)) return { error: GEN_MSG };
     if (pageRoot(e)) return { error: "Không ẩn được khung trang." };
     commands.push({ op: "setHidden", id, hidden });
     if (hidden) commands.push({ op: "setStyle", id, target: "base", changes: { display: "none" } });
@@ -294,10 +356,10 @@ export function pasteBatch(index: DocIndex, components: readonly PanelComponent[
   return "error" in at ? at : { commands: [{ op: "createNode", parentId: at.parentId, index: at.index, draft: clip.draft }] };
 }
 export function renameBatch(index: DocIndex, id: string, name: string): Batch {
-  if (id.startsWith(GENERATED)) return { error: GEN_MSG };
-  const trimmed = name.trim();
-  if (!index.has(id)) return { error: "Không tìm thấy phần tử." };
-  if (trimmed.length < 1 || trimmed.length > 80) return { error: "Tên cần 1–80 ký tự." };
+  const e = index.get(id), trimmed = name.trim();
+  if (!e) return { error: "Không tìm thấy phần tử." };
+  if (generatedNode(e.node)) return { error: GEN_MSG };
+  if (trimmed.length < 1 || trimmed.length > LIMITS.name) return { error: `Tên cần 1–${LIMITS.name} ký tự.` };
   return { commands: [{ op: "setName", id, name: trimmed }] };
 }
 export const styleTarget = (bp: Bp, state?: "hover" | "focus" | "active"): StyleTarget => state ?? (bp === 1440 ? "base" : bp);
@@ -330,7 +392,7 @@ export function keyAction(e: { key: string; ctrlKey: boolean; metaKey: boolean; 
 export function imageBatch(index: DocIndex, id: string, kind: "img" | "source" | "background", key: string, bp: Bp): Batch {
   const e = index.get(id);
   if (!e) return { error: "Không tìm thấy phần tử." };
-  if (id.startsWith(GENERATED)) return { error: GEN_MSG };
+  if (generatedNode(e.node)) return { error: GEN_MSG };
   if (kind === "background") return { commands: [{ op: "setStyle", id, target: styleTarget(bp), changes: { "background-image": `url("${key}")` } }] };
   if (kind === "source") return { commands: [{ op: "setAttribute", id, name: "srcset", value: key }] };
   const commands: EditorCommand[] = [{ op: "setAttribute", id, name: "src", value: key }];

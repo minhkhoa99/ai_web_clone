@@ -9,7 +9,7 @@ import { Button } from "@/app/_ui/Button";
 import { Card } from "@/app/_ui/Card";
 import { Field } from "@/app/_ui/Field";
 import { safeHref } from "./inline-text";
-import { GENERATED, guard, imageBatch, labelOf, type Batch, type Bp, type DocIndex, type Entry } from "./model";
+import { generatedNode, guard, imageBatch, labelOf, type Batch, type Bp, type DocIndex, type Entry } from "./model";
 
 // mirrors MAX_FILE_BYTES / DEFAULT_BUDGET_BYTES (core/assets is server-side; the unit test pins the values)
 export const UPLOAD_LIMITS = { fileBytes: 25 * 1024 * 1024, projectBytes: 500 * 1024 * 1024 } as const;
@@ -53,7 +53,7 @@ export function ElementPanel({ projectId, index, entry, element, bp, assets, onB
   const node = entry.node;
   const background = !!element && element.ownerDocument.defaultView!.getComputedStyle(element).backgroundImage.includes("url("); // a pure gradient is not a replaceable image
   const kind = node.tag === "img" ? "img" : node.tag === "source" ? "source" : background ? "background" : undefined;
-  const generated = node.id.startsWith(GENERATED);
+  const generated = generatedNode(node);
   const apply = (asset: LibraryAsset) => {
     if (!kind) return;
     const b = imageBatch(index, node.id, kind, asset.key, bp);
@@ -106,7 +106,7 @@ export function ElementPanel({ projectId, index, entry, element, bp, assets, onB
           <Button variant="ghost" onClick={() => onBatch({ commands: [{ op: "resetOverride", instanceId: node.id }] }, "Bỏ override")}>Bỏ mọi override</Button>
         </div>
       )}
-      {generated && <p className="t-body-sm text-2">Phần tử lấy từ main component: sửa ở main, hoặc Tách khỏi component ở instance gốc.</p>}
+      {generated && <p className="t-body-sm text-2">Phần tử lấy từ main component: bấm Sửa main, hoặc Tách khỏi component ở instance gốc.</p>}
       {kind && !generated && (
         <div className="stack" data-ui="ui_editor_image_panel">
           <span className="field-label">Ảnh ({kind === "background" ? "nền" : kind})</span>

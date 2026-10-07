@@ -31,7 +31,9 @@ test("setField / clearField: one setStyle at the bp/state target; unsafe CSS ref
   const inst = node({ component: { id: "c", role: "instance", sourceId: "m", overrides: ["styles.base.color"] } });
   expect(clearField(inst, 1440, undefined, "color")).toEqual({ commands: [{ op: "resetOverride", instanceId: "n", path: "styles.base.color" }] });
   expect(clearField(inst, 1440, undefined, "font-size")).toEqual({ error: expect.stringMatching(/main/) });
-  expect(setField({ ...node(), id: "instance:1:x:n" }, 1440, undefined, "color", "red")).toEqual({ error: expect.stringMatching(/instance/) });
+  expect(setField({ ...node(), id: "instance:1:x:n", component: { id: "c", role: "instance", sourceId: "n" } }, 1440, undefined, "color", "red")).toEqual({ error: expect.stringMatching(/instance.*Sửa main/) });
+  // the same generated node with its ref cleared (mainView, R17) is a plain node
+  expect(setField({ ...node(), id: "instance:1:x:n" }, 1440, undefined, "color", "blue")).toEqual({ commands: [{ op: "setStyle", id: "instance:1:x:n", target: "base", changes: { color: "blue" } }] });
 });
 
 test("an empty value clears with ↺ semantics: no-op when inherited or unset, resetOverride on an overridden instance field, refused when it comes from main", () => {

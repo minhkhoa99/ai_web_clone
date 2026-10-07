@@ -2,7 +2,7 @@
 // and the one command that sets or removes exactly that layer.
 import type { IRNodeV2 } from "@/core/ir-v2";
 import { isSafeCss } from "@/core/safe-names";
-import { GENERATED, styleTarget, type Batch, type Bp } from "./model";
+import { generatedNode, styleTarget, type Batch, type Bp } from "./model";
 
 export type StateName = "hover" | "focus" | "active";
 export type Source = "here" | "desktop" | "main";
@@ -27,9 +27,7 @@ export const CHOICES: Readonly<Partial<Record<string, readonly string[]>>> = {
   "text-align": ["left", "center", "right", "justify"],
   "font-weight": ["100", "200", "300", "400", "500", "600", "700", "800", "900"],
 };
-// The one view-only check (E3b Task 14 swaps it for viewOnly(node), R16).
-const viewOnly = (node: IRNodeV2) => node.id.startsWith(GENERATED);
-const VIEW_ONLY_MSG = "Phần tử này thuộc component instance — sửa ở main hoặc Tách khỏi component (Detach).";
+const GEN_MSG = "Phần tử này thuộc component instance — bấm Sửa main hoặc Tách khỏi component (Detach).";
 export const layerPath = (bp: Bp, state: StateName | undefined, prop: string): string =>
   state ? `styles.state.${state}.${prop}` : bp === 1440 ? `styles.base.${prop}` : `styles.bp.${bp}.${prop}`;
 const layer = (n: IRNodeV2, bp: Bp, state?: StateName) => (state ? n.styles.state[state] : bp === 1440 ? n.styles.base : n.styles.bp[bp]);
@@ -47,15 +45,15 @@ export function fieldOf(node: IRNodeV2, bp: Bp, state: StateName | undefined, pr
 const unset = (node: IRNodeV2, bp: Bp, state: StateName | undefined, prop: string): Batch =>
   ({ commands: [{ op: "setStyle", id: node.id, target: styleTarget(bp, state), changes: { [prop]: null } }] });
 export function clearField(node: IRNodeV2, bp: Bp, state: StateName | undefined, prop: string): Batch {
-  if (viewOnly(node)) return { error: VIEW_ONLY_MSG };
+  if (generatedNode(node)) return { error: GEN_MSG };
   const f = fieldOf(node, bp, state, prop);
   if (!f || f.source === "desktop") return { error: "Lớp này không đặt giá trị để bỏ." };
-  if (f.source === "main") return { error: "Giá trị lấy từ main component — sửa ở main." };
+  if (f.source === "main") return { error: "Giá trị lấy từ main component — bấm Sửa main." };
   if (node.component?.role === "instance") return { commands: [{ op: "resetOverride", instanceId: node.id, path: f.path }] };
   return unset(node, bp, state, prop);
 }
 export function setField(node: IRNodeV2, bp: Bp, state: StateName | undefined, prop: string, value: string): Batch {
-  if (viewOnly(node)) return { error: VIEW_ONLY_MSG };
+  if (generatedNode(node)) return { error: GEN_MSG };
   const v = value.trim();
   // empty = ↺ on this layer (same instance rules as clearField); nothing to send when the layer sets nothing
   if (v === "") {

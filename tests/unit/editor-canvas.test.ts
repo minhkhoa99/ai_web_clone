@@ -143,3 +143,16 @@ test("affected: a class renamed by a hash collision re-renders the untouched sec
   expect(a.sections[1]!.html).toContain("s-69a3b79f");
   expect(a.css).toContain(".s-69a3b79f");
 });
+
+test("affected (edit main, R17): a main edit re-renders every section whose instances resolve differently", () => {
+  const main = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}) => n(id, tag, children, { ...extra, component: { id: "k", role: "main" } });
+  const inst = (id: string, sourceId: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}) => n(id, tag, children, { ...extra, component: { id: "k", role: "instance", sourceId, overrides: [] } });
+  const before = doc(2);
+  before.components = [{ id: "k", root: main("m", "div", [main("mh", "h3", [main("mt", "#text", [], { text: "Card" })])]), instanceIds: ["i0", "i1"] }];
+  before.sections.forEach((s, i) => s.root.children.push({ ...inst(`i${i}`, "m", "div", [inst(`i${i}h`, "mh", "h3", [inst(`i${i}t`, "mt", "#text", [], { text: "Card" })])]), parentId: s.root.id }));
+  const after = applyCommands(before, [{ op: "setStyle", id: "mh", target: "base", changes: { color: "blue" } }]).ir;
+  const a = affectedOf(before, after, "pg", opts);
+  expect(a.shellChanged).toBe(false);
+  expect(a.sections.map((s) => s.id)).toEqual(["s0", "s1"]);
+  expect(a.css).toContain("color:blue");
+});

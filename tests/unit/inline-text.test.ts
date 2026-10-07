@@ -41,7 +41,8 @@ test("refused: a styled span (kept element that is not b/i/a/br) whose structure
   const styled = n("p", "p", [n("s1", "span", [n("st", "#text", [], { text: "Giá" })]), n("t9", "#text", [], { text: " tốt" })]);
   expect(textBatch(styled, el("p", [el("span", [t("Giá")], { "data-ir-id": "s1" })]))).toEqual({ error: expect.stringMatching(/Esc/) });
   expect(textBatch(styled, el("p", [el("span", [t("Giá mới")], { "data-ir-id": "s1" }), t(" tốt")]))).toEqual({ commands: [{ op: "setText", id: "st", text: "Giá mới" }] });
-  const gen = n("instance:3:x:h", "h1", [n("instance:3:x:t", "#text", [], { text: "a" })]);
+  const gref = (sourceId: string) => ({ component: { id: "c", role: "instance" as const, sourceId } });
+  const gen = n("instance:3:x:h", "h1", [n("instance:3:x:t", "#text", [], { text: "a", ...gref("t") })], gref("h"));
   expect(textBatch(gen, el("h1", [t("b")]))).toEqual({ error: expect.stringMatching(/instance/) });
   const inst = n("h", "h1", [n("t1", "#text", [], { text: "a" })], { component: { id: "c", role: "instance", sourceId: "m" } });
   expect(textBatch(inst, el("h1", [t("a"), el("b", [t("b")])]))).toEqual({ error: expect.stringMatching(/instance/) });
@@ -74,4 +75,12 @@ test("fix round 1: caps, kept-node fidelity, no-op merge, href allowlist, skippe
   expect(textBatch(n("p", "p", []), el("p", [t("a"), el("script", [t("evil()")]), el("style", [t("x{}")]), el("div", [t("b")], { "data-ir-id": "other" })]))).toEqual({ commands: [{ op: "createNode", parentId: "p", index: 0, draft: { tag: "#text", text: "ab" } }] });
   // empty result
   expect(textBatch(n("p", "p", [n("e1", "#text", [], { text: "a" })]), el("p", []))).toEqual({ commands: [{ op: "deleteNode", id: "e1" }] });
+});
+
+test("edit main (R16): a generated instance host is refused; the same host with its instance refs cleared (mainView) edits like a plain node", () => {
+  const ref = (sourceId: string) => ({ component: { id: "k", role: "instance" as const, sourceId } });
+  const gen = n("instance:1:c:mh", "h3", [n("instance:1:c:mt", "#text", [], { text: "Cũ", ...ref("mt") })], ref("mh"));
+  expect(textBatch(gen, el("h3", [t("Mới")]))).toEqual({ error: expect.stringMatching(/main/) });
+  const plain = n("instance:1:c:mh", "h3", [n("instance:1:c:mt", "#text", [], { text: "Cũ" })]);
+  expect(textBatch(plain, el("h3", [t("Mới")]))).toEqual({ commands: [{ op: "setText", id: "instance:1:c:mt", text: "Mới" }] });
 });

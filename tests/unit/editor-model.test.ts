@@ -1,10 +1,11 @@
 import { expect, test } from "vitest";
-import { COMMAND_LIMITS } from "@/core/ir-command";
+import { COMMAND_LIMITS, MAX_NAME } from "@/core/ir-command";
 import type { PanelComponent } from "@/core/interactive";
 import type { IRNodeV2 } from "@/core/ir-v2";
 import {
-  ancestorsOf, bands, bodyOf, copyClip, deleteBatch, dropCommand, duplicateBatch, guard, hideBatch, imageBatch, indexPage, isTextHost, keyAction,
-  labelOf, layerRows, LIMITS, MAX_ROWS, parentOf, pasteBatch, pickTarget, renameBatch, reorderBatch, rowWindow, siblingsOf, styleTarget, topMost,
+  ancestorsOf, bands, bodyOf, copyClip, deleteBatch, dropCommand, duplicateBatch, generatedNode, guard, hideBatch, imageBatch, indexPage, instanceRootOf,
+  isTextHost, keyAction, labelOf, layerRows, LIMITS, mainView, MAX_ROWS, parentOf, pasteBatch, pickTarget, renameBatch, reorderBatch, rowWindow,
+  siblingsOf, styleTarget, toMain, topMost, viewIdOf,
 } from "@/app/p/[id]/editor/visual/model";
 
 const n = (id: string, tag: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => {
@@ -26,7 +27,7 @@ const page = () => ({
       n("bad", "div", [n("frame", "iframe", [], { type: "media" }), n("ok", "em", [], { attrs: { onclick: "x", title: "t", id: "hero-cta", "aria-controls": "menu", for: "f" }, styles: { base: { color: "red", width: "1px;}" }, bp: {}, state: {}, pseudo: {} } })]),
     ]) },
     { id: "s2", name: "Footer", layoutId: "L", root: n("r2", "footer", [
-      n("inst", "div", [n("instance:4:inst:m1", "span"), n("ic", "span")], { component: { id: "c", role: "instance", sourceId: "m" } }),
+      n("inst", "div", [n("instance:4:inst:m1", "span", [], { component: { id: "c", role: "instance", sourceId: "m1" } }), n("ic", "span")], { component: { id: "c", role: "instance", sourceId: "m" } }),
       n("track", "div", [n("slide", "div")]),
     ]) },
   ],
@@ -138,7 +139,7 @@ test("drop: before/after/inside with the index counted after lifting; into itsel
 });
 
 test("clipboard: one subtree as a draft without ids, unsafe tags/attrs/CSS dropped, ≤ 500 nodes; paste right after the selection (inside a section root)", () => {
-  expect(LIMITS).toEqual({ batch: COMMAND_LIMITS.commands, clipboard: COMMAND_LIMITS.nodes, depth: COMMAND_LIMITS.depth });
+  expect(LIMITS).toEqual({ batch: COMMAND_LIMITS.commands, clipboard: COMMAND_LIMITS.nodes, depth: COMMAND_LIMITS.depth, name: MAX_NAME });
   const index = ix();
   const clip = copyClip(index, "bad");
   expect(clip).toEqual({ count: 2, draft: { tag: "div", type: "container", attrs: {}, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, children: [
@@ -167,4 +168,59 @@ test("keys, style targets, images", () => {
   expect(imageBatch(index, "img2", "img", "K", 1440)).toEqual({ commands: [{ op: "setAttribute", id: "img2", name: "src", value: "K" }, { op: "setAttribute", id: "src1", name: "srcset", value: "K" }] });
   expect(imageBatch(index, "src1", "source", "K", 1440)).toEqual({ commands: [{ op: "setAttribute", id: "src1", name: "srcset", value: "K" }] });
   expect(imageBatch(index, "box", "background", "https://u/x.png", 768)).toEqual({ commands: [{ op: "setStyle", id: "box", target: 768, changes: { "background-image": 'url("https://u/x.png")' } }] });
+});
+
+// a card instance: stored root + stored counterpart h3 (+ its #text) + a generated p the main added later;
+// card2 keeps its own children (a `children` override)
+const ref = (sourceId: string, overrides: string[] = []) => ({ component: { id: "k", role: "instance" as const, sourceId, overrides } });
+const mainPage = () => ({
+  shell: n("html", "html", [n("body", "body", [n("ph1", "#section", [], { attrs: { "data-section": "s1" } })])]),
+  sections: [{ id: "s1", name: "Cards", root: n("r1", "section", [
+    n("hero", "h1", [n("ht", "#text", [], { text: "Hero" })], { type: "text" }),
+    n("card", "div", [
+      n("ch", "h3", [n("ct", "#text", [], { text: "Nhanh", ...ref("mt") })], { type: "text", ...ref("mh") }),
+      n("instance:4:card:mp", "p", [n("instance:4:card:mpt", "#text", [], { text: "Mới", ...ref("mpt") })], { type: "text", ...ref("mp") }),
+    ], ref("m")),
+    n("card2", "div", [n("c2h", "h3", [n("c2t", "#text", [], { text: "Gọn", ...ref("mt", ["text"]) })], { type: "text", ...ref("mh") })], ref("m", ["children"])),
+  ]) }],
+});
+
+test("edit main (R16–R18): mainView clears instance refs inside the open instance only; toMain names main nodes; outside ids, the root itself, children-overridden parents and non-edit ops are refused; created ids map back", () => {
+  const idx = indexPage(mainPage());
+  expect(generatedNode(idx.get("instance:4:card:mp")!.node)).toBe(true);
+  expect(generatedNode(idx.get("ch")!.node)).toBe(false); // stored counterpart: editable as an instance override
+  expect(guard(idx, [], "instance:4:card:mp", "edit")).toMatch(/Sửa main/);
+  expect(instanceRootOf(idx, "ct")).toBe("card");
+  expect(instanceRootOf(idx, "instance:4:card:mp")).toBe("card");
+  expect(instanceRootOf(idx, "hero")).toBeUndefined();
+  const view = mainView(idx, "card");
+  expect(view.get("instance:4:card:mp")!.node.component).toBeUndefined();
+  expect(view.get("ct")!.node.component).toBeUndefined();
+  expect(view.get("card")!.node.children[0]!.component).toBeUndefined();
+  expect(view.get("card2")!.node).toBe(idx.get("card2")!.node); // other instances untouched
+  expect(view.get("hero")!.node).toBe(idx.get("hero")!.node);
+  expect(guard(view, [], "instance:4:card:mp", "delete")).toBeUndefined();
+  expect(instanceRootOf(view, "ct")).toBeUndefined(); // no "Sửa main" button inside the open mode
+  expect(toMain(idx, "card", [
+    { op: "setStyle", id: "card", target: "base", changes: { color: "red" } },
+    { op: "setText", id: "ct", text: "Mới" },
+    { op: "createNode", parentId: "instance:4:card:mp", index: 0, draft: { tag: "b", attrs: {}, children: [] } },
+    { op: "moveNode", id: "instance:4:card:mp", parentId: "card", index: 0 },
+    { op: "duplicateNode", id: "ch", parentId: "card", index: 1 },
+    { op: "deleteNode", id: "ch" },
+  ])).toEqual({ commands: [
+    { op: "setStyle", id: "m", target: "base", changes: { color: "red" } },
+    { op: "setText", id: "mt", text: "Mới" },
+    { op: "createNode", parentId: "mp", index: 0, draft: { tag: "b", attrs: {}, children: [] } },
+    { op: "moveNode", id: "mp", parentId: "m", index: 0 },
+    { op: "duplicateNode", id: "mh", parentId: "m", index: 1 },
+    { op: "deleteNode", id: "mh" },
+  ] });
+  expect(toMain(idx, "card", [{ op: "setStyle", id: "hero", target: "base", changes: { color: "red" } }])).toEqual({ error: expect.stringMatching(/Xong/) });
+  expect(toMain(idx, "card", [{ op: "moveNode", id: "ch", parentId: "r1", index: 0 }])).toEqual({ error: expect.stringMatching(/Xong/) });
+  expect(toMain(idx, "card", [{ op: "deleteNode", id: "card" }])).toEqual({ error: expect.stringMatching(/gốc/) });
+  expect(toMain(idx, "card2", [{ op: "createNode", parentId: "card2", index: 0, draft: { tag: "b", attrs: {}, children: [] } }])).toEqual({ error: expect.stringMatching(/con riêng/) });
+  expect(toMain(idx, "card", [{ op: "detachComponent", instanceId: "card" }])).toEqual({ error: expect.stringMatching(/đang sửa main/) });
+  expect(toMain(idx, "hero", [])).toEqual({ error: expect.stringMatching(/Instance không còn/) });
+  expect(viewIdOf("card", "new1")).toBe("instance:4:card:new1");
 });

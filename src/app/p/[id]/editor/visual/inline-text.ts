@@ -4,7 +4,7 @@
 import type { EditorCommand, NodeDraft } from "@/core/ir-command";
 import type { IRNodeV2 } from "@/core/ir-v2";
 import { isSafeAttr } from "@/core/safe-names";
-import { GENERATED, LIMITS, type Batch } from "./model";
+import { generatedNode, LIMITS, type Batch } from "./model";
 
 export type DomLike = { nodeType: number; nodeName: string; textContent: string | null; childNodes: ArrayLike<DomLike>; getAttribute?(name: string): string | null };
 type Inline = "b" | "i" | "a" | "br";
@@ -69,7 +69,7 @@ const simpleOnly = (ps: Piece[]): boolean =>
 
 export function textBatch(ir: IRNodeV2, el: DomLike): Batch {
   const known = allIds(ir);
-  if (ir.id.startsWith(GENERATED) || [...known.keys()].some((id) => id.startsWith(GENERATED))) return { error: "Chữ này thuộc component instance — sửa ở main hoặc Tách khỏi component (Detach)." };
+  if (generatedNode(ir) || [...known.values()].some(generatedNode)) return { error: "Chữ này thuộc component instance — bấm Sửa main hoặc Tách khỏi component (Detach)." };
   const pieces = read(el, known), irItems = items(ir), tooMany = (n: number) => n > LIMITS.batch;
   const over = { error: `Đoạn chữ cần hơn ${LIMITS.batch} lệnh — sửa từng phần, hoặc Esc để huỷ.` };
   if (shapeOf(pieces) === shapeOfIr(irItems)) {
@@ -80,7 +80,7 @@ export function textBatch(ir: IRNodeV2, el: DomLike): Batch {
       return tooMany(commands.length) ? over : { commands };
     }
   }
-  if (ir.component?.role === "instance") return { error: "Đổi định dạng trong instance: sửa ở main hoặc Tách khỏi component (Detach)." };
+  if (ir.component?.role === "instance") return { error: "Đổi định dạng trong instance: bấm Sửa main hoặc Tách khỏi component (Detach)." };
   if (!simpleOnly(pieces)) return { error: ESC };
   const commands: EditorCommand[] = [
     ...ir.children.map((c): EditorCommand => ({ op: "deleteNode", id: c.id })),
