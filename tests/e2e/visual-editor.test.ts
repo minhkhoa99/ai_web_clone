@@ -338,3 +338,84 @@ test("E3a shortcuts: Delete, Ctrl+Z / Ctrl+Y, Ctrl+D, Alt+↑, Ctrl+C / Ctrl+V �
   await expect.poll(async () => (await payload()).page.sections.length, { timeout: 30_000 }).toBe(before.sections.length);
   await page.close();
 });
+
+test("E3a inline text: dblclick → edit → Enter saves one setText (a reload keeps it); Esc cancels; paste is plain text; a stale tab gets Tải lại and its text is rolled back", { timeout: 240_000 }, async () => {
+  const page = await open(1280, 1080);
+  const h1 = canvas(page).locator("h1");
+  await h1.dblclick();
+  await expect.poll(() => h1.evaluate((el) => (el as HTMLElement).isContentEditable)).toBe(true);
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Edited headline");
+  await page.keyboard.press("Enter");
+  await saved(page);
+  await expect.poll(() => status(page).innerText()).toBe("Đã lưu — điểm QA cần chạy lại");
+  expect(await outHtml()).toMatch(/<h1[^>]*>Edited headline<\/h1>/);
+  expect(await h1.evaluate((el) => (el as HTMLElement).isContentEditable)).toBe(false);
+  await page.reload();
+  await expect.poll(() => canvas(page).locator("h1").innerText(), { timeout: 30_000 }).toBe("Edited headline");
+  // Esc: nothing sent
+  const rev = (await payload()).revision;
+  await h1.dblclick();
+  await page.keyboard.type(" zzz");
+  await page.keyboard.press("Escape");
+  expect(await h1.innerText()).toBe("Edited headline");
+  expect((await payload()).revision).toBe(rev);
+  // paste: plain text only
+  const para = canvas(page).getByText("Plain paragraph text.");
+  await para.dblclick();
+  await para.evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData("text/html", '<img src=x onerror="window.top.__pwned=1"><b>Bold</b>');
+    dt.setData("text/plain", " Bold");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  expect(await para.evaluate((el) => el.innerHTML)).not.toContain("<img");
+  await page.keyboard.press("Enter");
+  await saved(page);
+  expect(await outHtml()).toContain(" Bold");
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+  // another tab commits first: this edit is refused (409), rolled back, Tải lại shows the other tab's change
+  const { revision } = await payload();
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  const other = await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: revision, commands: [{ op: "setAttribute", id: h1Id, name: "title", value: "other tab" }] }) });
+  expect(other.status).toBe(200);
+  await h1.dblclick();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Lost update");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe(`Dự án đã thay đổi ở nơi khác (revision ${revision + 1}). Tải lại để tiếp tục.`);
+  expect(await h1.innerText()).toBe("Edited headline");
+  expect(await outHtml()).not.toContain("Lost update");
+  await page.getByRole("button", { name: "Tải lại" }).click();
+  await expect.poll(() => canvas(page).locator("h1").getAttribute("title"), { timeout: 30_000 }).toBe("other tab");
+  expect(await page.getByRole("button", { name: "Tải lại" }).count()).toBe(0);
+  // restore the fixture text for the next tests
+  const text = (await allNodes()).find((x) => x.tag === "#text" && x.text === "Edited headline")!;
+  await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: (await payload()).revision, commands: [{ op: "setText", id: text.id, text: "Build faster sites" }, { op: "setAttribute", id: h1Id, name: "title", value: null }] }) });
+  await page.close();
+});
+
+test("E3a inline text: a multi-line paste stays on one line; Shift+Enter keeps a line break — one batch, one Undo", { timeout: 120_000 }, async () => {
+  const page = await open(1280, 1080);
+  const para = canvas(page).getByText("Plain paragraph text.");
+  const before = await para.innerText();
+  await para.dblclick();
+  await para.evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "\nline one\r\nline two\n");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  expect(await para.evaluate((el) => el.querySelectorAll("div, p, br").length)).toBe(0);
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("next");
+  await page.keyboard.press("Enter");
+  await saved(page);
+  await expect.poll(() => status(page).innerText()).toBe("Đã lưu — điểm QA cần chạy lại");
+  const out = await outHtml();
+  expect(out).toContain("line one line two");
+  expect(out).toMatch(/<br[^>]*>next<\/p>/);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toBe("Đã hoàn tác — điểm QA cần chạy lại");
+  expect(await outHtml()).toContain(`>${before}</p>`);
+  await page.close();
+});

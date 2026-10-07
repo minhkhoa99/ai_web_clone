@@ -7,6 +7,8 @@ import { flushSync } from "react-dom";
 import type { CanvasPayload } from "@/core/editor-canvas";
 import type { PanelComponent } from "@/core/interactive";
 import type { EditorCommand } from "@/core/ir-command";
+import type { IRNodeV2 } from "@/core/ir-v2";
+import { isSafeAttr } from "@/core/safe-names";
 import type { LibraryAsset } from "@/core/upload";
 import { api, errorText } from "@/app/_ui/api";
 import { Banner } from "@/app/_ui/Banner";
@@ -16,7 +18,8 @@ import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { LayerTree } from "./layer-tree";
-import { bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, hideBatch, indexPage, keyAction, labelOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, type Batch, type Bp, type Clip, type DocIndex } from "./model";
+import { textBatch, type DomLike } from "./inline-text";
+import { bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, type Batch, type Bp, type Clip, type DocIndex } from "./model";
 import { measure, Overlay } from "./overlay";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
@@ -24,6 +27,25 @@ type Halt = { kind: "stale" | "unwritten" | "failed"; text: string };
 type RightTab = "style" | "component" | "effects";
 type CommandsOp = Extract<Op, { kind: "commands" }>;
 const DONE: Record<Op["kind"], string> = { commands: "Đã lưu — điểm QA cần chạy lại", undo: "Đã hoàn tác — điểm QA cần chạy lại", redo: "Đã làm lại — điểm QA cần chạy lại" };
+type Drawn = { tag: string; id?: string; text?: string; attrs?: Record<string, string>; children?: Drawn[] };
+// an inline edit's optimistic result, drawn from its sanitized batch (the IR's children with the new texts, or the
+// batch's drafts) — never from the edited DOM's markup. Classes come from the host's server-rendered elements.
+function drawText(host: HTMLElement, ir: IRNodeV2, commands: EditorCommand[]): void {
+  const doc = host.ownerDocument;
+  const texts = new Map(commands.flatMap((c) => (c.op === "setText" ? [[c.id, c.text] as const] : [])));
+  const cls = new Map([...host.querySelectorAll("[data-ir-id]")].map((e) => [e.getAttribute("data-ir-id")!, e.getAttribute("class")]));
+  const draw = (n: Drawn): Node => {
+    if (n.tag === "#text") return doc.createTextNode(n.id && texts.has(n.id) ? texts.get(n.id)! : n.text ?? "");
+    const el = doc.createElement(n.tag);
+    for (const [k, v] of Object.entries(n.attrs ?? {})) if (isSafeAttr(n.tag, k, v)) el.setAttribute(k, v);
+    if (n.id) { el.setAttribute("data-ir-id", n.id); const c = cls.get(n.id); if (c) el.setAttribute("class", c); }
+    for (const c of n.children ?? []) el.append(draw(c));
+    return el;
+  };
+  const structural = commands.some((c) => c.op !== "setText");
+  const kids: Drawn[] = structural ? commands.flatMap((c) => (c.op === "createNode" ? [c.draft] : [])) : ir.children;
+  host.replaceChildren(...kids.map(draw));
+}
 const typingIn = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? "")); };
 
 export function VisualEditor({ projectId: id, initialPage }: { projectId: string; initialPage: string }) {
@@ -134,10 +156,62 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (!target) return;
     flushSync(() => setSelection((s) => (shift ? (s.includes(target) ? s.filter((x) => x !== target) : [...s, target]) : [target])));
   };
-  // R18: a container goes down to its first element child (a text host: Task 12 starts inline editing first)
+  const editing = useRef<HTMLElement | null>(null); // the text host being edited
+  // spec §2 / R12: contenteditable on a text host; Enter or leaving it saves one batch, Esc cancels. Paste is plain
+  // text (the canvas's capture listener). true = the node is a text host (editing, or refused with a message)
+  const startEdit = (nid: string): boolean => {
+    const { index: ix, data: d } = live.current;
+    const e = ix.get(nid), el = canvas.current?.element(nid);
+    if (!e || !el || !d || !isTextHost(e.node)) return false;
+    const why = guard(ix, d.interactives, nid, "edit");
+    if (why) { setMsg(why); return true; }
+    if (editing.current?.isConnected) return true; // one edit at a time; a swapped-out host no longer counts
+    const before = el.innerHTML; // the server's render: trusted
+    editing.current = el;
+    // Enter keeps the edit open on a refusal ("Esc để huỷ"); blur / Esc always end it
+    const finish = (save: boolean, keepOnError = false) => {
+      if (editing.current !== el) return;
+      const node = live.current.index.get(nid)?.node;
+      const b = save && node ? textBatch(node, el as unknown as DomLike) : undefined;
+      if (b && "error" in b && keepOnError) { setMsg(b.error); return; }
+      editing.current = null;
+      el.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("blur", onBlur);
+      el.removeAttribute("contenteditable");
+      el.innerHTML = before; // the op's apply() draws the sanitized result over the server's render
+      if (!b || !node) return;
+      if ("error" in b) { setMsg(b.error); return; }
+      if (!b.commands.length) return;
+      let prev: string | null = null;
+      const host = () => canvas.current?.element(nid) ?? null; // a partial update may have swapped the element
+      run({
+        kind: "commands", commands: b.commands, label: "Sửa chữ",
+        apply: () => { const h = host(); if (h) { prev = h.innerHTML; drawText(h, node, b.commands); } },
+        rollback: () => { const h = host(); if (h && prev !== null) h.innerHTML = prev; },
+      });
+    };
+    const onKeyDown = (k: KeyboardEvent) => {
+      k.stopPropagation(); // the editor's shortcuts stay off while typing
+      if (k.isComposing) return; // an IME (Vietnamese input) owns Enter / Esc mid-word
+      if (k.key === "Enter" && !k.shiftKey) { k.preventDefault(); finish(true, true); }
+      else if (k.key === "Escape") { k.preventDefault(); finish(false); }
+    };
+    const onBlur = () => finish(true);
+    el.addEventListener("keydown", onKeyDown);
+    el.addEventListener("blur", onBlur);
+    el.contentEditable = "true";
+    el.focus();
+    // re-set the caret: a selection made while the host was not editable is not an editing one until it changes
+    // (insertText from a paste would do nothing); the double-click's caret stays, else the end of the text
+    const sel = el.ownerDocument.getSelection(), r = sel?.rangeCount && el.contains(sel.anchorNode) ? sel.getRangeAt(0) : null;
+    if (sel && r) { sel.removeAllRanges(); sel.addRange(r); } else if (sel) { sel.selectAllChildren(el); sel.collapseToEnd(); }
+    return true;
+  };
+  // R18: a text host starts inline editing; a container goes down to its first element child
   const double = (raw: string) => {
     const target = pickTarget(live.current.index, raw);
-    const child = target ? live.current.index.get(target)?.children[0] : undefined;
+    if (!target || startEdit(target)) return;
+    const child = live.current.index.get(target)?.children[0];
     if (child) select([child]);
   };
   const onKey = (e: KeyboardEvent) => {

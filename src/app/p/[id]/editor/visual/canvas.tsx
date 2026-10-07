@@ -89,11 +89,12 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
     w.addEventListener("click", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onPick(id, e.shiftKey); }, true);
     w.addEventListener("dblclick", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onDouble(id); }, true);
     for (const type of ["auxclick", "submit", "dragover", "drop"]) w.addEventListener(type, stop, true); // drops: a file never opens in the frame
-    // §8: pasting into an edited text (contenteditable, Task 12) inserts plain text only, never the clipboard's HTML
+    // §8: pasting into an edited text (contenteditable, Task 12) inserts plain text only, never the clipboard's HTML;
+    // on one line: a multi-line insertText splits the host into div blocks the inline edit cannot keep
     w.addEventListener("paste", (e) => {
       if (!(d.activeElement as HTMLElement | null)?.isContentEditable) return;
       stop(e);
-      d.execCommand("insertText", false, e.clipboardData?.getData("text/plain") ?? "");
+      d.execCommand("insertText", false, (e.clipboardData?.getData("text/plain") ?? "").replace(/\s*[\r\n]+\s*/g, " "));
     }, true);
     let last: string | null = null;
     d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last) { last = id; events.current.onHover(id); } });
