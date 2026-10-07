@@ -19,7 +19,7 @@ import { ComponentPanel } from "../component-panel/component-panel";
 import { Canvas, type CanvasHandle } from "./canvas";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { EffectsCard, ElementPanel } from "./element-panel";
-import { handlesFor } from "./gestures";
+import { fitZoom, handlesFor, wheelZoom, ZOOM, zoomStep } from "./gestures";
 import { LayerTree } from "./layer-tree";
 import { textBatch, type DomLike } from "./inline-text";
 import { ancestorsOf, bodyOf, BPS, copyClip, deleteBatch, duplicateBatch, guard, hideBatch, indexPage, isTextHost, keyAction, labelOf, outlineOf, parentOf, pasteBatch, pickTarget, reorderBatch, siblingsOf, styleTarget, type Batch, type Bp, type Clip, type DocIndex } from "./model";
@@ -70,13 +70,14 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<RightTab>("style");
   const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
+  const [zoom, setZoom] = useState(1); // R8: view only, never saved
   const editable = true; // Task 13: !viewOnly
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
   const clip = useRef<Clip | null>(null); // internal clipboard (R19): one subtree, never the OS clipboard
   const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
-  const live = useRef({ data, index, selection, bp, zoom: 1 }); // zoom: Task 10
-  live.current = { data, index, selection, bp, zoom: 1 };
+  const live = useRef({ data, index, selection, bp, zoom });
+  live.current = { data, index, selection, bp, zoom };
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
@@ -228,6 +229,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (child) select([child]);
   };
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === " " && !typingIn(e.target)) { gestures.spaceKey(true); e.preventDefault(); return; } // Space+drag pans
     if (e.key === "Escape" && gestures.cancelGesture()) { e.preventDefault(); return; }
     const action = keyAction(e, typingIn(e.target));
     if (!action) return;
@@ -263,16 +265,27 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       case "parent": { e.preventDefault(); const p = first ? parentOf(ix, first) : undefined; return select(p ? [p] : []); }
       case "child": { e.preventDefault(); const c = first ? ix.get(first)?.children[0] : undefined; if (c) select([c]); return; }
       case "siblings": { if (!first) return; e.preventDefault(); return select(siblingsOf(ix, first)); }
+      // the browser's own page zoom prevented
+      case "zoomIn": e.preventDefault(); setZoom((z) => zoomStep(z, 1)); return;
+      case "zoomOut": e.preventDefault(); setZoom((z) => zoomStep(z, -1)); return;
+      case "zoomReset": e.preventDefault(); setZoom(1); return;
       default: return;
     }
   };
-  const keyRef = useRef(onKey);
-  keyRef.current = onKey;
+  const onKeyUp = (e: KeyboardEvent) => { if (e.key === " ") gestures.spaceKey(false); };
+  const keyRef = useRef({ onKey, onKeyUp });
+  keyRef.current = { onKey, onKeyUp };
   useEffect(() => {
-    const h = (e: KeyboardEvent) => keyRef.current(e);
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    const down = (e: KeyboardEvent) => keyRef.current.onKey(e), up = (e: KeyboardEvent) => keyRef.current.onKeyUp(e);
+    // another app took the focus (its Space keyup goes there); focus moving into the frame keeps hasFocus()
+    const lost = () => { if (!document.hasFocus()) keyRef.current.onKeyUp(new KeyboardEvent("keyup", { key: " " })); };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", lost);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", lost); };
   }, []);
+  // "Vừa khung": the breakpoint's width across the pane (R8)
+  const fit = () => { const w = canvas.current?.pane()?.clientWidth; if (w) setZoom(fitZoom(w, bp)); };
 
   // the selection boxes follow layout changes that resize nothing in the frame (a Style Manager preview, a padding or
   // width change): watch the selected elements' size and inline style (E3a Task 9 carry)
@@ -315,6 +328,13 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           </select>
         </label>
         <SegmentedControl<string> label="Thiết bị" data-ui="ui_editor_bp_switch" value={String(bp)} onChange={(v) => setBp(Number(v) as Bp)} options={BPS.map((w) => ({ value: String(w), label: String(w) }))} />
+        <div className="ve-zoom" data-ui="ui_editor_zoom" role="group" aria-label="Zoom">
+          <IconButton icon="zoom_out" label="Thu nhỏ" onClick={() => setZoom((z) => zoomStep(z, -1))} disabled={zoom <= ZOOM.min} />
+          {/* a span, not <output>: its implicit role "status" would be a second one beside the editor message */}
+          <span className="t-label-md" aria-live="polite">{Math.round(zoom * 100)}%</span>
+          <IconButton icon="zoom_in" label="Phóng to" onClick={() => setZoom((z) => zoomStep(z, 1))} disabled={zoom >= ZOOM.max} />
+          <IconButton icon="fit_screen" label="Vừa khung" onClick={fit} />
+        </div>
         <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading} />
         <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading} />
         <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
@@ -333,19 +353,20 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           {data && <LayerTree key={data.page.id} index={index} rootId={bodyOf(data.page)} rootLabel={`Trang ${data.pages.find((p) => p.id === data.page.id)?.path ?? data.page.file}`} components={data.interactives} selection={selection} onSelect={select} onBatch={(b, label) => batch(b, label)} />}
         </aside>
         {data ? (
-          <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={1} showItems={showItems}
-            onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onPress={gestures.onPress} onFrame={() => setTick((t) => t + 1)}>
-            <Overlay zoom={1} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles}>
+          <Canvas ref={canvas} frameKey={load} html={data.page.html} css={data.css} width={bp} zoom={zoom} showItems={showItems}
+            onPick={pick} onDouble={double} onHover={(h, a) => { setHover(h); setAlt(a); }} onKey={onKey} onKeyUp={onKeyUp} onPress={gestures.onPress}
+            onZoomWheel={(dy) => setZoom((z) => wheelZoom(z, dy))} onFrame={() => setTick((t) => t + 1)}>
+            <Overlay zoom={zoom} hover={hoverInfo} selected={selectedBoxes} parent={parentBox} handles={handles}>
               {gesture?.kind === "flow" && gesture.drop && (
-                <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, 1)}>
+                <div className={`ve-drop${gesture.drop.ok ? "" : " is-bad"}`} data-ui="ui_editor_drop_indicator" style={at(gesture.drop.box, zoom)}>
                   {!gesture.drop.ok && <span className="ve-label">{gesture.drop.reason}</span>}
                 </div>
               )}
               {gesture?.kind === "free" && gesture.guides.map((g, i) => (
-                <div key={i} className="ve-guide" data-ui="ui_editor_guides" style={g.axis === "x" ? at({ x: g.at, y: g.from, w: 0, h: g.to - g.from }, 1) : at({ x: g.from, y: g.at, w: g.to - g.from, h: 0 }, 1)} />
+                <div key={i} className="ve-guide" data-ui="ui_editor_guides" style={g.axis === "x" ? at({ x: g.at, y: g.from, w: 0, h: g.to - g.from }, zoom) : at({ x: g.from, y: g.at, w: g.to - g.from, h: 0 }, zoom)} />
               ))}
               {alt && hoverInfo && selectedBoxes.length === 1 && hoverInfo.id !== selectedBoxes[0]!.id && gaps(selectedBoxes[0]!.m.box, hoverInfo.m.box).map((g, i) => (
-                <div key={i} className="ve-measure" style={at({ x: Math.min(g.x1, g.x2), y: Math.min(g.y1, g.y2), w: Math.abs(g.x2 - g.x1), h: Math.abs(g.y2 - g.y1) }, 1)}>
+                <div key={i} className="ve-measure" style={at({ x: Math.min(g.x1, g.x2), y: Math.min(g.y1, g.y2), w: Math.abs(g.x2 - g.x1), h: Math.abs(g.y2 - g.y1) }, zoom)}>
                   <span className="ve-label" data-ui="ui_editor_measure">{g.value}</span>
                 </div>
               ))}

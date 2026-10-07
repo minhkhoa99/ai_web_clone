@@ -785,6 +785,8 @@ select.full { width: 100%; min-height: 38px; }
 .ve-stage { position: relative; margin: 0 auto; }
 .ve-stage iframe { display: block; border: 0; background: #fff; }
 .ve-legacy { margin-inline-start: auto; }
+.ve-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.ve-zoom > span { min-width: 44px; text-align: center; }
 .ve-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .ve-hover { position: absolute; outline: 1px solid var(--c-accent); }
 .ve-label { position: absolute; left: 0; bottom: 100%; font: var(--t-label-sm); background: var(--c-accent); color: var(--c-on-accent); padding: 1px 4px; white-space: nowrap; }

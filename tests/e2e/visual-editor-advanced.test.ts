@@ -320,3 +320,69 @@ test("E3b resize: the e handle at 768 writes width in the 768 layer only (1440 u
   await expect.poll(async () => (await nodeById(h1Id))?.styles.bp["768"]?.width, { timeout: 30_000 }).toBeUndefined();
   await page.close();
 });
+
+test("E3b zoom: Ctrl+- to 50 % scales the frame and the overlay, a click still selects the right node; Vừa khung fits; Ctrl+0 back to 100 %; Space+drag pans", { timeout: 180_000 }, async () => {
+  const page = await open();
+  const frame = page.locator('[data-ui="ui_editor_canvas_frame"]');
+  const label = page.locator('[data-ui="ui_editor_zoom"] > span');
+  await canvas(page).locator("body").click({ position: { x: 5, y: 5 } }); // focus the canvas
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Control+-"); // 100 -> 75 -> 67 -> 50
+  await expect.poll(() => label.innerText()).toBe("50%");
+  await expect.poll(() => frame.evaluate((f) => getComputedStyle(f).transform)).toBe("matrix(0.5, 0, 0, 0.5, 0, 0)");
+  const h1 = canvas(page).locator("h1");
+  await h1.click();
+  const sel = page.locator('[data-ui="ui_editor_selection_box"]').first();
+  await expect.poll(() => sel.getAttribute("data-for")).toBe(await h1.getAttribute("data-ir-id"));
+  const [hb, sb] = [(await h1.boundingBox())!, (await sel.boundingBox())!];
+  expect(Math.abs(hb.x - sb.x) + Math.abs(hb.y - sb.y) + Math.abs(hb.width - sb.width)).toBeLessThan(3);
+  // resize at 50 %: 60 screen px on the e handle = 120 px of the page (toDoc ÷ zoom)
+  const h1Id = (await h1.getAttribute("data-ir-id"))!;
+  const before = await h1.evaluate((el) => el.getBoundingClientRect().width);
+  const e = page.locator('[data-ui="ui_editor_resize_handle"][data-handle="e"]');
+  await e.scrollIntoViewIfNeeded(); // the 720 px frame is wider than the pane here
+  const eb = (await e.boundingBox())!;
+  await drag(page, centre(eb), { x: centre(eb).x - 60, y: centre(eb).y });
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.base.width, { timeout: 30_000 }).toBe(`${Math.round(before - 120)}px`);
+  await page.getByRole("button", { name: "Hoàn tác" }).click();
+  await saved(page);
+  await expect.poll(async () => (await nodeById(h1Id))?.styles.base.width, { timeout: 30_000 }).toBeUndefined();
+  await page.getByRole("button", { name: "Vừa khung" }).click();
+  const pane = page.locator('[data-ui="ui_editor_canvas_chrome"]');
+  // zoom is kept to 2 decimals: at 1440 that is within 8 px of the pane
+  await expect.poll(async () => Math.abs((await frame.boundingBox())!.width - ((await pane.evaluate((p) => p.clientWidth)) - 16))).toBeLessThan(8);
+  expect(await pane.evaluate((p) => p.scrollWidth <= p.clientWidth)).toBe(true);
+  expect(await noSideScroll(page)).toBe(true);
+  await page.keyboard.press("Control+0");
+  await expect.poll(() => label.innerText()).toBe("100%");
+  // Ctrl+wheel over the frame: ×1.1 per notch
+  const fb0 = (await frame.boundingBox())!;
+  await page.mouse.move(fb0.x + 200, fb0.y + 200);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Control");
+  await expect.poll(() => label.innerText()).toBe("110%");
+  await page.keyboard.press("Control+0");
+  await expect.poll(() => label.innerText()).toBe("100%");
+  // pan: the 1440 frame is wider than the pane
+  const rev = (await payload()).revision;
+  const sx = await pane.evaluate((p) => p.scrollLeft);
+  await page.keyboard.down(" ");
+  const fb = (await frame.boundingBox())!;
+  await drag(page, { x: fb.x + 400, y: fb.y + 200 }, { x: fb.x + 100, y: fb.y + 200 });
+  await page.keyboard.up(" ");
+  await expect.poll(() => pane.evaluate((p) => p.scrollLeft)).toBeGreaterThan(sx);
+  await expect.poll(() => sel.getAttribute("data-for")).toBe(h1Id); // the pan's release did not select
+  expect((await payload()).revision).toBe(rev);
+  // 200 % with the frame scrolled: a click still selects its node, the box matches
+  await canvas(page).locator("body").click({ position: { x: 5, y: 5 } });
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Control+="); // 100 -> 125 -> 150 -> 200
+  await expect.poll(() => label.innerText()).toBe("200%");
+  await canvas(page).locator("body").evaluate(() => window.scrollTo(0, 120));
+  const para = canvas(page).getByText("Plain paragraph text.");
+  await para.click();
+  await expect.poll(() => sel.getAttribute("data-for")).toBe(await para.getAttribute("data-ir-id"));
+  const [pb, sb2] = [(await para.boundingBox())!, (await sel.boundingBox())!];
+  expect(Math.abs(pb.x - sb2.x) + Math.abs(pb.y - sb2.y) + Math.abs(pb.width - sb2.width)).toBeLessThan(3);
+  await page.close();
+});

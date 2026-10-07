@@ -12,6 +12,8 @@ export type CanvasHandle = {
   post(message: unknown): void;
   toDoc(clientX: number, clientY: number): { x: number; y: number }; // parent client px -> frame document px (÷ zoom)
   hit(x: number, y: number): string | null; // data-ir-id under a document point
+  pane(): HTMLDivElement | null; // the scrolling pane (pan)
+  frame(): HTMLIFrameElement | null;
 };
 type Props = {
   ref?: Ref<CanvasHandle>;
@@ -26,7 +28,9 @@ type Props = {
   onDouble(id: string): void;
   onHover(id: string | null, alt: boolean): void; // alt: Alt held (E3 §3 distances)
   onKey(e: KeyboardEvent): void;
-  onPress(id: string, e: PointerEvent): void;
+  onKeyUp(e: KeyboardEvent): void;
+  onPress(id: string | null, e: PointerEvent): void; // null: no node under the press (a Space pan still starts)
+  onZoomWheel(deltaY: number): void;
   onFrame(): void;
 };
 // cross-realm: frame nodes are not instances of this window's Element
@@ -77,6 +81,8 @@ export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, child
     post: (m) => frame.current?.contentWindow?.postMessage(m, "*"),
     toDoc: (cx, cy) => { const r = frame.current!.getBoundingClientRect(); return { x: (cx - r.left) / zoomRef.current, y: (cy - r.top) / zoomRef.current }; },
     hit: (x, y) => idOf(doc()?.elementFromPoint(x, y) ?? null),
+    pane: () => pane.current,
+    frame: () => frame.current,
   }));
   useEffect(() => setCss(css), [css]);
   useEffect(() => {
@@ -84,8 +90,11 @@ export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, child
     if (!el) return;
     const ro = new ResizeObserver(() => setHeight(Math.max(200, el.clientHeight - 2)));
     ro.observe(el);
-    return () => ro.disconnect();
+    // R8 Ctrl+wheel zooms (the browser's own page zoom prevented); React's onWheel is passive
+    el.addEventListener("wheel", zoomWheel, { passive: false });
+    return () => { ro.disconnect(); el.removeEventListener("wheel", zoomWheel); };
   }, []);
+  function zoomWheel(e: WheelEvent) { if (e.ctrlKey || e.metaKey) { e.preventDefault(); events.current.onZoomWheel(e.deltaY); } }
   const onLoad = () => {
     const d = doc(), w = frame.current?.contentWindow;
     if (!d || !w) return;
@@ -106,7 +115,9 @@ export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, child
     d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last || e.altKey !== lastAlt) { last = id; lastAlt = e.altKey; events.current.onHover(id, e.altKey); } });
     d.documentElement.addEventListener("mouseleave", () => { last = null; lastAlt = false; events.current.onHover(null, false); });
     d.addEventListener("keydown", (e) => events.current.onKey(e));
-    d.addEventListener("pointerdown", (e) => { if (e.button !== 0) return; const id = idOf(e.target); if (id) events.current.onPress(id, e); }, true);
+    d.addEventListener("keyup", (e) => events.current.onKeyUp(e));
+    d.addEventListener("wheel", zoomWheel, { passive: false });
+    d.addEventListener("pointerdown", (e) => { if (e.button === 0) events.current.onPress(idOf(e.target), e); }, true);
     w.addEventListener("scroll", () => events.current.onFrame(), { passive: true });
     new ResizeObserver(() => events.current.onFrame()).observe(d.documentElement);
     show();
@@ -115,9 +126,10 @@ export function Canvas({ ref, frameKey, html, css, width, zoom, showItems, child
   };
   return (
     <div className="ve-pane" data-ui="ui_editor_canvas_chrome" ref={pane}>
-      <div className="ve-stage" style={{ width, height }}>
+      {/* spec §3: the frame keeps its breakpoint width and is scaled; the stage takes the scaled size (the pane scrolls it) */}
+      <div className="ve-stage" style={{ width: width * zoom, height }}>
         <iframe key={frameKey} ref={frame} data-ui="ui_editor_canvas_frame" title="Canvas" sandbox="allow-same-origin allow-scripts" srcDoc={html} onLoad={onLoad}
-          inert={wired !== docToken} style={{ width, height, pointerEvents: wired === docToken ? undefined : "none" }} />
+          inert={wired !== docToken} style={{ width, height: height / zoom, transform: `scale(${zoom})`, transformOrigin: "0 0", pointerEvents: wired === docToken ? undefined : "none" }} />
         {children}
       </div>
     </div>

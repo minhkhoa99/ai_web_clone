@@ -21,7 +21,9 @@ type Free = { kind: "free"; id: string; parentId: string; el: HTMLElement; paren
 // R13: a handle previews inline (the node's own inline values kept in `prev`, put back on end) at the current breakpoint
 type Resize = { kind: "resize"; id: string; el: HTMLElement; prev: Record<string, string>; handle: Handle; start: Point; size: ResizeInput["start"]; dx: number; dy: number; shift: boolean };
 type Spacing = { kind: "spacing"; id: string; el: HTMLElement; prev: Record<string, string>; what: Side | GapAxis; start: Point; from: number; delta: number };
-export type Gesture = Flow | Free | Resize | Spacing; // Tasks 10–11: insert / pan
+// Space+drag (Task 10): the pane scrolls sideways, the frame vertically; x / y in this window's client px
+type Pan = { kind: "pan"; x: number; y: number; left: number; top: number };
+export type Gesture = Flow | Free | Resize | Spacing | Pan; // Task 11: insert
 export type GestureLive = { data: { interactives: PanelComponent[] } | null; index: DocIndex; selection: string[]; bp: Bp; zoom: number };
 type Point = { x: number; y: number };
 type Extra = { apply?(): void; rollback?(): void };
@@ -44,6 +46,7 @@ export function useGestures(o: {
 }) {
   const { canvas, live } = o;
   const [gesture, setGesture] = useState<Gesture | null>(null);
+  const space = useRef(false); // Space held (not typing): a press pans
   const drag = useRef<{ gesture: Gesture | null; stop?: () => void; dropped: boolean }>({ gesture: null, dropped: false });
   const setG = (g: Gesture | null) => { drag.current.gesture = g; setGesture(g); };
   const endGesture = () => {
@@ -57,6 +60,8 @@ export function useGestures(o: {
   // interrupted with the button still held (Escape, a blur, a reload, a result swapping the canvas): nothing is sent and
   // the click the frame fires on release is swallowed (reset by the next press). true = a gesture was cancelled
   const cancelGesture = (): boolean => { if (!drag.current.gesture) return false; drag.current.dropped = true; endGesture(); return true; };
+  // Space down / up (the editor's key handlers); its release ends a pan
+  const spaceKey = (down: boolean) => { space.current = down; if (!down && drag.current.gesture?.kind === "pan") endGesture(); };
   // the click the frame fires right after a drop: true = swallow it
   const consumeDrop = (): boolean => { if (!drag.current.dropped) return false; drag.current.dropped = false; return true; };
   // the drop under a frame document point: the indicator (blue) with its batch, or red with dropCommand's reason
@@ -169,10 +174,18 @@ export function useGestures(o: {
   };
   // buttons 0 = the pointerup was lost: end without sending. Re-render only when the drop / the guides change (a handle's
   // preview re-measures the selection through the editor's style observer)
-  const gestureMove = (p: Point, buttons: number, shift = false) => {
+  // client: this window's client px (a pan moves the frame, so its document px are no reference)
+  const gestureMove = (p: Point, buttons: number, shift = false, client?: Point) => {
     const g = drag.current.gesture;
     if (!g) return;
     if (buttons === 0) return endGesture();
+    if (g.kind === "pan") {
+      const c = canvas.current, pane = c?.pane(), fw = c?.frame()?.contentWindow;
+      if (!client || !pane || !fw) return;
+      pane.scrollLeft = g.left - (client.x - g.x);
+      fw.scrollTo({ top: g.top - (client.y - g.y) / live.current.zoom });
+      return;
+    }
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
     if (g.kind === "resize") {
       const n = { ...g, dx: p.x - g.start.x, dy: p.y - g.start.y, shift };
@@ -215,9 +228,9 @@ export function useGestures(o: {
   // frame or this window (Alt+Tab) cancels, and so does a frame scroll for every gesture but a flow drag (it re-measures).
   // Scroll anchoring is off meanwhile, else a padding preview would scroll the frame itself. Returns the move forwarder.
   function hold(d: Document) {
-    const fwdMove = (m: PointerEvent) => { d.getSelection()?.removeAllRanges(); gestureMove({ x: m.clientX, y: m.clientY }, m.buttons, m.shiftKey); };
+    const fwdMove = (m: PointerEvent) => { d.getSelection()?.removeAllRanges(); gestureMove({ x: m.clientX, y: m.clientY }, m.buttons, m.shiftKey, toClient(m)); };
     const fwdUp = () => { drag.current.dropped = true; gestureUp(); };
-    const scrolled = () => { if (drag.current.gesture?.kind !== "flow") cancelGesture(); };
+    const scrolled = () => { const k = drag.current.gesture?.kind; if (k !== "flow" && k !== "pan") cancelGesture(); };
     const fw = d.defaultView, root = d.documentElement, anchor = root.style.overflowAnchor;
     root.style.overflowAnchor = "none";
     d.addEventListener("pointermove", fwdMove);
@@ -237,17 +250,28 @@ export function useGestures(o: {
   // fixed overlay in this window takes the pointer. Chrome keeps routing a mouse pressed inside the frame to the frame
   // until release, so its moves / release are forwarded too (frame client px = document px). Without moving, the
   // click still selects; after a drop, the click the frame fires on release is swallowed.
-  const onPress = (raw: string, e: PointerEvent) => {
+  // a frame point -> this window's client px
+  const toClient = (m: { clientX: number; clientY: number }): Point | undefined => {
+    const r = canvas.current?.frame()?.getBoundingClientRect(), z = live.current.zoom;
+    return r && { x: r.left + m.clientX * z, y: r.top + m.clientY * z };
+  };
+  // Space held: a press anywhere in the frame pans from its first move (after the focus moved into the frame, whose
+  // window blur would cancel it); the release click never selects
+  const onPress = (raw: string | null, e: PointerEvent) => {
     drag.current.dropped = false;
-    const target = ancestorsOf(live.current.index, raw).find((a) => live.current.selection.includes(a));
+    const pan = space.current;
+    const target = pan || !raw ? undefined : ancestorsOf(live.current.index, raw).find((a) => live.current.selection.includes(a));
     const d = canvas.current?.doc();
-    if (!target || !d || drag.current.gesture || o.editing.current?.isConnected) return; // mouse text selection while editing
+    if ((!pan && !target) || !d || drag.current.gesture || o.editing.current?.isConnected) return; // mouse text selection while editing
+    if (pan) { e.preventDefault(); drag.current.dropped = true; }
     const unpress = () => { d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", unpress); d.removeEventListener("pointercancel", unpress); };
     const move = (m: PointerEvent) => {
       if (m.buttons === 0) return unpress();
-      if (Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 4) return;
+      if (!pan && Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 4) return;
       unpress();
-      const g: Gesture | undefined = e.altKey ? startFree(target, { x: e.clientX, y: e.clientY }) : { kind: "flow", id: target };
+      const c = canvas.current, at = toClient(e), pane = c?.pane(), fw = c?.frame()?.contentWindow;
+      const g: Gesture | undefined = pan ? (at && pane && fw ? { kind: "pan", ...at, left: pane.scrollLeft, top: fw.scrollY } : undefined)
+        : e.altKey ? startFree(target!, { x: e.clientX, y: e.clientY }) : { kind: "flow", id: target! };
       if (!g) return;
       setG(g);
       hold(d)(m);
@@ -258,9 +282,9 @@ export function useGestures(o: {
   };
   // the capture overlay's handlers (parent client px -> frame document px)
   const capture = {
-    onPointerMove: (e: { clientX: number; clientY: number; buttons: number; shiftKey: boolean }) => { const p = canvas.current?.toDoc(e.clientX, e.clientY); if (p) gestureMove(p, e.buttons, e.shiftKey); },
+    onPointerMove: (e: { clientX: number; clientY: number; buttons: number; shiftKey: boolean }) => { const p = canvas.current?.toDoc(e.clientX, e.clientY); if (p) gestureMove(p, e.buttons, e.shiftKey, { x: e.clientX, y: e.clientY }); },
     onPointerUp: gestureUp,
     onPointerCancel: endGesture,
   };
-  return { gesture, onPress, cancelGesture, consumeDrop, capture, startResize, startSpacing, gapOf };
+  return { gesture, onPress, cancelGesture, consumeDrop, capture, startResize, startSpacing, gapOf, spaceKey };
 }

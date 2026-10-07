@@ -22,15 +22,16 @@ export const at = (b: Box, z: number): CSSProperties => ({ left: b.x * z, top: b
 export type Handles = { id: string; list: Handle[]; onHandle(h: Handle, e: ReactPointerEvent): void; onSpacing(side: Side | "gap", e: ReactPointerEvent): void; gap?: Box };
 const HANDLE = 8;
 // R13 handles (8 px, inside the box: a full-width node's edge is the frame's edge, where the overlay clips) and the
-// padding bars (24 × 4 px at each inner padding edge, kept inside the box); handles drawn last so they win an overlap
+// padding bars (24 × 4 screen px at each inner padding edge, kept inside the box); handles drawn last so they win an overlap
 function HandleLayer({ m, zoom, handles }: { m: Measured; zoom: number; handles: Handles }) {
   const { box: b, padding: [pt, pr, pb, pl] } = m;
   const along = (start: number, size: number, lo: boolean, hi: boolean) => (hi ? (start + size) * zoom - HANDLE : lo ? start * zoom : (start + size / 2) * zoom - HANDLE / 2);
+  const k = 1 / zoom; // the bars keep their screen size at any zoom (document px × k)
   const bars: Record<Side, Box> = {
-    top: { x: b.x + b.w / 2 - 12, y: Math.max(b.y, b.y + pt - 2), w: 24, h: 4 },
-    bottom: { x: b.x + b.w / 2 - 12, y: Math.min(b.y + b.h - 4, b.y + b.h - pb - 2), w: 24, h: 4 },
-    left: { x: Math.max(b.x, b.x + pl - 2), y: b.y + b.h / 2 - 12, w: 4, h: 24 },
-    right: { x: Math.min(b.x + b.w - 4, b.x + b.w - pr - 2), y: b.y + b.h / 2 - 12, w: 4, h: 24 },
+    top: { x: b.x + b.w / 2 - 12 * k, y: Math.max(b.y, b.y + pt - 2 * k), w: 24 * k, h: 4 * k },
+    bottom: { x: b.x + b.w / 2 - 12 * k, y: Math.min(b.y + b.h - 4 * k, b.y + b.h - pb - 2 * k), w: 24 * k, h: 4 * k },
+    left: { x: Math.max(b.x, b.x + pl - 2 * k), y: b.y + b.h / 2 - 12 * k, w: 4 * k, h: 24 * k },
+    right: { x: Math.min(b.x + b.w - 4 * k, b.x + b.w - pr - 2 * k), y: b.y + b.h / 2 - 12 * k, w: 4 * k, h: 24 * k },
   };
   return (
     <>
