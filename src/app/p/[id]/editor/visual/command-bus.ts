@@ -6,6 +6,8 @@ import type { EditorCommand } from "@/core/ir-command";
 
 export const BUS_LIMITS = { queue: 20 } as const;
 export type StepResult = { revision: number; createdIds: string[]; canUndo: boolean; canRedo: boolean; affected?: Affected };
+// Op contract: apply() records its own "before" state and applies the edit; rollback() restores what the latest apply()
+// recorded. A refusal rolls back the refused op and everything queued after it (newest first), then re-applies the queued ones.
 export type Op =
   | { kind: "commands"; label: string; commands: EditorCommand[]; done?: string; apply?(): void; rollback?(): void }
   | { kind: "undo" | "redo"; label: string; done?: string };
@@ -33,11 +35,11 @@ export class CommandBus {
   get revision(): number { return this.rev; }
 
   push(op: Op): boolean {
-    if (this.stop === "reload") return false;
-    if (this.queue.length >= BUS_LIMITS.queue) { this.emit({ type: "full" }); return false; }
+    if (this.stop === "reload") { this.say({ type: "stale" }); return false; }
+    if (this.queue.length >= BUS_LIMITS.queue) { this.say({ type: "full" }); return false; }
     if (op.kind === "commands") op.apply?.();
     this.queue.push(op);
-    this.emit({ type: "saving", pending: this.pending });
+    this.say({ type: "saving", pending: this.pending });
     void this.pump();
     return true;
   }
@@ -52,34 +54,47 @@ export class CommandBus {
     const op = this.queue.shift();
     if (!op) return;
     this.busy = true;
+    let result: StepResult;
     try {
-      const result = await this.send(op, { baseRevision: this.rev, pageId: this.pageId, ...(op.kind === "commands" && { commands: op.commands }) });
-      this.rev = result.revision;
-      this.busy = false;
-      this.emit({ type: "done", op, result });
+      result = await this.send(op, { baseRevision: this.rev, pageId: this.pageId, ...(op.kind === "commands" && { commands: op.commands }) });
     } catch (e) {
       this.busy = false;
-      const err = e as SendError, message = err.message ?? String(e);
-      if (err.code && RELOAD.has(err.code)) {
-        undo([op, ...this.queue]);
-        this.queue = [];
-        this.stop = "reload";
-        this.emit({ type: "stale", ...(typeof err.revision === "number" && { revision: err.revision }) });
-      } else if (err.code === "DOCUMENT_MATERIALIZE_FAILED" && typeof err.revision === "number") {
-        this.rev = err.revision; // committed: only the output is behind
-        undo(this.queue);
-        this.queue = [];
-        this.stop = "reload";
-        this.emit({ type: "unwritten", revision: err.revision });
-      } else if (err.code && REFUSED.has(err.code)) {
-        if (op.kind === "commands") op.rollback?.();
-        this.emit({ type: "refused", op, message });
-      } else {
-        this.queue.unshift(op);
-        this.stop = "retry";
-        this.emit({ type: "failed", op, message });
-      }
+      this.fail(op, e);
+      void this.pump();
+      return;
     }
+    this.busy = false;
+    this.rev = result.revision;
+    this.say({ type: "done", op, result }); // outside the try: a throwing UI handler must not re-queue a committed step
     void this.pump();
+  }
+
+  private fail(op: Op, e: unknown): void {
+    const err = (e ?? {}) as SendError, message = err.message ?? String(e);
+    if (err.code && RELOAD.has(err.code)) {
+      undo([op, ...this.queue]);
+      this.queue = [];
+      this.stop = "reload";
+      this.say({ type: "stale", ...(typeof err.revision === "number" && { revision: err.revision }) });
+    } else if (err.code === "DOCUMENT_MATERIALIZE_FAILED" && typeof err.revision === "number") {
+      this.rev = err.revision; // committed: only the output is behind
+      undo(this.queue);
+      this.queue = [];
+      this.stop = "reload";
+      this.say({ type: "unwritten", revision: err.revision });
+    } else if (err.code && REFUSED.has(err.code)) {
+      if (op.kind === "commands") {
+        undo([op, ...this.queue]); // later ops may sit on the same element: unwind them too, then replay them
+        for (const o of this.queue) if (o.kind === "commands") o.apply?.();
+      }
+      this.say({ type: "refused", op, message });
+    } else {
+      this.queue.unshift(op);
+      this.stop = "retry";
+      this.say({ type: "failed", op, message });
+    }
+  }
+  private say(e: BusEvent): void {
+    try { this.emit(e); } catch (err) { console.error(err); } // a UI handler bug must not wedge or replay the queue
   }
 }

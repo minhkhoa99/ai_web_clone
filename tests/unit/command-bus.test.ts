@@ -34,7 +34,7 @@ test("one request in flight; the next goes with the revision the previous produc
   expect(bus.pending).toBe(20);
 });
 
-test("optimistic apply at push; a 400 rolls back only that op, reports it and the queue goes on", async () => {
+test("optimistic apply at push; a 400 undoes that op (queued ops unwound + replayed so they stay on top), reports it and the queue goes on", async () => {
   const log: string[] = [];
   const { bus, calls, events } = harness();
   bus.push(cmd("a", log));
@@ -42,7 +42,7 @@ test("optimistic apply at push; a 400 rolls back only that op, reports it and th
   expect(log).toEqual(["apply a", "apply b"]);
   calls[0]!.d.reject(fail("IR_PATCH_INVALID"));
   await tick();
-  expect(log).toEqual(["apply a", "apply b", "rollback a"]);
+  expect(log).toEqual(["apply a", "apply b", "rollback b", "rollback a", "apply b"]); // b may sit on the same element: unwound, then replayed
   expect(events).toContainEqual({ type: "refused", op: calls[0]!.op, message: "IR_PATCH_INVALID message" });
   expect(calls[1]!.body.baseRevision).toBe(5);
 });
@@ -57,6 +57,7 @@ test("409 rolls back the op in flight and every queued op (newest first), drops 
   expect(events.at(-1)).toEqual({ type: "stale", revision: 9 });
   expect(bus.pending).toBe(0);
   expect(bus.push(cmd("d"))).toBe(false);
+  expect(events.at(-1)).toEqual({ type: "stale" });
   expect(calls).toHaveLength(1);
 });
 
@@ -87,4 +88,37 @@ test("a network error keeps the op at the head; retry() resends it with the same
   await tick();
   expect(events.at(-1)).toMatchObject({ type: "refused" });
   expect(bus.push({ kind: "redo", label: "Làm lại" })).toBe(true);
+});
+
+test("a throwing done handler does not re-queue the committed step: no resend, revision advanced, queue goes on", async () => {
+  const calls: { body: SendBody; d: ReturnType<typeof deferred> }[] = [];
+  const bus = new CommandBus(5, "pg", (_op, body) => { const d = deferred(); calls.push({ body, d }); return d.promise; }, (e) => { if (e.type === "done") throw new Error("ui bug"); });
+  const errorLog = console.error;
+  console.error = () => {};
+  try {
+    bus.push(cmd("a"));
+    bus.push(cmd("b"));
+    calls[0]!.d.resolve(ok(6));
+    await tick();
+  } finally { console.error = errorLog; }
+  expect(bus.revision).toBe(6);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]!.body).toMatchObject({ baseRevision: 6, commands: [{ name: "b" }] });
+});
+
+test("pushes during a retry stop are applied and queued but not sent until retry(), then go out in order", async () => {
+  const log: string[] = [];
+  const { bus, calls } = harness();
+  bus.push(cmd("a", log));
+  calls[0]!.d.reject(new TypeError("fetch failed"));
+  await tick();
+  expect(bus.push(cmd("b", log))).toBe(true);
+  expect(log).toEqual(["apply a", "apply b"]);
+  expect(calls).toHaveLength(1);
+  expect(bus.pending).toBe(2);
+  bus.retry();
+  expect(calls[1]!.body).toMatchObject({ baseRevision: 5, commands: [{ name: "a" }] });
+  calls[1]!.d.resolve(ok(6));
+  await tick();
+  expect(calls[2]!.body).toMatchObject({ baseRevision: 6, commands: [{ name: "b" }] });
 });
