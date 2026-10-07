@@ -193,5 +193,21 @@ test("E3b flow drag: the h1 dropped into the features section keeps its id (move
   await page.mouse.up();
   await page.waitForTimeout(500);
   expect((await payload()).revision).toBe(rev);
+  // Escape mid-drag (blue indicator showing): the gesture ends, the capture overlay goes, nothing is sent on release
+  await canvas(page).locator("h1").click();
+  const rev2 = (await payload()).revision;
+  const hb2 = (await canvas(page).locator("h1").boundingBox())!, fb2 = (await features.boundingBox())!;
+  await page.mouse.move(hb2.x + 10, hb2.y + hb2.height / 2);
+  await page.mouse.down();
+  for (let k = 1; k <= 6; k++) await page.mouse.move(hb2.x + 10 + ((fb2.x + 6 - hb2.x - 10) * k) / 6, hb2.y + hb2.height / 2 + ((fb2.y + fb2.height / 2 - hb2.y - hb2.height / 2) * k) / 6);
+  const drop = page.locator('[data-ui="ui_editor_drop_indicator"]');
+  await expect.poll(() => drop.isVisible()).toBe(true);
+  expect(await drop.getAttribute("class")).not.toContain("is-bad");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => drop.count()).toBe(0);
+  expect(await page.locator(".ve-capture").count()).toBe(0);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  expect((await payload()).revision).toBe(rev2);
   await page.close();
 });

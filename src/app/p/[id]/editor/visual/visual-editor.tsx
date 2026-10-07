@@ -51,7 +51,7 @@ function drawText(host: HTMLElement, ir: IRNodeV2, commands: EditorCommand[]): v
   host.replaceChildren(...kids.map(draw));
 }
 const BAND_LIMIT = 20;
-type Drop = { box: Box; ok: boolean; reason?: string; batch?: Batch };
+type Drop = { key: string; box: Box; ok: boolean; reason?: string; batch?: Batch };
 type Gesture = { kind: "flow"; id: string; drop?: Drop }; // Tasks 8–11: free / resize / spacing / insert / pan
 const typingIn = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName ?? "")); };
 
@@ -79,6 +79,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
   const applyResult = (r: StepResult, keepSelection = false) => {
+    cancelGesture(); // a drag's drop was built from the index / DOM this result replaces
     const a = r.affected, d = live.current.data;
     if (!d) return;
     const roots = new Map(d.page.sections.map((s) => [s.id, s.root.id]));
@@ -96,7 +97,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (!keepSelection) setSelection((s) => (r.createdIds.length ? r.createdIds : s));
   };
   // refetch the page; the old bus is dropped at once so nothing more is pushed to it
-  const refetch = () => { bus.current = null; setLoading(true); setLoad((x) => x + 1); };
+  const refetch = () => { cancelGesture(); bus.current = null; setLoading(true); setLoad((x) => x + 1); };
   const say = (e: BusEvent) => {
     switch (e.type) {
       case "saving": return;
@@ -168,6 +169,9 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const drag = useRef<{ gesture: Gesture | null; stop?: () => void; dropped: boolean }>({ gesture: null, dropped: false });
   const setG = (g: Gesture | null) => { drag.current.gesture = g; setGesture(g); };
   const endGesture = () => { drag.current.stop?.(); drag.current.stop = undefined; setG(null); };
+  // interrupted with the button still held (Escape, a blur, a reload, a result swapping the canvas): nothing is sent and
+  // the click the frame fires on release is swallowed (reset by the next press)
+  const cancelGesture = () => { if (!drag.current.gesture) return; drag.current.dropped = true; endGesture(); };
   // the drop under a frame document point: the indicator (blue) with its batch, or red with dropCommand's reason
   const flowOver = (g: Gesture, p: { x: number; y: number }): Drop | undefined => {
     const c = canvas.current, ix = live.current.index, comps = live.current.data?.interactives ?? [];
@@ -179,10 +183,17 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     const axis = cs ? axisOf(cs.display, cs.flexDirection) : "y";
     // Task 6 carry: the caller decides what is a container — not the dragged node, a void, a text host or a refused parent
     const container = over !== g.id && !isTextHost(ix.get(over)!.node) && guardParent(ix, comps, over) === undefined;
-    const zone = dropZone(box, p, axis, container), b = dropCommand(ix, comps, g.id, over, zone);
-    return { box: indicator(box, zone, axis), ok: !("error" in b), ...("error" in b ? { reason: b.error } : { batch: b }) };
+    const zone = dropZone(box, p, axis, container), b = dropCommand(ix, comps, g.id, over, zone), ib = indicator(box, zone, axis);
+    return { key: `${over}|${zone}|${ib.x},${ib.y},${ib.w},${ib.h}`, box: ib, ok: !("error" in b), ...("error" in b ? { reason: b.error } : { batch: b }) };
   };
-  const gestureMove = (p: { x: number; y: number }) => { const g = drag.current.gesture; if (g) setG({ ...g, drop: flowOver(g, p) }); };
+  // buttons 0 = the pointerup was lost: end without sending. Re-render only when the drop changes
+  const gestureMove = (p: { x: number; y: number }, buttons: number) => {
+    const g = drag.current.gesture;
+    if (!g) return;
+    if (buttons === 0) return endGesture();
+    const drop = flowOver(g, p);
+    if (drop?.key !== g.drop?.key) setG({ ...g, drop });
+  };
   // one batch = one revision, one Undo; a refused drop (red) sends nothing
   const gestureUp = () => { const b = drag.current.gesture?.drop?.batch; endGesture(); if (b) batch(b, "Di chuyển"); };
   // R12: a press on a selected node (or inside one: the selected ancestor is dragged) becomes a drag after 4 px and a
@@ -194,21 +205,29 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     const target = ancestorsOf(live.current.index, raw).find((a) => live.current.selection.includes(a));
     const d = canvas.current?.doc();
     if (!target || !d || drag.current.gesture || editing.current?.isConnected) return; // mouse text selection while editing
-    const fwdMove = (m: PointerEvent) => { d.getSelection()?.removeAllRanges(); gestureMove({ x: m.clientX, y: m.clientY }); };
+    const fwdMove = (m: PointerEvent) => { d.getSelection()?.removeAllRanges(); gestureMove({ x: m.clientX, y: m.clientY }, m.buttons); };
     const fwdUp = () => { drag.current.dropped = true; gestureUp(); };
-    const unpress = () => { d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", unpress); };
+    const unpress = () => { d.removeEventListener("pointermove", move); d.removeEventListener("pointerup", unpress); d.removeEventListener("pointercancel", unpress); };
     const move = (m: PointerEvent) => {
+      if (m.buttons === 0) return unpress();
       if (Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 4) return;
       unpress();
       setG({ kind: "flow", id: target }); // Task 8: alt -> "free"
       d.addEventListener("pointermove", fwdMove);
       d.addEventListener("pointerup", fwdUp);
       d.addEventListener("pointercancel", endGesture);
-      drag.current.stop = () => { d.removeEventListener("pointermove", fwdMove); d.removeEventListener("pointerup", fwdUp); d.removeEventListener("pointercancel", endGesture); };
+      const fw = d.defaultView; // focus left the frame or this window (Alt+Tab): cancel
+      fw?.addEventListener("blur", cancelGesture);
+      window.addEventListener("blur", cancelGesture);
+      drag.current.stop = () => {
+        d.removeEventListener("pointermove", fwdMove); d.removeEventListener("pointerup", fwdUp); d.removeEventListener("pointercancel", endGesture);
+        fw?.removeEventListener("blur", cancelGesture); window.removeEventListener("blur", cancelGesture);
+      };
       fwdMove(m);
     };
     d.addEventListener("pointermove", move);
     d.addEventListener("pointerup", unpress);
+    d.addEventListener("pointercancel", unpress);
   };
   const editing = useRef<HTMLElement | null>(null); // the text host being edited
   // spec §2 / R12: contenteditable on a text host; Enter or leaving it saves one batch, Esc cancels. Paste is plain
@@ -269,6 +288,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (child) select([child]);
   };
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && drag.current.gesture) { e.preventDefault(); cancelGesture(); return; }
     const action = keyAction(e, typingIn(e.target));
     if (!action) return;
     const { index: ix, selection: sel } = live.current, first = sel[0], comps = live.current.data?.interactives ?? [];
@@ -407,7 +427,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           )}
         </aside>
       </div>
-      {gesture && <div className="ve-capture" onPointerMove={(e) => { const p = canvas.current?.toDoc(e.clientX, e.clientY); if (p) gestureMove(p); }} onPointerUp={gestureUp} onPointerCancel={endGesture} />}
+      {gesture && <div className="ve-capture" onPointerMove={(e) => { const p = canvas.current?.toDoc(e.clientX, e.clientY); if (p) gestureMove(p, e.buttons); }} onPointerUp={gestureUp} onPointerCancel={endGesture} />}
     </div>
   );
 }
