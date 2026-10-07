@@ -37,6 +37,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const [pending, setPending] = useState(0);
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<RightTab>("style");
+  const [loading, setLoading] = useState(true); // a (re)fetch is on its way: no bus, nothing can be pushed
   const canvas = useRef<CanvasHandle>(null);
   const bus = useRef<CommandBus | null>(null);
   const index: DocIndex = useMemo(() => (data ? indexPage(data.page) : new Map()), [data]);
@@ -61,11 +62,10 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       }),
     });
     setSelection((s) => (r.createdIds.length ? r.createdIds : s));
-    // a reload makes a new bus at the fetched revision: wait until this one has nothing left to send
-    if (drift.current && !bus.current?.pending) { drift.current = false; setLoad((x) => x + 1); }
   };
-  const onEvent = (e: BusEvent) => {
-    setPending(bus.current?.pending ?? 0);
+  // refetch the page; the old bus is dropped at once so nothing more is pushed to it
+  const refetch = () => { bus.current = null; setLoading(true); setLoad((x) => x + 1); };
+  const say = (e: BusEvent) => {
     switch (e.type) {
       case "saving": return;
       case "done": setSaved(true); setMsg(e.op.done ?? DONE[e.op.kind]); return applyResult(e.result);
@@ -78,6 +78,16 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       }
       case "unwritten": return setHalt({ kind: "unwritten", text: "Đã lưu nhưng chưa ghi được bản xuất — thử lại sau ít phút." });
       case "failed": return setHalt({ kind: "failed", text: `Chưa lưu được: ${e.message}` });
+    }
+  };
+  const onEvent = (e: BusEvent) => {
+    setPending(bus.current?.pending ?? 0);
+    say(e);
+    // the queue settled (whatever the last step's outcome) on a drifted frame: a reload makes a new bus at the fetched
+    // revision, so it waits until this one has nothing left to send
+    if ((e.type === "done" || e.type === "refused" || e.type === "failed") && drift.current && !bus.current?.pending) {
+      drift.current = false;
+      refetch();
     }
   };
 
@@ -93,6 +103,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         setSelection((s) => s.filter((x) => next.has(x)));
         bus.current = new CommandBus(d.revision, d.page.id, send, onEvent);
         setPending(0);
+        setLoading(false);
       },
       (e: unknown) => {
         if (cancelled) return;
@@ -146,19 +157,19 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   }, []);
 
   const showItems = (data?.interactives ?? []).flatMap((c) => (c.spec.kind === "carousel" || c.spec.kind === "tabs" ? [{ root: c.rootId, index: c.spec.active }] : []));
-  const reload = () => { setHalt(null); setMsg(""); setLoad((x) => x + 1); };
+  const reload = () => { setHalt(null); setMsg(""); refetch(); };
   return (
     <div className="ve">
       <div className="editor-toolbar" data-ui="ui_editor_toolbar">
         <label className="inline-field">
           <span className="field-label">Trang</span>
-          <select value={data?.page.id ?? ""} onChange={(e) => setPageId(e.target.value)} disabled={pending > 0}>
+          <select value={data?.page.id ?? ""} onChange={(e) => { refetch(); setPageId(e.target.value); }} disabled={pending > 0 || loading}>
             {data?.pages.map((p) => <option key={p.id} value={p.id}>{p.path}</option>)}
           </select>
         </label>
         <SegmentedControl<string> label="Thiết bị" data-ui="ui_editor_bp_switch" value={String(bp)} onChange={(v) => setBp(Number(v) as Bp)} options={BPS.map((w) => ({ value: String(w), label: String(w) }))} />
-        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt} />
-        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading} />
         <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
         <span role="status" className="t-label-md text-2">{msg}</span>
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}

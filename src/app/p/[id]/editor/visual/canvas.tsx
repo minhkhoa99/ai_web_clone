@@ -2,7 +2,7 @@
 // E3 §1 canvas: the server's canvas document in a sandboxed srcdoc frame (same origin: the parent reads its DOM and
 // wires events; no script is injected). Clicks select instead of acting, links and forms never navigate (§8).
 // Partial updates swap section roots by data-ir-id and the inline stylesheet; a missing root -> the caller reloads.
-import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Affected } from "@/core/editor-canvas";
 
 export type CanvasHandle = {
@@ -42,6 +42,10 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
   const shown = useRef(showItems);
   shown.current = showItems;
   const doc = () => frame.current?.contentDocument ?? null;
+  // one token per frame document: until its load handler wired the guards, the frame takes no input (a click would
+  // follow a link). ponytail: identity via useMemo, a ref counter if React ever drops the memo
+  const docToken = useMemo(() => ({}), [frameKey, html]);
+  const [wired, setWired] = useState<object | null>(null);
   const setCss = (text: string) => {
     const style = doc()?.querySelector("style[data-aiwc-css]");
     if (style && style.textContent !== text) style.textContent = text;
@@ -81,17 +85,16 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
     if (!d || !w) return;
     setCss(css);
     const stop = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
-    d.addEventListener("click", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onPick(id, e.shiftKey); }, true);
-    d.addEventListener("dblclick", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onDouble(id); }, true);
-    d.addEventListener("auxclick", stop, true);
-    d.addEventListener("submit", stop, true);
+    // capture on the window: runs before any listener in the document (the runtime's included)
+    w.addEventListener("click", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onPick(id, e.shiftKey); }, true);
+    w.addEventListener("dblclick", (e) => { stop(e); const id = idOf(e.target); if (id) events.current.onDouble(id); }, true);
+    for (const type of ["auxclick", "submit", "dragover", "drop"]) w.addEventListener(type, stop, true); // drops: a file never opens in the frame
     // §8: pasting into an edited text (contenteditable, Task 12) inserts plain text only, never the clipboard's HTML
-    d.addEventListener("paste", (e) => {
+    w.addEventListener("paste", (e) => {
       if (!(d.activeElement as HTMLElement | null)?.isContentEditable) return;
       stop(e);
       d.execCommand("insertText", false, e.clipboardData?.getData("text/plain") ?? "");
     }, true);
-    d.addEventListener("drop", (e) => { if ((d.activeElement as HTMLElement | null)?.isContentEditable) stop(e); }, true);
     let last: string | null = null;
     d.addEventListener("mousemove", (e) => { const id = idOf(e.target); if (id !== last) { last = id; events.current.onHover(id); } });
     d.documentElement.addEventListener("mouseleave", () => { last = null; events.current.onHover(null); });
@@ -100,11 +103,13 @@ export function Canvas({ ref, frameKey, html, css, width, showItems, children, .
     new ResizeObserver(() => events.current.onFrame()).observe(d.documentElement);
     show();
     events.current.onFrame();
+    setWired(docToken);
   };
   return (
     <div className="ve-pane" data-ui="ui_editor_canvas_chrome" ref={pane}>
       <div className="ve-stage" style={{ width, height }}>
-        <iframe key={frameKey} ref={frame} data-ui="ui_editor_canvas_frame" title="Canvas" sandbox="allow-same-origin allow-scripts" srcDoc={html} onLoad={onLoad} style={{ width, height }} />
+        <iframe key={frameKey} ref={frame} data-ui="ui_editor_canvas_frame" title="Canvas" sandbox="allow-same-origin allow-scripts" srcDoc={html} onLoad={onLoad}
+          inert={wired !== docToken} style={{ width, height, pointerEvents: wired === docToken ? undefined : "none" }} />
         {children}
       </div>
     </div>

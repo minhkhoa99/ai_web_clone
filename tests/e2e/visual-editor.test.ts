@@ -104,3 +104,67 @@ test("E3a canvas: captured text holding markup shows as text (no handler runs, s
   expect(await outHtml()).toContain("Build faster sites");
   await page.close();
 });
+
+test("E3a canvas: until the frame's load wired its guards it takes no input — a click on a link before load never navigates", { timeout: 120_000 }, async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  let release = () => {};
+  const gate = new Promise<void>((r) => { release = r; });
+  // a held image keeps the frame's load event from firing while its document is already parsed
+  await page.route(/\/api\/projects\/[^/]+\/editor(\?.*)?$/, async (route) => {
+    const res = await route.fetch();
+    const json = (await res.json()) as { page: { html: string } };
+    json.page.html = json.page.html.replace("</html>", `<img src="${app!.base}/__hold.png" alt=""></html>`);
+    await route.fulfill({ response: res, json });
+  });
+  await page.route("**/__hold.png", async (route) => { await gate; await route.fulfill({ status: 404, body: "" }); });
+  await page.goto(`${app!.base}/p/${projectId}/editor`);
+  const link = canvas(page).getByRole("link", { name: "Features" });
+  await link.waitFor({ timeout: 30_000 });
+  const box = (await link.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(500);
+  expect(await canvas(page).locator("h1").evaluate(() => location.href)).toBe("about:srcdoc");
+  release();
+  const frame = page.locator('[data-ui="ui_editor_canvas_frame"]');
+  await expect.poll(() => frame.evaluate((f) => getComputedStyle(f).pointerEvents)).toBe("auto");
+  expect(await frame.evaluate((f) => (f as HTMLIFrameElement).inert)).toBe(false);
+  await page.close();
+});
+
+test("E3a bus: a reload owed to a shellChanged step still happens when the last queued step is refused", { timeout: 120_000 }, async () => {
+  const before = await payload();
+  const text = walk(before.page.sections.flatMap((s) => walk(s.root)).find((n) => n.tag === "h1")!).find((n) => n.tag === "#text")!;
+  const res = await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ baseRevision: before.revision, commands: [{ op: "setText", id: text.id, text: "Tạm" }] }),
+  });
+  expect(res.status).toBe(200);
+  const page = await open();
+  const h1 = canvas(page).locator("h1");
+  expect(await h1.innerText()).toBe("Tạm");
+  let release = () => {};
+  const gate = new Promise<void>((r) => { release = r; });
+  let n = 0;
+  // 1st Undo: the real step, its answer forged to shellChanged; 2nd Undo (queued behind it): refused with a 400
+  await page.route("**/editor/undo", async (route) => {
+    if (++n === 1) {
+      await gate;
+      const r = await route.fetch();
+      const json = (await r.json()) as { affected: object };
+      json.affected = { ...json.affected, shellChanged: true, sections: [] };
+      return route.fulfill({ response: r, json });
+    }
+    return route.fulfill({ status: 400, json: { code: "IR_PATCH_INVALID", message: "forced" } });
+  });
+  await h1.evaluate(() => { (window as unknown as { __same: number }).__same = 1; });
+  const undo = page.getByRole("button", { name: "Hoàn tác" });
+  await undo.click();
+  await undo.click();
+  release();
+  await expect.poll(() => status(page).innerText(), { timeout: 30_000 }).toContain("forced");
+  // the frame was reloaded (a fresh document) and shows the server's text
+  await expect.poll(() => h1.evaluate(() => (window as unknown as { __same?: number }).__same ?? 0), { timeout: 30_000 }).toBe(0);
+  expect(await h1.innerText()).toBe("Build faster sites");
+  await saved(page);
+  await page.close();
+});
