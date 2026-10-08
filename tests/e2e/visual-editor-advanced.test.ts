@@ -181,6 +181,8 @@ test("E3b flow drag: the h1 dropped into the features section keeps its id (move
   // a section root (Esc from the h1) dragged onto the paragraph: red, reasoned, nothing sent
   await canvas(page).locator("h1").click();
   await page.keyboard.press("Escape");
+  // the drag takes the selection at press time: wait until Esc moved it to the section root (slow under full-suite load)
+  await expect.poll(async () => { const v = await page.locator('[data-ui="ui_editor_selection_box"]').first().getAttribute("data-for"); return !!v && v !== h1Id; }, { timeout: 30_000 }).toBe(true);
   const rev = (await payload()).revision;
   const para = canvas(page).getByText("Plain paragraph text.");
   const pb = (await para.boundingBox())!, hb = (await canvas(page).locator("h1").boundingBox())!;
@@ -188,7 +190,7 @@ test("E3b flow drag: the h1 dropped into the features section keeps its id (move
   await page.mouse.down();
   for (let k = 1; k <= 6; k++) await page.mouse.move(hb.x + 4, hb.y + 4 + ((pb.y + pb.height / 2 - hb.y - 4) * k) / 6);
   const bad = page.locator('[data-ui="ui_editor_drop_indicator"].is-bad');
-  await expect.poll(() => bad.isVisible()).toBe(true);
+  await expect.poll(() => bad.isVisible(), { timeout: 10_000 }).toBe(true);
   expect(await bad.innerText()).toMatch(/Section chỉ đổi thứ tự|chính nó/); // the hero is a section root (or, if not, the p is inside it)
   await page.mouse.up();
   await page.waitForTimeout(500);
