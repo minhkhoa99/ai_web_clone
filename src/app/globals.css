@@ -784,8 +784,13 @@ select.full { width: 100%; min-height: 38px; }
 .ve-parent { position: absolute; outline: 1px dashed var(--c-text-3); }
 .ve-margin { position: absolute; background: color-mix(in srgb, var(--c-warn) 25%, transparent); }
 .ve-padding { position: absolute; background: color-mix(in srgb, var(--c-success) 25%, transparent); }
-.ve-layers { display: flex; flex-direction: column; gap: var(--s-sm); min-height: 0; flex: 1; }
-.ve-layer-list { position: relative; flex: 1; min-height: 160px; overflow: auto; }
+/* left column = three rows: tabs | the tree (all free height, never under 200px) | the Section card. The column's height
+   is fixed by the grid above, so the middle row's size never depends on how many layers there are; a column shorter than
+   tabs + 200px + card scrolls as a whole. Inside the tree the search stays put and only the list scrolls. (Before: a flex
+   column whose tree box had min-height: 0 while its list kept 160px, so a short column made the list spill over the card.) */
+.ve-left { display: grid; grid-template-rows: auto minmax(200px, 1fr) auto; align-content: start; }
+.ve-layers { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--s-sm); min-height: 0; }
+.ve-layer-list { position: relative; min-height: 0; overflow: auto; }
 .ve-layer { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 4px; font: var(--t-label-sm); border-radius: var(--r-sm); cursor: default; }
 .ve-layer:hover { background: var(--c-surface-high); }
 .ve-layer.is-selected { background: var(--c-surface-highest); color: var(--c-primary); }
@@ -823,11 +828,10 @@ select.full { width: 100%; min-height: 38px; }
   .ve-left { left: 0; transform: translateX(-100%); }
   .ve-right { right: 0; transform: translateX(100%); }
   .ve-left.is-open, .ve-right.is-open { visibility: visible; transform: none; box-shadow: 0 0 24px rgb(0 0 0 / 0.5); }
-  .ve-layers { min-height: 220px; } /* search + the list's 160px: a short drawer scrolls instead of the Section card overlapping the tree */
 }
 @media (prefers-reduced-motion: reduce) { .ve-left, .ve-right { transition: none; } }
 .ve-capture { position: fixed; inset: 0; z-index: 50; cursor: grabbing; }
-.ve-insert { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ve-insert { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; min-height: 0; overflow: auto; } /* the left column's middle row: scrolls in it */
 .ve-insert-item { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); color: var(--c-text); font: var(--t-label-sm); cursor: grab; touch-action: none; user-select: none; }
 .ve-insert-item:hover { background: var(--c-surface-high); }
 .ve-drop { position: absolute; background: color-mix(in srgb, var(--c-primary) 15%, transparent); outline: 2px solid var(--c-primary); }
