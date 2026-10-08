@@ -1,7 +1,8 @@
 import { promoteLegacyComponents } from "./ir-component";
 import type { PageCapture } from "./capture";
 import { AppError, Codes } from "./errors";
-import { capFidelity } from "./fidelity";
+import { capFidelity, refreshFidelity } from "./fidelity";
+import { upgradeDocument } from "./interactive-guess";
 import type { LegacyIR } from "./ir-legacy";
 import { toV2, type IRV2, type NodeType } from "./ir-v2";
 import { MAX_CAPTURE_NODES, MAX_TREE_DEPTH } from "./limit";
@@ -21,7 +22,7 @@ function spend(budget: Budget, key: string, depth: number): void {
   if (count > MAX_CAPTURE_NODES || depth > MAX_TREE_DEPTH) invalid(`IR page limit exceeded (${MAX_CAPTURE_NODES} nodes, ${MAX_TREE_DEPTH} levels)`);
 }
 
-export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
+export function migrateIR(input: unknown, captures: PageCapture[], origin?: string): IRV2 {
   if (!object(input)) return invalid("IR must be an object");
   if (input.version === 2) {
     if (!Number.isSafeInteger(input.revision) || !Array.isArray(input.pages) || !Array.isArray(input.sections) ||
@@ -37,7 +38,8 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
           (node.name !== undefined && typeof node.name !== "string") ||
           (node.text !== undefined && typeof node.text !== "string") ||
           (node.hidden !== undefined && typeof node.hidden !== "boolean") ||
-          (node.behavior !== undefined && typeof node.behavior !== "string")) return invalid("invalid v2 IR node");
+          (node.behavior !== undefined && typeof node.behavior !== "string") ||
+          (node.interactive !== undefined && !object(node.interactive))) return invalid("invalid v2 IR node");
       spend(budget, key, depth);
       if (seen.has(node.id)) return invalid(`duplicate node id: ${node.id}`);
       seen.add(node.id);
@@ -56,7 +58,8 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
       if (!object(component) || typeof component.id !== "string" || !Array.isArray(component.instanceIds)) return invalid("invalid v2 component");
       visitV2(component.root, 1, "components");
     }
-    return input as IRV2;
+    // E2 §9 behaviors -> interactive; §2 (R11): an invalid interactive is a corrupt document like any other
+    return upgradeDocument(input as IRV2);
   }
   if (input.version !== undefined && input.version !== 1) throw new AppError(Codes.IR_VERSION_UNSUPPORTED, "unsupported IR version");
   if (!Array.isArray(input.pages) || !Array.isArray(input.sections) || !Array.isArray(input.layouts) ||
@@ -96,5 +99,8 @@ export function migrateIR(input: unknown, captures: PageCapture[]): IRV2 {
   }
   const ir = promoteLegacyComponents(toV2(input as LegacyIR, captures), (input as LegacyIR).components);
   ir.fidelity = capFidelity(ir.fidelity); // promotion adds per-page component items after toV2's cap
-  return ir;
+  const out = upgradeDocument(ir, origin);
+  // toV2 analyzed the behaviors the migration just replaced: re-derive the capture items against the components
+  if (out !== ir) out.fidelity = refreshFidelity(out.fidelity, out, captures);
+  return out;
 }

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pageFileNames } from "@/core/emit-html";
+import { withBehavior } from "@/core/fidelity";
 import { coverage } from "@/core/graph";
 import { previewDocument, type QaFile } from "@/core/jobs";
 import type { TaskStatus } from "@/core/jobs-base";
@@ -23,7 +24,7 @@ async function readJsonIfExists<T>(path: string, empty: T): Promise<T> {
 
 // The preview screen's data, from the document through the central loader (never adopted, no job started): pages
 // (each with its out/ file, servable via /files/out/<file>), sections (name + root node id for scrolling the clone),
-// QA scores (qa.json, `stale` after an editor save), interaction rows, per-page coverage and the Fidelity report
+// QA scores + behaviour results (qa.json, `stale` after an editor save), interaction rows, per-page coverage and the Fidelity report
 // (E1 §5, at most 2000 items; a separate measure: the pixel scores are untouched).
 export function GET(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
@@ -49,7 +50,9 @@ export function GET(req: Request, { params }: IdCtx) {
       const i = t.key.indexOf(":");
       return { pageId: t.key.slice(0, i), sectionId: t.key.slice(i + 1), status: t.status, errorCode: t.error_code, errorMsg: t.error_msg };
     });
+    // E2 §5 / R5: the behaviour QA of a non-stale qa.json upgrades the component items at read time (never stored)
+    const behavior = qa.stale ? [] : qa.behavior ?? [];
     // "Chạy lại QA" is offered whenever the API would accept it (spec §3): not only completed+stale.
-    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes, fidelity });
+    return Response.json({ pages, sections, scores: qa.scores, stale: qa.stale === true, rescoreAvailable: isRescorable(db, project), interactions, coverage: coverage(db, id), fixes, behavior, fidelity: withBehavior(fidelity, behavior) });
   });
 }

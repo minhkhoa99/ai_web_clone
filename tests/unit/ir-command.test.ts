@@ -109,18 +109,52 @@ test("deleteNode and duplicateNode invert exactly; duplicate gets fresh IDs", ()
   expect([copy.id, ...copy.children.map((x) => x.id)]).toEqual(["new2", "new3", "new4"]);
 });
 
+test("duplicateNode strips html ids and id references from every copied node (R12); the original keeps them; undo is exact", () => {
+  const base = fixture();
+  const withIds = { ...base, sections: base.sections.map((s, i) => i ? s : { ...s, root: n("p", "div", [
+    n("a", "label", [n("in", "input", [], { attrs: { id: "email", "aria-controls": "x", title: "t" } })], { attrs: { for: "email", "aria-labelledby": "y" } }), n("b", "p"),
+  ]) }) };
+  const { ir: out } = roundTrip(withIds, prepareCommands(withIds, [{ op: "duplicateNode", id: "a", parentId: "p", index: 2 }], ids()));
+  expect(kids(out)[0]!.attrs).toEqual({ for: "email", "aria-labelledby": "y" });
+  expect(kids(out)[0]!.children[0]!.attrs).toEqual({ id: "email", "aria-controls": "x", title: "t" });
+  expect(kids(out)[2]!.attrs).toEqual({});
+  expect(kids(out)[2]!.children[0]!.attrs).toEqual({ title: "t" });
+});
+
+test("a section placeholder moves into another shell parent (body -> main) and back on undo", () => {
+  const base = fixture();
+  const ir = { ...base, pages: [{ ...base.pages[0]!, shell: n("html", "html", [n("body", "body", [
+    n("ph1", "#section", [], { attrs: { "data-section": "s1" } }), n("main", "main", [n("ph2", "#section", [], { attrs: { "data-section": "s2" } })]),
+  ])]) }] };
+  const moved = roundTrip(ir, [{ op: "moveNode", id: "ph1", parentId: "main", index: 1 }]).ir;
+  expect(moved.pages[0]!.sectionIds).toEqual(["s2", "s1"]);
+});
+
 test("protected roots, cycles and owner boundaries are refused", () => {
   const ir = fixture();
   const refused: EditorCommand[] = [
     { op: "deleteNode", id: "p" }, { op: "moveNode", id: "p", parentId: "a", index: 0 }, { op: "deleteNode", id: "html" },
     { op: "moveNode", id: "a", parentId: "ta", index: 0 }, { op: "moveNode", id: "a", parentId: "a", index: 0 },
-    { op: "moveNode", id: "d", parentId: "p", index: 0 }, { op: "moveNode", id: "b", parentId: "body", index: 0 },
+    { op: "moveNode", id: "b", parentId: "body", index: 0 },
     { op: "duplicateNode", id: "ph1", parentId: "body", index: 0 }, { op: "duplicateNode", id: "d", parentId: "p", index: 0 },
     { op: "deleteNode", id: "missing" }, { op: "moveNode", id: "b", parentId: "p", index: 3 },
   ];
   for (const command of refused) expect(() => prepareCommands(ir, [command], ids()), JSON.stringify(command)).toThrow(/command 0/);
   const cycle = applyCommands(ir, [{ op: "moveNode", id: "b", parentId: "a", index: 0 }]).ir;
   expect(() => applyCommands(cycle, [{ op: "moveNode", id: "a", parentId: "b", index: 0 }])).toThrow(/cycle/);
+});
+
+test("E3b R1: moveNode between two sections keeps the ids of the whole subtree and inverts exactly; shell and main boundaries still hold", () => {
+  const ir = fixture();
+  const out = roundTrip(ir, [{ op: "moveNode", id: "d", parentId: "p", index: 1 }]).ir;
+  expect(kids(out).map((x) => x.id)).toEqual(["a", "d", "b", "c"]);
+  expect(kids(out)[1]!.parentId).toBe("p");
+  expect(kids(out, 1)).toEqual([]);
+  const back = roundTrip(out, [{ op: "moveNode", id: "a", parentId: "q", index: 0 }]).ir; // with its #text child
+  expect(kids(back, 1)[0]).toMatchObject({ id: "a", parentId: "q", children: [{ id: "ta", parentId: "a" }] });
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "b", parentId: "body", index: 0 }])).toThrow(/boundaries/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "d", parentId: "p", index: 9 }])).toThrow(/index out of range/);
+  expect(() => applyCommands(ir, [{ op: "moveNode", id: "d", parentId: "ta", index: 0 }])).toThrow(/cannot have children/);
 });
 
 test("shell edits sync section references and undo restores sections and layouts", () => {
@@ -415,4 +449,43 @@ test("promoteLayout dropping a section that holds instances round-trips instance
   const undone = applyCommands(out, inverse);
   expect(undone.ir.components[0]!.instanceIds).toEqual(["card0", "card1", "card2"]);
   expect(applyCommands(undone.ir, undone.inverse).ir).toEqual(out);
+});
+
+test("setName trims, holds 1–80 characters, inverts exactly; an instance records a name override; #text and placeholders are refused", () => {
+  const ir = fixture();
+  const named = roundTrip(ir, [{ op: "setName", id: "a", name: "  Tiêu đề chính  " }]).ir;
+  expect(kids(named)[0]!.name).toBe("Tiêu đề chính");
+  expect(prepareCommands(ir, [{ op: "setName", id: "a", name: "x".repeat(80) }], ids())).toEqual([{ op: "setName", id: "a", name: "x".repeat(80) }]);
+  for (const name of ["", "   ", "x".repeat(81)]) expect(() => prepareCommands(ir, [{ op: "setName", id: "a", name }], ids()), JSON.stringify(name)).toThrow(/1–80/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "a", name: 5 as never }])).toThrow(/string/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "ta", name: "t" }])).toThrow(/#text/);
+  expect(() => applyCommands(ir, [{ op: "setName", id: "ph1", name: "t" }])).toThrow(/placeholder/);
+  const cards = cardsIr();
+  const out = roundTrip(cards, [{ op: "setName", id: "card1", name: "Thẻ giữa" }]).ir;
+  expect(overridesOf(out, "card1")).toContain("name");
+  expect(card(out, 1).name).toBe("Thẻ giữa");
+});
+
+test("E3b R2: convertToComponent names nodes an earlier createNode of the batch made (new:<k>/<path>); History keeps real ids; bad refs are refused", () => {
+  const ir = fixture();
+  const draft: NodeDraft = { tag: "div", children: [{ tag: "div", styles: { base: { overflow: "hidden" } }, children: [{ tag: "div", children: [{ tag: "div" }, { tag: "div" }] }] }] };
+  const forward = prepareCommands(ir, [
+    { op: "createNode", parentId: "p", index: 0, draft },
+    { op: "convertToComponent", id: "new:0/", kind: "carousel", roles: { viewport: "new:0/0", track: "new:0/0.0", slides: ["new:0/0.0.0", "new:0/0.0.1"] } },
+  ], ids());
+  expect(forward[1]).toEqual({ op: "convertToComponent", id: "new1", kind: "carousel", roles: { viewport: "new2", track: "new3", slides: ["new4", "new5"] } });
+  const done = roundTrip(ir, forward);
+  expect(kids(done.ir)[0]!.interactive).toMatchObject({ kind: "carousel", viewport: "new2", track: "new3", slides: ["new4", "new5"] });
+  expect(done.createdIds).toEqual(["new1"]);
+  for (const ref of ["new:1/", "new:0/9", "new:0/0.0.0.0", "new:7/"]) {
+    expect(() => prepareCommands(ir, [{ op: "createNode", parentId: "p", index: 0, draft }, { op: "convertToComponent", id: ref, kind: "carousel", roles: {} }], ids()), ref).toThrow(/command 1/);
+  }
+  // a plain id that only looks alike is left alone (and then simply not found)
+  expect(() => prepareCommands(ir, [{ op: "convertToComponent", id: "new:x", kind: "carousel", roles: {} }], ids())).toThrow(/not found/);
+  // client JSON: prototype keys and deep nesting are refused before anything resolves
+  const create: EditorCommand = { op: "createNode", parentId: "p", index: 0, draft };
+  const roles = JSON.parse('{"__proto__":{"viewport":"new:0/0"}}') as Record<string, unknown>;
+  expect(() => prepareCommands(ir, [create, { op: "convertToComponent", id: "new:0/", kind: "carousel", roles }], ids())).toThrow(/command 1/);
+  const deep = JSON.parse(`{"x":${"[".repeat(50)}${"]".repeat(50)}}`) as Record<string, unknown>;
+  expect(() => prepareCommands(ir, [create, { op: "convertToComponent", id: "new:0/", kind: "carousel", roles: deep }], ids())).toThrow(/command 1/);
 });

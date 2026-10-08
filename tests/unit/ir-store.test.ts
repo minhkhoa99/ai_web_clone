@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import { config } from "@/core/config";
@@ -187,6 +188,58 @@ test("the first idle read adopts revision 0 once; later reads never reload or ch
   expect(written).toEqual([]); // the existing output is revision 0's
 });
 
+test("E2 §9: a stored snapshot the upgrade hook changes is committed once on load — revision+1, History reset, materialized; never while busy, never in place", async () => {
+  const upgrade = (ir: IRV2): IRV2 => (ir.tokens["--u"] ? ir : { ...ir, tokens: { ...ir.tokens, "--u": "1" } });
+  const busy = { on: false };
+  const { db, store, written } = setup(":memory:", { upgrade, isBusy: () => busy.on });
+  // as a pre-E2 build stored it: revision 2, one History step recorded against the pre-upgrade document
+  db.prepare("INSERT INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES('p',?,2,1,2)").run(JSON.stringify({ ...fixture(), revision: 2 }));
+  db.prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES('p',1,'[]','[]','user')").run();
+  busy.on = true; // a job owns the project: upgraded in memory only
+  expect((await store.loadDocument("p")).tokens).toEqual({ "--u": "1" });
+  await store.ensureMaterialized("p");
+  expect([stateOf(db, "p"), historyRows(db, "p"), written]).toEqual([{ revision: 2, cursor: 1, materialized_revision: 2 }, 1, []]);
+  busy.on = false;
+  expect(await store.updateFidelity("p", 2, (items) => [...items, styleItem])).toBeNull(); // the upgrade is never stored in place
+  const doc = await store.loadDocument("p");
+  expect([doc.revision, doc.tokens]).toEqual([3, { "--u": "1" }]);
+  expect([stateOf(db, "p"), historyRows(db, "p"), written]).toEqual([{ revision: 3, cursor: 0, materialized_revision: 3 }, 0, [3]]);
+  expect(await store.historyState("p")).toEqual({ revision: 3, canUndo: false, canRedo: false });
+  // idempotent: upgraded == stored -> no new revision, nothing re-emitted
+  await store.loadDocument("p");
+  await store.ensureMaterialized("p");
+  expect([stateOf(db, "p")!.revision, written]).toEqual([3, [3]]);
+  expect(await codeOf(store.commitCommands("p", 2, setText("x"), "user"))).toBe("STALE_REVISION");
+});
+
+test("E2 §9: a step at the pre-upgrade revision commits the upgrade first and is refused STALE; a job's own ensureMaterialized commits it while busy", async () => {
+  const upgrade = (ir: IRV2): IRV2 => (ir.tokens["--u"] ? ir : { ...ir, tokens: { ...ir.tokens, "--u": "1" } });
+  const seed = (db: DatabaseSync) => db.prepare("INSERT INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES('p',?,0,0,0)").run(JSON.stringify(fixture()));
+  const a = setup(":memory:", { upgrade });
+  seed(a.db);
+  expect(await codeOf(a.store.commitCommands("p", 0, setText("x"), "user"))).toBe("STALE_REVISION");
+  expect([stateOf(a.db, "p")!.revision, a.written]).toEqual([1, [1]]);
+  await a.store.commitCommands("p", 1, setText("x"), "user"); // the reloaded tab's step lands on the upgraded document
+  expect((await a.store.loadDocument("p")).tokens).toEqual({ "--u": "1" });
+  const b = setup(":memory:", { upgrade, isBusy: () => true });
+  seed(b.db);
+  expect(await b.store.ensureMaterialized("p", true)).toBe(true);
+  expect(await b.store.ensureMaterialized("p", true)).toBe(false);
+  expect(stateOf(b.db, "p")!.revision).toBe(1);
+});
+
+test("updateComponent through the store drops the noted field from its component-note (E2 §5); Undo keeps it dropped (Fidelity is never undone)", async () => {
+  const doc = fixture();
+  doc.sections[0]!.root.children.push(n("dd", "div", [n("tg", "button"), n("pn", "div")], { interactive: { kind: "dropdown", source: "aria", confidence: "guessed", trigger: "tg", panel: "pn", openOn: "click" } }));
+  doc.fidelity = [{ pageId: "pg", feature: "component-note", status: "partial", nodeId: "dd", sourceRef: "dd", note: "Nhận diện khi clone: openOn: giá trị mặc định" }];
+  const { store } = setup(":memory:", { loadInitial: async () => doc });
+  await store.commitCommands("p", 0, [{ op: "updateComponent", id: "dd", patch: { openOn: "hover" } }], "user");
+  const notes = (d: IRV2) => d.fidelity.filter((x) => x.feature === "component-note");
+  expect(notes(await store.loadDocument("p"))).toEqual([]);
+  await store.undoDocument("p", 1);
+  expect(notes(await store.loadDocument("p"))).toEqual([]);
+});
+
 test("invalid or oversized steps are refused before anything is written", async () => {
   const { db, store } = setup();
   expect(await codeOf(store.commitCommands("p", 0, [{ op: "setText", id: "missing", text: "x" }], "user"))).toBe("IR_PATCH_INVALID");
@@ -276,6 +329,65 @@ test("v1 ir.json: a plain read (preview, a job) never marks QA stale; adoption m
   db.prepare("DELETE FROM document_state WHERE project_id=?").run(id);
   expect((await projectDocuments(db).loadDocument(id)).sections[0]!.root.id).toBe(doc.sections[0]!.root.id);
   expect(await file("qa.json")).toEqual({ scores: [{ score: 0.9 }] });
+});
+
+// A pre-E2 v2 document as E1 stored it: a captured v1 tab interaction bound as `behavior`, no `interactive` yet.
+function preE2(revision = 0): IRV2 {
+  const tab = (id: string, selected: boolean, panel: string) => n(id, "button", [n(`${id}x`, "#text", [], { text: id })], { attrs: { role: "tab", "aria-selected": String(selected), "aria-controls": panel } });
+  const root = n("tabs", "section", [
+    n("tl", "div", [tab("t1", true, "panel-1"), tab("t2", false, "panel-2")], { attrs: { role: "tablist" } }),
+    n("pn1", "div", [n("p1x", "#text", [], { text: "one" })], { attrs: { role: "tabpanel", id: "panel-1" } }),
+    n("pn2", "div", [n("p2x", "#text", [], { text: "two" })], { attrs: { role: "tabpanel", id: "panel-2", hidden: "" } }),
+  ]);
+  root.children[0]!.children[0]!.behavior = "ix-tab";
+  return {
+    ...fixture(), revision,
+    pages: [{ id: "home", path: "/", title: "", meta: {}, sectionIds: ["s1"], shell: n("html", "html", [n("body", "body", [n("ph1", "#section", [], { attrs: { "data-section": "s1" } })])]) }],
+    sections: [{ id: "s1", pageId: "home", name: "tabs", role: "main", hash: "h1", origin: "capture", root }],
+    interactions: [{ id: "ix-tab", kind: "tab", trigger: "#t1", status: "captured", pageId: "home" }],
+  };
+}
+const RUNTIME = fileURLToPath(new URL("../../src/core/runtime.js", import.meta.url));
+async function staleOutput(ws: string) {
+  await mkdir(join(ws, "out", "js"), { recursive: true });
+  await writeFile(join(ws, "out", "index.html"), '<button data-behavior="ix-tab">t1</button>');
+  await writeFile(join(ws, "out", "js", "runtime.js"), "/* pre-E2 runtime */");
+}
+const outputOf = async (ws: string) => [await readFile(join(ws, "out", "index.html"), "utf8"), await readFile(join(ws, "out", "js", "runtime.js"), "utf8")];
+
+test("E2 §9 jobs wiring: an adopted pre-E2 snapshot (+ History) is committed upgraded on the first load — revision+1, History reset, out/ data-c + new runtime, QA stale; once", async () => {
+  const { db, id, ws } = await seedJobsProject();
+  await writeFile(join(ws, "ir.json"), JSON.stringify(preE2(2))); // the mirror the pre-E2 build wrote
+  db.prepare("INSERT INTO document_state(project_id,ir_json,revision,cursor,materialized_revision) VALUES(?,?,2,1,2)").run(id, JSON.stringify(preE2(2)));
+  db.prepare("INSERT INTO document_history(project_id,seq,forward_json,inverse_json,source) VALUES(?,1,?,?,'user')").run(id, JSON.stringify([{ op: "setText", id: "p1x", text: "one" }]), JSON.stringify([{ op: "restoreProps", id: "tabs", props: {} }]));
+  await staleOutput(ws);
+  const doc = await projectDocuments(db).loadDocument(id);
+  expect(doc.revision).toBe(3);
+  expect(doc.sections[0]!.root.interactive).toMatchObject({ kind: "tabs", confidence: "guessed" });
+  expect(JSON.stringify(doc)).not.toContain('"behavior"');
+  expect([stateOf(db, id), historyRows(db, id)]).toEqual([{ revision: 3, cursor: 0, materialized_revision: 3 }, 0]);
+  const [html, runtime] = await outputOf(ws);
+  expect(html).toContain('data-c="tabs"');
+  expect(runtime).toBe(await readFile(RUNTIME, "utf8"));
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [{ score: 0.5 }], stale: true });
+  expect((JSON.parse(await readFile(join(ws, "ir.json"), "utf8")) as IRV2).revision).toBe(3);
+  // a second load (a fresh store) and a repair find nothing to upgrade: no new revision
+  await projectDocuments(db).loadDocument(id);
+  await projectDocuments(db).ensureMaterialized(id);
+  expect(stateOf(db, id)!.revision).toBe(3);
+});
+
+test("E2 §9 jobs wiring: adopting a not-yet-adopted pre-E2 v2 checkpoint re-emits out/ (data-c, new runtime) and marks QA stale; the mirror never converts again", async () => {
+  const { db, id, ws } = await seedJobsProject();
+  await writeFile(join(ws, "ir.json"), JSON.stringify(preE2()));
+  await staleOutput(ws);
+  const doc = await projectDocuments(db).loadDocument(id);
+  expect([doc.revision, stateOf(db, id)]).toEqual([0, { revision: 0, cursor: 0, materialized_revision: 0 }]);
+  const [html, runtime] = await outputOf(ws);
+  expect(html).toContain('data-c="tabs"');
+  expect(runtime).toBe(await readFile(RUNTIME, "utf8"));
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toMatchObject({ stale: true });
+  expect(JSON.stringify(JSON.parse(await readFile(join(ws, "ir.json"), "utf8")))).not.toContain('"behavior"');
 });
 
 // --- Fidelity (E1 §5): derived data, never a History step ---
@@ -452,7 +564,7 @@ test("a resumed fix over an adopted document: the fixed IR becomes the next revi
   expect(doc.fidelity.length).toBeGreaterThan(0);
   expect(JSON.parse(await readFile(join(ws, "ir.json"), "utf8"))).toEqual(doc);
   expect(await readFile(join(ws, "out", "index.html"), "utf8")).toContain("Fixed");
-  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [] }); // rescored after the fix
+  expect(JSON.parse(await readFile(join(ws, "qa.json"), "utf8"))).toEqual({ scores: [], behavior: [] }); // rescored after the fix (no component: no behaviour check)
   expect(await codeOf(store.commitCommands(id, 0, [{ op: "setText", id: top.id, text: "tab" }], "user"))).toBe("STALE_REVISION");
   expect((db.prepare("SELECT status FROM projects WHERE id=?").get(id) as { status: string }).status).toBe("completed");
 });
@@ -471,4 +583,27 @@ test("a user edit before the resume wins: the fix tasks are closed, no fix runs,
   const after = await store.loadDocument(id);
   expect(after.revision).toBe(1);
   expect(JSON.stringify(after)).toContain('"Mine"');
+});
+
+test("E3b R3: coalesce folds a repeat of the latest step's style fields into that step — one Undo restores the value before both; anything else is a new step", async () => {
+  const { db, store } = setup();
+  const color = (c: string) => [{ op: "setStyle" as const, id: "r", target: "base" as const, changes: { color: c } }];
+  const colorOf = async () => (await store.loadDocument("p")).sections[0]!.root.styles.base.color;
+  await store.commitCommands("p", 0, color("red"), "user");
+  expect(await store.commitCommands("p", 1, color("blue"), "user", { coalesce: true })).toEqual({ revision: 2, createdIds: [], canUndo: true, canRedo: false });
+  expect([historyRows(db, "p"), stateOf(db, "p")]).toEqual([1, { revision: 2, cursor: 1, materialized_revision: 2 }]);
+  await store.undoDocument("p", 2);
+  expect(await colorOf()).toBeUndefined();
+  await store.redoDocument("p", 3);
+  expect(await colorOf()).toBe("blue");
+  // another property: a new step
+  await store.commitCommands("p", 4, [{ op: "setStyle", id: "r", target: "base", changes: { "font-size": "20px" } }], "user", { coalesce: true });
+  expect(historyRows(db, "p")).toBe(2);
+  // a Redo branch (the latest step undone) is never rewritten: a new step that drops the branch
+  await store.undoDocument("p", 5);
+  await store.commitCommands("p", 6, color("green"), "user", { coalesce: true });
+  expect([historyRows(db, "p"), stateOf(db, "p")!.cursor]).toEqual([2, 2]);
+  // a non-style batch never coalesces
+  await store.commitCommands("p", 7, setText("x"), "user", { coalesce: true });
+  expect(historyRows(db, "p")).toBe(3);
 });

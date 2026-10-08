@@ -2,6 +2,7 @@
 import type { PageCapture } from "./capture";
 import type { Interaction } from "./interactions";
 import type { LegacyIR, LegacyLayout, LegacySection } from "./ir-legacy";
+import { attachInteractives, ORIGIN } from "./interactive-build";
 import { migrateIR } from "./ir-migrate";
 import type { IRNodeV2, IRV2 } from "./ir-v2";
 import { dedupeStyles, extractTokens, structuralHash, type StyledNode } from "./dedupe";
@@ -13,6 +14,7 @@ import {
   findTrigger,
   indexById,
   sectionPlaceholder,
+  selectorIds,
   splitSections,
   toDraft,
   toIRNode,
@@ -43,8 +45,11 @@ export function buildLegacyIR(captures: PageCapture[]): LegacyIR {
   const parsed = captures.map((capture) => {
     const dom = (bp: number) => capture.breakpoints.find((b) => b.bp === bp)?.dom;
     const walk: Walk = { pageId: capture.pageId, canvasAssets: new Map(capture.dynamic.map((d) => [d.order, d.asset])), canvasSeen: 0 };
-    const html = toDraft(dom(1440) ?? capture.breakpoints[0]!.dom, "0", dom(768), dom(375), walk);
-    const sections: DraftSection[] = splitSections(html).map(({ role, root }, i) => ({
+    const primary = dom(1440) ?? capture.breakpoints[0]!.dom;
+    const html = toDraft(primary, "0", dom(768), dom(375), walk);
+    const idOf = selectorIds(primary, capture.pageId);
+    const carousels = new Set((capture.interactives ?? []).flatMap((r) => (r.kind === "carousel" ? [idOf(r.selector) ?? ""] : [])));
+    const sections: DraftSection[] = splitSections(html, carousels).map(({ role, root }, i) => ({
       id: `${capture.pageId}-s${i + 1}`,
       pageId: capture.pageId,
       name: `section-${i + 1}`,
@@ -146,9 +151,10 @@ export function buildLegacyIR(captures: PageCapture[]): LegacyIR {
   };
 }
 
-// IR v2 with the class-based builder's output migrated in memory (E1 §6): same section/layout/node IDs as v1.
+// IR v2 with the class-based builder's output migrated in memory (E1 §6): same section/layout/node IDs as v1; capture
+// records and structural guesses become components (E2 §3).
 export function buildIR(captures: PageCapture[]): IR {
-  return migrateIR(buildLegacyIR(captures), captures);
+  return attachInteractives(migrateIR(buildLegacyIR(captures), captures, ORIGIN), captures);
 }
 
 // The section/layout references IR v2 shares with the renderer's v1 view (compileV2), which the editor adapter also

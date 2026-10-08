@@ -10,6 +10,12 @@ export type LegacyIRNode = {
   hidden?: boolean;
   states?: { hover?: string; focus?: string; active?: string };
   behavior?: string;
+  // view-only (compileV2, E2 §4), never stored: component attrs (null drops the captured attr of that name), a loop
+  // clone the renderer skips, an id kept under stripIds, an iframe embed (its page gets the frame-src meta CSP)
+  c?: Record<string, string | null>;
+  skip?: true;
+  keepId?: true;
+  embed?: true;
   children: LegacyIRNode[];
 };
 export type LegacySection = {

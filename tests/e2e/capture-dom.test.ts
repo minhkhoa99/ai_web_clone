@@ -85,7 +85,7 @@ test("open shadow DOM content is flattened into the host", () => {
 });
 
 test("same-origin iframe content is inlined", () => {
-  const iframe = find(root, (n) => n.tag === "iframe" && n.attrs.src === "frame.html")!;
+  const iframe = find(root, (n) => n.tag === "iframe" && n.attrs.src === `${site.url}/frame.html`)!; // stored absolute (E2 embed allowlist)
   expect(iframe.children).toHaveLength(1);
   expect(iframe.children[0]!.tag).toBe("html");
   expect(hasText(iframe, "Frame content")).toBe(true);

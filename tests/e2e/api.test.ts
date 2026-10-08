@@ -14,6 +14,7 @@ import { createProject, enqueue, isQueuedOrActive, startProject, type JobDeps } 
 import type { BrowserHandle } from "@/core/browser";
 import { emit } from "@/core/jobs-base";
 import { getDb } from "@/app/_server/db";
+import { n, siteOf, t } from "./component-site";
 import * as providers from "@/app/api/providers/route";
 import * as providerTest from "@/app/api/providers/test/route";
 import * as providerModels from "@/app/api/providers/models/route";
@@ -454,6 +455,28 @@ test("preview returns pages with emitted file names, qa scores and coverage", as
   expect(refused.pages).toEqual([]);
   expect(refused.scores).toHaveLength(1);
   expect(refused.fidelity).toEqual([expect.objectContaining({ feature: "fidelity-unavailable", status: "partial" })]);
+});
+
+test("preview: behaviour QA from a fresh qa.json upgrades the component's Fidelity item at read time; stale -> none (R5)", async () => {
+  const id = await newProject();
+  const ws = join(config.workspaceRoot, id);
+  await mkdir(ws, { recursive: true });
+  const tabs = n("tabs", "section", [n("t0", "button", [t("a", "1")]), n("t1", "button", [t("b", "2")]), n("p0", "div", [t("c", "one")]), n("p1", "div", [t("d", "two")])],
+    { interactive: { kind: "tabs", source: "aria", confidence: "guessed", tabs: [{ trigger: "t0", panel: "p0" }, { trigger: "t1", panel: "p1" }], active: 0 } });
+  await writeFile(join(ws, "pages.json"), JSON.stringify([{ pageId: "home", url: "http://x.test/" }]));
+  await writeFile(join(ws, "ir.json"), JSON.stringify(siteOf(tabs)));
+  const behavior = [{ pageId: "home", nodeId: "tabs", kind: "tabs", ok: true }];
+  type Body = { behavior: unknown[]; fidelity: { feature: string; nodeId?: string; status: string }[] };
+  const read = async () => (await (await preview.GET(new Request("http://127.0.0.1"), ctx({ id }))).json()) as Body;
+  const item = (b: Body) => b.fidelity.find((x) => x.feature === "component" && x.nodeId === "tabs");
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [], behavior }));
+  const fresh = await read();
+  expect(fresh.behavior).toEqual(behavior);
+  expect(item(fresh)?.status).toBe("supported");
+  await writeFile(join(ws, "qa.json"), JSON.stringify({ scores: [], behavior, stale: true }));
+  const stale = await read();
+  expect(stale.behavior).toEqual([]);
+  expect(item(stale)?.status).toBe("partial"); // guessed: back to its own status
 });
 
 test("DELETE removes the rows and the workspace; unknown id is 404", async () => {

@@ -5,8 +5,8 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { categoryOf, dedupeStyles, type Decl, type StyleSet, type StyledNode } from "./dedupe";
 import { atomicWrite } from "./fsx";
-import type { Interaction } from "./interactions";
 import type { LegacyIR as IR, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
+import { baseDecl, cfgOf, EMBED_HOSTS, embedSrc, loopClones, roleIndex, videoAttrs, type Role, type VideoSpec } from "./interactive";
 import { resolveComponents } from "./ir-component";
 import type { IRNodeV2, IRV2, NodeStyles } from "./ir-v2";
 import { mapLimit } from "./limit";
@@ -21,14 +21,6 @@ export type RenderOpts = {
 export type EmitOpts = RenderOpts & { outDir: string; workspaceDir: string };
 
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-const BEHAVIOR_ATTR: Partial<Record<Interaction["kind"], string>> = {
-  menu: "toggle",
-  accordion: "toggle",
-  tab: "tabs",
-  modal: "modal",
-  carousel: "carousel",
-  sticky: "sticky",
-};
 const STATES = ["hover", "focus", "active"] as const;
 const FRAME_TAGS = new Set(["iframe", "frame", "embed", "object"]);
 const SAFE_ATTR_NAME = /^[^\s"'<>/=]+$/;
@@ -49,7 +41,6 @@ export const EFFECT_PRESETS: Record<string, string> = {
 type Ctx = {
   opts: RenderOpts;
   sections: Map<string, Section>;
-  kinds: Map<string, Interaction["kind"]>;
   pageFiles: Map<string, string>; // normalized page url -> local file
   assetKeys: string[]; // sorted assetMap keys, for relative-path fallback in CSS
 };
@@ -115,6 +106,8 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   let out = "";
   for (const [name, value] of Object.entries(node.attrs)) {
     if (name === "class" || name === "srcdoc" || /^on/i.test(name) || !SAFE_ATTR_NAME.test(name)) continue;
+    // only the IR `interactive` spec writes component attrs: captured data-c / data-c-* never reach the runtime
+    if (/^data-c(-|$)/i.test(name) || (node.c && Object.hasOwn(node.c, name))) continue;
     if (isScriptValue(node.tag, name, value)) {
       if (name === "href") out += ` href="#"`;
       continue;
@@ -124,16 +117,13 @@ function renderAttrs(node: IRNode, base: string | undefined, ctx: Ctx): string {
   const cls = new Set(node.cls);
   for (const state of STATES) if (node.states?.[state]) cls.add(`st-${node.states[state]}`);
   if (cls.size > 0) out += ` class="${escAttr([...cls].join(" "))}"`;
-  if (node.behavior) {
-    const kind = ctx.kinds.get(node.behavior);
-    const behavior = kind && BEHAVIOR_ATTR[kind];
-    out += behavior ? ` data-behavior="${behavior}" data-ix="${escAttr(node.behavior)}"` : ` data-behavior="unresolved"`;
-  }
-  if (!ctx.opts.stripIds) out += ` data-ir-id="${escAttr(node.id)}"`;
+  for (const [name, value] of Object.entries(node.c ?? {})) if (value !== null) out += ` ${name}="${escAttr(value)}"`;
+  if (!ctx.opts.stripIds || node.keepId) out += ` data-ir-id="${escAttr(node.id)}"`;
   return out;
 }
 
 function renderNode(node: IRNode, base: string | undefined, ctx: Ctx, out: string[]): void {
+  if (node.skip) return;
   if (node.tag === "#text") {
     out.push(escText(node.text ?? ""));
     return;
@@ -177,27 +167,64 @@ function makeCtx(ir: IR, opts: RenderOpts, fileByPage: Map<string, string>): Ctx
   return {
     opts,
     sections: new Map(ir.sections.map((s) => [s.id, s])),
-    kinds: new Map(ir.interactions.map((it) => [it.id, it.kind])),
     pageFiles,
     assetKeys: Object.keys(opts.assetMap).sort(),
   };
 }
 
-function renderPage(page: IR["pages"][number], ctx: Ctx): string {
+// R9: a page with an allowlisted embed gets this meta CSP (also on export / file://; the files route header is unchanged).
+export const EMBED_CSP = `frame-src ${EMBED_HOSTS.map((h) => `https://${h}`).join(" ")}`;
+
+// --- editor canvas (E3 §1, §8) ---------------------------------------------------------------
+// The srcdoc frame shares the app origin: its meta CSP lets nothing but the exact runtime URL run (CSP source
+// matching ignores the ?edit=1 query), no plugins, no form posts, no foreign <base>.
+export type CanvasUrls = { base: string; runtime: string };
+export const canvasCsp = (runtime: string): string =>
+  `default-src 'self' data: blob: http: https:; script-src ${runtime.split("?")[0]}; style-src 'self' 'unsafe-inline' data: http: https:; object-src 'none'; form-action 'none'; base-uri 'self'`;
+
+function renderPage(page: IR["pages"][number], ctx: Ctx, canvas?: CanvasUrls): string {
   const base = ctx.opts.pageUrls[page.id];
+  const embeds = (x: IRNode | undefined): boolean =>
+    !!x && (!!x.embed || (x.tag === "#section" ? embeds(ctx.sections.get(x.attrs["data-section"] ?? "")?.root) : x.children.some(embeds)));
   const head = [
     '<meta charset="utf-8">',
+    // the canvas resolves assets like out/<page>.html; <base> precedes the CSP so base-uri never blocks it
+    ...(canvas ? [`<base href="${escAttr(canvas.base)}">`, `<meta http-equiv="Content-Security-Policy" content="${escAttr(canvasCsp(canvas.runtime))}">`] : []),
+    ...(embeds(page.shell) ? [`<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`] : []),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escText(page.title)}</title>`,
     ...Object.entries(page.meta)
       .filter(([key]) => !HEAD_META_SKIP.has(key))
       .map(([key, content]) => `<meta ${PROPERTY_META.test(key) ? "property" : "name"}="${escAttr(key)}" content="${escAttr(content)}">`),
-    '<link rel="stylesheet" href="css/styles.css">',
-    '<script src="js/runtime.js" defer></script>',
+    canvas ? "<style data-aiwc-css></style>" : '<link rel="stylesheet" href="css/styles.css">',
+    canvas ? `<script src="${escAttr(canvas.runtime)}"></script>` : '<script src="js/runtime.js" defer></script>',
   ];
   const body: string[] = [];
   for (const child of page.shell.children) renderNode(child, base, ctx, body);
   return `<!DOCTYPE html>\n<html${renderAttrs(page.shell, base, ctx)}><head>\n${head.join("\n")}\n</head>${body.join("")}</html>\n`;
+}
+
+export function renderCanvasPage(view: IR, pageId: string, opts: RenderOpts, urls: CanvasUrls): string {
+  const page = view.pages.find((p) => p.id === pageId);
+  if (!page) throw new Error(`emit: unknown page ${pageId}`);
+  return renderPage(page, makeCtx(view, opts, pageFileNames(view.pages)), urls);
+}
+// renderViewStylesheet writes asset urls relative to out/css/; the canvas reads its stylesheet inline beside out/<page>
+const CSS_ASSET = /\.\.\/(assets\/[0-9a-f]{64}\.[a-z0-9]{1,8})/g;
+export const renderCanvasCss = (view: IR, opts: RenderOpts): string => renderViewStylesheet(view, opts).replace(CSS_ASSET, "$1");
+
+// HTML of several sections from one compiled view (the editor's partial update: one compile per batch, R1).
+export function renderSectionsHtml(view: IR, sectionIds: readonly string[], opts: RenderOpts): Map<string, string> {
+  const ctx = makeCtx(view, opts, pageFileNames(view.pages));
+  const out = new Map<string, string>();
+  for (const id of sectionIds) {
+    const section = ctx.sections.get(id);
+    if (!section) throw new Error(`emit: unknown section ${id}`);
+    const html: string[] = [];
+    renderNode(section.root, opts.pageUrls[section.pageId], ctx, html);
+    out.set(id, html.join(""));
+  }
+  return out;
 }
 
 // --- CSS ---------------------------------------------------------------------
@@ -230,6 +257,9 @@ function tokenLookup(tokens: Record<string, string>): Map<string, string> {
   }
   return byValue;
 }
+
+// The runtime hides inactive component parts with [hidden]: a captured display rule must not show them again.
+export const HIDDEN_RULE = "[data-c-role][hidden]{display:none!important}";
 
 function renderCss(ir: IR, ctx: Ctx): string {
   const base = ir.pages[0] ? ctx.opts.pageUrls[ir.pages[0].id] : undefined;
@@ -281,6 +311,8 @@ function renderCss(ir: IR, ctx: Ctx): string {
     const body = rules.filter(Boolean);
     return body.length > 0 ? `${media}{\n${body.join("\n")}\n}` : "";
   };
+  const hasComponent = (n: IRNode): boolean => !!n.c?.["data-c"] || n.children.some(hasComponent);
+  if (ir.sections.some((s) => hasComponent(s.root)) || ir.pages.some((p) => hasComponent(p.shell))) lines.push(HIDDEN_RULE);
   lines.push(block(MEDIA_768, at768), block(MEDIA_375, at375));
   return lines.filter(Boolean).join("\n") + "\n";
 }
@@ -327,7 +359,16 @@ const stateKey = (id: string, state: string) => `${id}\u0000${state}`;
 export function compileV2(input: IRV2): IR {
   const ir = resolveComponents(input);
   const roots = [...ir.sections.map((s) => s.root), ...ir.pages.map((p) => p.shell)];
-  const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(n.styles), children: n.children.map(styled) });
+  const members = roleIndex(ir), clones = loopClones(ir);
+  const rolesOfNode = (n: IRNodeV2): Role[] => [...new Set((members.get(n.id) ?? []).map((m) => m.role))];
+  // the runtime's base rules hold at every breakpoint: a 768/375 override of the same prop is dropped
+  const withBase = (n: IRNodeV2): NodeStyles => {
+    const want: Decl = Object.assign({}, ...(members.get(n.id) ?? []).map((m) => baseDecl(m.spec, [m.role], {})));
+    if (!Object.keys(want).length) return n.styles;
+    const keep = (d: Decl) => Object.fromEntries(Object.entries(d).filter(([prop]) => !Object.hasOwn(want, prop)));
+    return { ...n.styles, base: { ...n.styles.base, ...want }, bp: Object.fromEntries(Object.entries(n.styles.bp).map(([bp, d]) => [bp, keep(d)])) };
+  };
+  const styled = (n: IRNodeV2): StyledNode => ({ id: n.id, tag: n.tag, attrs: n.attrs, style: styleSetOf(withBase(n)), children: n.children.map(styled) });
   const stateRoots: StyledNode[] = [];
   const presets = new Set<string>();
   const collect = (n: IRNodeV2): void => {
@@ -348,6 +389,20 @@ export function compileV2(input: IRV2): IR {
     if (n.text !== undefined) out.text = n.text;
     if (n.hidden !== undefined) out.hidden = n.hidden;
     if (n.behavior !== undefined) out.behavior = n.behavior;
+    const roles = rolesOfNode(n), c: Record<string, string | null> = {};
+    if (n.interactive) Object.assign(c, { "data-c": n.interactive.kind, "data-c-cfg": cfgOf(n.interactive) });
+    if (roles.length) c["data-c-role"] = roles.join(" ");
+    // the flags / embed src belong to the node with role video (spec.node), which may be a child of the root
+    const video = members.get(n.id)?.find((m) => m.role === "video")?.spec as VideoSpec | undefined;
+    if (video?.mode === "native") Object.assign(c, videoAttrs(video));
+    if (video?.mode === "embed") {
+      const src = embedSrc(n.attrs.src ?? "", video);
+      c.src = src ?? null; // not an allowlisted player: the iframe loses its src
+      if (src) out.embed = true;
+    }
+    if (Object.keys(c).length) out.c = c;
+    if (clones.has(n.id)) out.skip = true;
+    if (n.interactive || members.has(n.id)) out.keepId = true;
     for (const state of STATES) {
       const name = classMap.get(stateKey(n.id, state))?.[0];
       if (name) out.states = { ...out.states, [state]: name };
@@ -371,12 +426,7 @@ export const renderStylesheet = (ir: IRV2, opts: RenderOpts): string => renderVi
 
 // HTML of one section: the same compile + renderer as renderSite, so it never drifts from the site output.
 export function emitSection(doc: IRV2, sectionId: string, opts: RenderOpts): string {
-  const ir = compileV2(doc);
-  const section = ir.sections.find((s) => s.id === sectionId);
-  if (!section) throw new Error(`emit: unknown section ${sectionId}`);
-  const out: string[] = [];
-  renderNode(section.root, opts.pageUrls[section.pageId], makeCtx(ir, opts, pageFileNames(ir.pages)), out);
-  return out.join("");
+  return renderSectionsHtml(compileV2(doc), [sectionId], opts).get(sectionId)!;
 }
 
 // Writes renderSite output, js/runtime.js and every asset the output references (workspaceDir/assets -> out/assets).

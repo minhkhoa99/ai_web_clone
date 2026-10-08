@@ -3,7 +3,7 @@ import type { CaptureNode, PageCapture } from "@/core/capture";
 import { buildLegacyIR } from "@/core/ir";
 import { migrateIR } from "@/core/ir-migrate";
 import type { IRNodeV2, IRV2 } from "@/core/ir-v2";
-import { emitSection, pageFileNames, renderSite, renderStylesheet, renderView, renderViewStylesheet, type RenderOpts } from "@/core/emit-html";
+import { emitSection, HIDDEN_RULE, pageFileNames, renderSite, renderStylesheet, renderView, renderViewStylesheet, type RenderOpts } from "@/core/emit-html";
 
 const el = (tag: string, attrs: Record<string, string> = {}, children: CaptureNode[] = [], style: Record<string, string> = {}): CaptureNode =>
   ({ tag, attrs, bbox: [0, 0, 100, 20], style, children });
@@ -36,7 +36,9 @@ const opts: RenderOpts = { assetMap: { "https://x.test/a.png": `assets/${"a".rep
 // Attribute order inside a start tag is not rendered: an instance resolved from its main lists main's attrs first.
 const sortAttrs = (html: string) => html.replace(/<([a-z][\w-]*)((?: [^\s"'<>/=]+="[^"]*")*)>/gi, (_m, tag: string, attrs: string) =>
   `<${tag}${(attrs.match(/ [^\s"'<>/=]+="[^"]*"/g) ?? []).sort().join("")}>`);
-const normalize = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sortAttrs(v)]));
+// E2: the v2 document migrated the menu behavior into a component (data-c*, data-ir-id kept); v1 has none
+const noComponents = (text: string) => text.replace(/ data-c(-cfg|-role)?="[^"]*"/g, "").split("\n").filter((l) => l !== HIDDEN_RULE).join("\n");
+const normalize = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([k, v]) => [k, sortAttrs(noComponents(v))]));
 const walk = (n: IRNodeV2, f: (n: IRNodeV2) => void): void => { f(n); n.children.forEach(c => walk(c, f)); };
 
 test("v2 output equals v1 output for the same capture (HTML, CSS at 1440/768/375, sections)", () => {
@@ -46,15 +48,15 @@ test("v2 output equals v1 output for the same capture (HTML, CSS at 1440/768/375
   expect(v2.components.length).toBeGreaterThan(0);
   const files = renderSite(v2, opts);
   const v1Files = renderView(v1, opts); // the pre-v2 pipeline's output
-  expect(files["css/styles.css"]).toBe(v1Files["css/styles.css"]);
+  expect(noComponents(files["css/styles.css"]!)).toBe(v1Files["css/styles.css"]);
   expect(normalize(files)).toEqual(normalize(v1Files));
   expect(files["css/styles.css"]).toContain("@media (max-width: 1439.98px)");
   expect(files["css/styles.css"]).toContain("@media (max-width: 767.98px)");
-  expect(files["index.html"]).toContain('data-behavior="toggle"');
+  expect(files["index.html"]).toMatch(/data-c="(menu|dropdown)"/);
   expect(files["index.html"]).toContain(`assets/${"a".repeat(64)}.png`);
-  expect(renderStylesheet(v2, opts)).toBe(renderViewStylesheet(v1, opts));
+  expect(noComponents(renderStylesheet(v2, opts))).toBe(renderViewStylesheet(v1, opts));
   const fileOf = pageFileNames(v1.pages);
-  for (const s of v1.sections) expect(sortAttrs(v1Files[fileOf.get(s.pageId)!]!)).toContain(sortAttrs(emitSection(v2, s.id, opts)));
+  for (const s of v1.sections) expect(sortAttrs(v1Files[fileOf.get(s.pageId)!]!)).toContain(sortAttrs(noComponents(emitSection(v2, s.id, opts))));
 });
 
 test("emit never writes classes into IRV2; 768 override falls back to base at 375; state/pseudo rules", () => {

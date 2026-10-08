@@ -170,6 +170,7 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_qa_preview_next_diff` | `feat_qa_score` | scores | "Jump to next diff" | build |
 | `ui_qa_preview_coverage_checklist` | `feat_interaction_scan` | `interactions`, `coverage` | "COVERAGE CHECKLIST" | build |
 | `ui_qa_preview_skipped_item` | `feat_interaction_scan` | `status=skipped` | "— … skipped" | build |
+| `ui_qa_preview_behavior_list` | E2 §5 QA hành vi | `behavior` trong `GET …/preview` (rỗng khi stale) — trong tab Checklist, lọc theo trang đang xem | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_qa_preview_fidelity_panel` | E1 §5 Fidelity (chưa có node `feat_*`) | `fidelity` trong `GET …/preview` (≤2000 mục) — tab thứ 3 "Fidelity (n)" của `ui_qa_preview_rail_tabs` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_qa_preview_fidelity_summary` | E1 §5 Fidelity | tổng theo status (Badge success/warn/danger: hỗ trợ / một phần / không hỗ trợ), theo bộ lọc trang; không gộp vào điểm pixel | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_qa_preview_fidelity_filters` | E1 §5 Fidelity | client — select Trang (Tất cả trang + từng trang) và Trạng thái | không có trong mockup, dùng token/component sẵn có | build |
@@ -192,15 +193,59 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_code_viewer_wrap_toggle` | `feat_emit_html` | client | — | build |
 | `ui_code_viewer_build_status` | `feat_export` | `listOut` + `stat` (`mapLimit(8)`) | footer | build |
 
-## `/p/[id]/editor` ↔ `screen_editor` — GrapesJS thật, không có mockup Stitch (chỉ token + chrome)
+## `/p/[id]/editor` ↔ `screen_editor` — visual editor E3, không có mockup Stitch (chỉ token + chrome)
 
 | ui_id | Feature | API / nguồn | Mockup (vùng) | Trạng thái |
 |---|---|---|---|---|
 | `ui_editor_page_header` | `feat_editor` | — | — | build |
-| `ui_editor_toolbar` | `feat_editor` | `GET/POST …/editor*`, `?page=` | — | build |
-| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | GrapesJS | — | build |
-| `ui_editor_effects_panel` | `feat_editor` | `effects` | — | build |
-| `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | `…/editor/promote-layout` | — | build |
+| `ui_editor_toolbar` | `feat_editor` | `GET …/editor`, `POST …/editor/{commands,undo,redo}` + `pageId`, `?page=` (`?legacy=1` cũ bị bỏ qua — vẫn mở editor mới) | — | build |
+| `ui_editor_canvas_chrome` | `feat_editor`, `feat_ir` | khung canvas E3 | — | build |
+| `ui_editor_canvas_frame` | `feat_editor`, `feat_ir` | E3 §1 iframe `srcdoc` sandbox (`page.html` của `GET …/editor`), click → chọn, link/form không điều hướng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_bp_switch` | `feat_editor` | E3 §1 SegmentedControl "Thiết bị" 1440/768/375 = độ rộng iframe + `target` của setStyle | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_save_state` | `feat_editor` | E3 §4 "Đã lưu" / "Đang lưu…" theo command bus | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_stale_banner` | `feat_editor` | E3 §7 Banner "Tải lại" (409) / "Thử lại" (lỗi mạng, 503) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layers` | `feat_editor`, `feat_ir` | E3 §4 cột trái Layers | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_left_tabs` | `feat_editor` | E3 §3 tab cột trái Layers / Thêm (SegmentedControl tabs) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_insert_panel` | `feat_editor`, `feat_ir` | E3 §3 panel "Thêm": 16 mẫu (Text, Tiêu đề, Đoạn văn, Ảnh, Nút, Link, Khung trống, Flex hàng/cột, Grid 2/3 cột, Section trống = `<section>` trong section hiện tại (R7), Carousel/Tabs/Accordion/Modal mẫu) — `createNode` (+ `convertToComponent` `new:0/<path>` cùng batch, R2) qua `POST …/editor/commands`, một mẫu = một bước Undo, node mới được chọn | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_insert_item` | `feat_editor`, `feat_ir` | E3 §3 một mẫu: nhấp = chèn sau node đang chọn (gốc section: cuối section); kéo ≥ 4 px vào canvas = vạch chèn `ui_editor_drop_indicator` (đỏ + lý do khi bị cấm, không gửi gì); Esc / mất focus / cuộn canvas = huỷ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_right_tabs` | `feat_editor` | E3 §4 tab Style / Component / Hiệu ứng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_hover_box` | `feat_editor` | E3 §2 khung hover + nhãn `tag · tên · W×H` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_selection_box` | `feat_editor` | E3 §2 khung chọn đậm (nhiều khi Shift) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_spacing` | `feat_editor` | E3 §2 vùng margin/padding của node đang chọn | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_parent_box` | `feat_editor` | E3 §2 node cha highlight nhẹ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layer_search` | `feat_editor`, `feat_ir` | E3 §2 ô tìm theo tên hoặc chữ (giữ dòng khớp + tổ tiên) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_layer_row` | `feat_editor`, `feat_ir` | E3 §2 dòng layer: icon theo type, badge kind + main/instance, mắt `setHidden`, nhấp đúp / F2 đổi tên `setName`, kéo thả `moveNode`; chỉ render dòng nhìn thấy; ↑/↓ chọn, →/← mở/đóng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_effects_panel` | `feat_editor` | E3 §4 tab Hiệu ứng: preset `effects` của `GET …/editor` → `setStyle animation` ở bp hiện tại qua `POST …/editor/commands` (một batch, một Undo) | — | build |
+| `ui_editor_element_card` | `feat_editor`, `feat_ir` | E3 §4 tab Style (R14): Card "Phần tử" — tag · tên · W×H của node đang chọn; Tách khỏi component / Bỏ mọi override cho instance — `detachComponent` / `resetOverride`; Link (href) — `setAttribute href` (chỉ http(s)/mailto/tel/#/tương đối) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_image_panel` | `feat_editor`, `feat_ir` | E3 §5 thay ảnh img/source/nền — `setAttribute src/srcset`, `setStyle background-image` (R13), ô Alt — `setAttribute alt` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_asset_grid` | `feat_editor` | E3 §5 thư viện ảnh của project — `assets[]` của `GET …/editor` (ảnh qua `<img src>`, không chèn SVG vào trang) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_upload` | `feat_editor` | E3 §5 tải ảnh lên — `POST …/assets` (multipart, ≤ 25 MB/file, ≤ 500 MB/project; lỗi 413/400 báo tiếng Việt) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_style_panel` | `feat_editor`, `feat_ir` | E3 §3 Style Manager (tab Style) theo node đang chọn + breakpoint + trạng thái — `setStyle` / `resetOverride` qua `POST …/editor/commands` (`coalesce`: cùng ô trong 1,5 s = một bước Undo); áp ngay lên canvas (inline, chỉ giá trị qua `isSafeCss`), gửi sau 300 ms ngừng gõ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_style_group` | `feat_editor`, `feat_ir` | E3 §3 sáu nhóm Layout / Kích thước / Khoảng cách (sơ đồ hộp margin/padding, kéo ngang trên số) / Chữ (font của trang) / Hiển thị / Biến đổi — Disclosure | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_style_field` | `feat_editor`, `feat_ir` | E3 §3 một ô thuộc tính: giá trị IR đang có hiệu lực (trống → placeholder là giá trị computed, R14), nguồn "đặt ở bp này" / "kế thừa từ Desktop" / "từ main component", nút ↺ bỏ lớp này, lỗi "không hợp lệ" tại ô | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_style_state` | `feat_editor`, `feat_ir` | E3 §3 SegmentedControl "Trạng thái" Mặc định / :hover / :focus / :active (R5: trạng thái áp cho mọi breakpoint) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_style_free` | `feat_editor`, `feat_ir` | E3 §3 "Thuộc tính khác": thuộc tính ngoài sáu nhóm đang đặt ở lớp này + ô tên/giá trị tự do (qua `isSafeCss`) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_drop_indicator` | `feat_editor`, `feat_ir` | E3 §3 kéo theo luồng trên canvas: vạch chèn trước/sau / khung thả vào trong; đỏ + lý do khi bị cấm (không gửi gì) — `moveNode` (hoặc mẫu của panel Thêm: `createNode`) qua `POST …/editor/commands` (một batch = một bước Undo) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_zoom` | `feat_editor` | E3 §3 zoom 25–200 %: Thu nhỏ / % / Phóng to / Vừa khung (R8: mốc 25·33·50·67·75·100·125·150·200, Vừa khung = (pane − 16) / breakpoint); Ctrl+lăn (×1,1 mỗi nấc), Ctrl±, Ctrl+0; pan Space+kéo; iframe `transform: scale()` — chỉ hiển thị, không lưu | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_drawer_toggle` | `feat_editor` | E3 §4 ≤ 1099px: nút mở drawer Layers / Style trên toolbar (aria-expanded, Esc đóng, focus về nút; không modal — canvas vẫn dùng được); ở chỉ xem chỉ còn Layers | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_viewonly_notice` | `feat_editor` | E3 §4 < 768px: chỉ xem và chọn — "Dùng màn hình ≥ 768px để chỉnh sửa" (mọi đường sửa tắt: phím tắt, sửa chữ, kéo/handle, Thêm, Style/Component/Hiệu ứng, kéo/đổi tên/mắt ở Layers, Gộp layout, Undo/Redo) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_guides` | `feat_editor`, `feat_ir` | E3 §3 đường guide khi snap 4 px — Alt+kéo, `setStyle` absolute + cha relative | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_measure` | `feat_editor` | E3 §3 giữ Alt + hover: px tới node đang chọn | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_resize_handle` | `feat_editor`, `feat_ir` | E3 §3 8 handle resize (R13: node theo luồng / sticky chỉ e / s / se, absolute / fixed đủ 8 — trên/trái ghi top/left); Shift khoá tỉ lệ — `setStyle` width/height[/top/left] px ở breakpoint hiện tại, một lần kéo = một bước Undo; Esc / cuộn canvas = huỷ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_spacing_handle` | `feat_editor`, `feat_ir` | E3 §3 kéo mép trong: padding-top/right/bottom/left, gap (flex/grid, giữa hai con đầu) — `setStyle` px ≥ 0 ở breakpoint hiện tại, một lần kéo = một bước Undo | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_sections_panel` | `feat_editor`, `feat_ir` | E3b R10 Card "Section" ở cuối tab Layers: `allSections` (mọi trang) của `GET …/editor`, chọn ≥ 2 → "Gộp thành layout" = `promoteLayout` qua `POST …/editor/commands` (một batch, một bước Undo) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_edit_main` | `feat_editor`, `feat_ir` | E3b R18 nút "Sửa main" ở card Phần tử của node trong một component instance — mở chế độ sửa main tại chỗ trên instance đó | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_edit_main_bar` | `feat_editor`, `feat_ir` | E3b R17 thanh "Đang sửa main component — thay đổi áp cho mọi instance chưa override thuộc tính đó. · Xong" trên canvas; mọi batch qua `toMain` (id canvas → `sourceId` của main), `POST …/editor/commands`; ra: Xong, Esc ở gốc instance, chọn ngoài instance, chế độ chỉ xem | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_edit_main_frame` | `feat_editor` | E3b R17 khung nét đứt quanh instance đang mở | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_panel` | `feat_editor`, `feat_interaction_scan` | E2 §7 Card "Component" (E3: tab Component của bảng phải) khi node đang chọn thuộc một `interactive` (hoặc nút đánh dấu khi không thuộc) — `interactives` trong `GET …/editor` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_header` | `feat_editor`, `feat_interaction_scan` | E2 §7 kind · nguồn · độ tin cậy + Badge Fidelity; dòng nhắc "Clone lại để đọc cấu hình thật" khi `guessed` — `interactives[].spec`, `fidelity` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_items` | `feat_editor`, `feat_interaction_scan` | E2 §7 danh sách item (thumbnail cắt từ shot 1440 + tên), kéo thả + nút ↑↓, Nhân bản, Xoá; bấm item → canvas hiện item đó (`aiwc:show`) — `POST …/editor/commands` add/remove/moveComponentItem; `shot` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_item` | `feat_editor`, `feat_interaction_scan` | E2 §7 một item của danh sách — như trên | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_form` | `feat_editor`, `feat_interaction_scan` | E2 §7 form cấu hình theo kind (carousel/tabs/accordion/modal/dropdown/menu/video) — `updateComponent` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_unwrap` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Bỏ hành vi" — `unwrapComponent` | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_convert` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Đánh dấu là component…" khi node không thuộc component — mở wizard | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_show_on_canvas` | `feat_editor`, `feat_interaction_scan` | E2 §7 nút "Mở trên canvas" cho modal / dropdown / menu (không có danh sách item); rời component → đóng lại (`aiwc:hide`) — `aiwc:show` qua postMessage, không lưu | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_component_wizard` | `feat_editor`, `feat_interaction_scan` | E2 §7 wizard chọn kind + vai trò trong node đang chọn và con cháu (≤ 100) — `convertToComponent` | không có trong mockup, dùng token/component sẵn có | build |
 
 ## Drift — danh sách chính thức (59 id, không render, không implement)
 
@@ -284,6 +329,8 @@ Các sửa spec parity (`2026-09-24-sp1-ui-stitch-parity-design.md`) theo ruling
 - **§4.7 (số query danh sách lịch sử):** route `/api/projects` GET chạy tối đa **4** câu SQL cố định mỗi request, đúng chữ spec (không phụ thuộc số dòng): `counts`, `rows`, `agg` (theo phase), `errs` (lastError); `total` suy ra từ `counts` theo `group` (không có query `total` riêng).
 - **Subtitle 1 trang (`ui_history_row_subtitle`):** số trang chỉ hiện ở chế độ crawl: `"Crawl · <n> trang · bắt đầu <RelTime>"`; dự án `mode=single` hiện `"1 trang · bắt đầu <RelTime>"` (không lặp "1 trang · 1 trang" như format spec §3.2 gốc). Draft chưa chọn trang giữ `"<mode> · chưa chọn trang · tạo <RelTime>"`.
 - **D1 (tự host icon):** Material Symbols Outlined tự host dưới dạng SVG subset đã commit `src/app/_ui/icons.gen.ts`, sinh bởi `scripts/gen-icons.mjs` (đọc `@material-symbols/svg-400`); không dùng icon font hay CDN lúc chạy.
+- **E3a icons:** `title`, `link`, `touch_app`, `input`, `movie`, `shapes`, `widgets`, `crop_square`, `upload` thêm vào subset `icons.gen.ts` (sinh lại bằng `npm run icons`).
+- **E3b icons:** `zoom_in`, `zoom_out`, `fit_screen` (zoom), `text_fields`, `text_snippet`, `add_box`, `view_week`, `view_agenda`, `grid_view`, `view_carousel`, `tab`, `expand_circle_down`, `web_asset` (panel Thêm) thêm vào subset `icons.gen.ts`: 83 → 96 icon.
 
 ## Hardening sau lần chạy thật (2026-09-26)
 

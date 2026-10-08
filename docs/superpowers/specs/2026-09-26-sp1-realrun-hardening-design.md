@@ -77,6 +77,7 @@ Bảng gợi ý (`src/app/_ui/error-hints.ts`):
 | `PROJECT_BUSY` | Project đang chạy. Tạm dừng trước rồi thử lại. |
 | `QUEUE_FULL` | Hàng đợi đầy (1 chạy + 5 chờ). Chờ bớt rồi thử lại. |
 | `BAD_STATE` | Thao tác chưa hợp lệ ở trạng thái này (xem thông báo). |
+| `IR_PATCH_INVALID` | Thay đổi không hợp lệ nên không được áp dụng; tài liệu giữ nguyên (xem lý do). |
 
 ## 5. Hiện trình duyệt khi chạy
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
@@ -87,7 +87,8 @@ async function loadCollectingErrors(page: Page, url: string): Promise<string[]> 
 test("emitted menu page: no console errors (http + file://), runtime toggles the menu", async () => {
   const outDir = join(tmp, "menu-out");
   await emitHtml(buildIR([menuCapture()]), { outDir, workspaceDir: tmp, assetMap: {}, pageUrls: { home: "https://x.test/" } });
-  expect((await stat(join(outDir, "js/runtime.js"))).size).toBeLessThan(3_500);
+  const runtime = await readFile(join(outDir, "js/runtime.js"), "utf8");
+  expect(Buffer.byteLength(runtime)).toBeLessThanOrEqual(20 * 1024);
   const base = await serve(outDir);
 
   await withPage(handle, async (page) => {
@@ -142,6 +143,46 @@ test("round trip: capture site1 -> buildIR -> emitHtml renders with no console e
       const clone = (await page.locator(`#${id}`).boundingBox())!;
       for (const [a, b] of [[x, clone.x], [y, clone.y], [w, clone.width], [h, clone.height]] as const) expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+// E2 Task 6: no data-behavior any more — site2's menu, sibling dropdowns (R2), tabs, modal, details and carousel run
+// as components migrated from the captured interactions.
+test("site2: captured behaviors run in the clone as components (menu, two dropdowns, tabs, modal, details, carousel)", async () => {
+  const workspaceDir = join(tmp, "ws2");
+  const outDir = join(tmp, "site2-out");
+  const url = `${await serve(fileURLToPath(new URL("../fixtures/site2", import.meta.url)))}/index.html`;
+  const meta = await capturePage(handle, { url, pageId: "home", workspaceDir });
+  const cap = JSON.parse(await readFile(join(workspaceDir, meta.capturePath), "utf8")) as PageCapture;
+  await emitHtml(buildIR([cap]), { outDir, workspaceDir, assetMap: cap.assets, pageUrls: { home: url } });
+  const base = await serve(outDir);
+
+  await withPage(handle, async (page) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    expect(await loadCollectingErrors(page, `${base}/index.html`)).toEqual([]);
+    expect(await page.locator("[data-behavior]").count()).toBe(0);
+    expect((await page.locator("[data-c]").evaluateAll((els) => els.map((e) => e.getAttribute("data-c")))).sort())
+      .toEqual(["accordion", "carousel", "menu", "menu", "menu", "modal", "tabs"]);
+    // opacity counts too (#fade-menu): Playwright's isVisible ignores it
+    const visible = (sel: string) => page.locator(sel).evaluate((e) => (e as HTMLElement).checkVisibility({ visibilityProperty: true, opacityProperty: true }));
+    for (const [btn, panel] of [["#menu-btn", "#main-nav"], ["#vis-btn", "#vis-menu"], ["#fade-btn", "#fade-menu"]] as const) {
+      expect(await visible(panel)).toBe(false);
+      await page.click(btn);
+      await expect.poll(() => visible(panel), { message: panel }).toBe(true);
+      await page.click(btn);
+      await expect.poll(() => visible(panel), { message: panel }).toBe(false);
+    }
+    await page.click("#tab-2");
+    await expect.poll(() => visible("#panel-2")).toBe(true);
+    expect(await visible("#panel-1")).toBe(false);
+    await page.click("#open-modal");
+    await expect.poll(() => visible("#dialog")).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => visible("#dialog")).toBe(false);
+    await page.click("summary");
+    await expect.poll(() => page.locator("details").evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
+    await page.click("button[aria-label=\"Next slide\"]"); // classes are derived in the clone
+    await expect.poll(() => page.locator("#carousel").evaluate((c) => c.scrollLeft)).toBeGreaterThan(0);
   });
 });
 

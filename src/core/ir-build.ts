@@ -49,13 +49,38 @@ export function toDraft(node: CaptureNode, path: string, at768: CaptureNode | un
     }
   }
 
-  const aligned = (other: CaptureNode | undefined) =>
-    other?.tag === node.tag && other.children.length === node.children.length ? other.children : undefined;
-  const kids768 = aligned(at768);
-  const kids375 = aligned(at375);
-  draft.children = node.children.map((child, i) => toDraft(child, `${path}.${i}`, kids768?.[i], kids375?.[i], walk));
+  const a768 = alignChildren(node, at768), a375 = alignChildren(node, at375);
+  draft.children = node.children.map((child, i) => {
+    const d = toDraft(child, `${path}.${i}`, a768?.kids[i], a375?.kids[i], walk);
+    // R7: keyed alignment and no counterpart -> the node does not exist at that breakpoint
+    for (const [bp, a] of [["768", a768], ["375", a375]] as const) if (a?.keyed && !a.kids[i] && child.tag !== "#text") d.style.media = { ...d.style.media, [bp]: { display: "none" } };
+    return d;
+  });
   return draft;
 }
+
+const KEY_ATTRS = ["data-swiper-slide-index", "data-slick-index", "data-index", "id"];
+const CLONE_CLASS = /(^|\s)(swiper-slide-duplicate|slick-cloned|splide__slide--clone)(\s|$)/;
+type Keyed = { tag: string; attrs: Record<string, string>; children: Keyed[] };
+const keyOf = (c: Keyed): string | undefined => {
+  for (const a of KEY_ATTRS) if (c.attrs[a] !== undefined) return `${c.tag}|${a}=${c.attrs[a]}|${CLONE_CLASS.test(c.attrs.class ?? "") ? "clone" : ""}`;
+  return undefined;
+};
+// The counterpart children at another breakpoint: by position when the counts match (as before), else by slide key
+// when every element child on both sides has one (E2 §4 responsive); undefined when neither holds.
+export function alignChildren<N extends Keyed>(node: N, other: N | undefined): { kids: (N | undefined)[]; keyed: boolean } | undefined {
+  if (other?.tag !== node.tag) return undefined;
+  if (other.children.length === node.children.length) return { kids: other.children as N[], keyed: false };
+  const els = (list: N[]) => list.filter((c) => c.tag !== "#text");
+  const mine = els(node.children as N[]), theirs = els(other.children as N[]);
+  if (!mine.length || ![...mine, ...theirs].every((c) => keyOf(c) !== undefined)) return undefined;
+  const byKey = new Map<string, N>();
+  for (const c of theirs) if (!byKey.has(keyOf(c)!)) byKey.set(keyOf(c)!, c);
+  const kids = (node.children as N[]).map((c) => (c.tag === "#text" ? undefined : byKey.get(keyOf(c)!)));
+  // no 1440 child found its key (e.g. ids regenerated on resize): not the same list, keep the E1 behaviour
+  return kids.some(Boolean) ? { kids, keyed: true } : undefined;
+}
+export const isLoopClone = (c: Keyed) => CLONE_CLASS.test(c.attrs.class ?? "");
 
 function landmarkOf(node: Draft): string | undefined {
   if (LANDMARK_TAGS.has(node.tag)) return node.tag;
@@ -63,7 +88,6 @@ function landmarkOf(node: Draft): string | undefined {
 }
 
 const isMain = (node: Draft) => node.tag === "main" || node.attrs.role === "main";
-const isWrapper = (node: Draft) => !landmarkOf(node) && !isMain(node) && elements(node).length > 0;
 const hasMainWithin = (node: Draft, depth: number): boolean =>
   elements(node).some((c) => isMain(c) || (depth > 1 && hasMainWithin(c, depth - 1)));
 const isNoise = (node: Draft) =>
@@ -80,7 +104,9 @@ const withoutNoise = (nodes: Draft[]) => {
 // `main` (so header/footer beside main become sections); `main` contributes each element child.
 // Noise (hidden, zero-size, script-like) is never a section root. Body, wrappers, main and
 // noise stay in the shell.
-export function splitSections(html: Draft): { role: string; root: Draft }[] {
+// `keep`: carousel roots known before the split (capture records): never unwrapped, so a lone carousel stays whole.
+export function splitSections(html: Draft, keep: ReadonlySet<string> = new Set()): { role: string; root: Draft }[] {
+  const isWrapper = (node: Draft) => !landmarkOf(node) && !isMain(node) && !keep.has(node.id) && elements(node).length > 0;
   const body = html.children.find((c) => c.tag === "body");
   if (!body) return [];
   let candidates = elements(body);
@@ -93,7 +119,7 @@ export function splitSections(html: Draft): { role: string; root: Draft }[] {
     candidates = candidates.flatMap((c) => (c === wrapper ? elements(c) : [c]));
   }
   const all = candidates.flatMap((node) => {
-    const kids = isMain(node) ? elements(node) : [];
+    const kids = isMain(node) && !keep.has(node.id) ? elements(node) : [];
     return kids.length > 0 ? kids : [node];
   });
   return withoutNoise(all).map((root) => ({ role: landmarkOf(root) ?? "block", root }));
@@ -145,6 +171,16 @@ export function findTrigger<N extends Tree<N>>(html: N, byId: Map<string, N>, tr
     if (!cur) return undefined;
   }
   return cur;
+}
+
+// A capture-time selector (interactions-eval / interactive-eval form) -> the IR id of the node it names in `dom`
+// (the capture path from <html>), for one page.
+export function selectorIds(dom: CaptureNode, pageId: string): (selector: string) => string | undefined {
+  const paths = new Map<CaptureNode, string>();
+  const index = (n: CaptureNode, path: string): void => { paths.set(n, path); n.children.forEach((c, i) => index(c, `${path}.${i}`)); };
+  index(dom, "0");
+  const byId = indexById(dom, new Map());
+  return (selector) => { const hit = findTrigger(dom, byId, selector); return hit ? `${pageId}:${paths.get(hit)}` : undefined; };
 }
 
 export function indexById<N extends Tree<N>>(node: N, out: Map<string, N>): Map<string, N> {

@@ -19,14 +19,17 @@ import { writeGraph } from "./graph";
 import { buildIR, type IR } from "./ir";
 import type { LegacyIR } from "./ir-legacy";
 import { migrateIR } from "./ir-migrate";
+import { upgradeDocument } from "./interactive-guess";
 import { documentStore } from "./ir-store";
 import type { FidelityItem } from "./ir-v2";
-import { refreshFidelity } from "./fidelity";
+import { refreshFidelity, type BehaviorResult } from "./fidelity";
 import { mapLimit } from "./limit";
 import { applySectionNames, fitImages, MAX_IMAGES_B64, MAX_IMAGE_WIDTH, nameSections, thumbnailOf } from "./naming";
 import { scoreSections, type SectionScore } from "./qa";
+import { checkBehavior } from "./qa-behavior";
 import { fixAll, STOP_AI, type AiStop, type FixCtx, type FixResult } from "./qa-fix";
 import { SKIP } from "./statuses";
+import { readUploads } from "./upload";
 import { clearRunSecrets, createSchema, emit, logDetail, pageIdsFor, redact, setRunSecrets, type ProjectConfig, type ProjectStatus, type TaskStatus } from "./jobs-base";
 import type { GenerateOptions } from "./gateway";
 
@@ -46,8 +49,8 @@ const BUDGET_MSG = "token budget spent: no more AI calls in this run";
 type TaskRow = { id: string; phase: string; key: string; status: TaskStatus; attempts: number; error_code: string | null; output_path: string | null };
 type ProjectRow = { url: string; mode: "single" | "crawl"; config_json: string };
 type PageRef = { pageId: string; url: string };
-// qa.json: the last scores; stale once the IR was edited after scoring
-export type QaFile = { scores: SectionScore[]; stale?: true };
+// qa.json: the last scores + behaviour QA (E2 §5); stale once the IR was edited after scoring
+export type QaFile = { scores: SectionScore[]; behavior?: BehaviorResult[]; stale?: true };
 
 const codeOf = (e: unknown): string | null => (e instanceof AppError ? e.code : null);
 const rawMessageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -207,6 +210,7 @@ export type JobDeps = {
   nameSections?: typeof nameSections;
   fixAll?: typeof fixAll;
   scoreSections?: typeof scoreSections;
+  checkBehavior?: typeof checkBehavior;
 };
 export type RunOpts = { credentials?: { user: string; pass: string }; deps?: JobDeps };
 
@@ -275,9 +279,10 @@ async function checkpointIr(run: Run, ir: IR): Promise<boolean> {
 }
 
 async function emitOpts(run: EmitSource): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
-  const captures = await loadCaptures(run);
+  const [captures, uploads] = await Promise.all([loadCaptures(run), readUploads(run.ws)]);
   return {
-    assetMap: Object.assign({}, ...captures.map((c) => c.assets)) as Record<string, string>,
+    // R7: editor uploads (uploads.json) join the captured asset map: canvas, out/, export and graph all map them
+    assetMap: Object.assign({}, ...captures.map((c) => c.assets), uploads) as Record<string, string>,
     pageUrls: Object.fromEntries(captures.map((c) => [c.pageId, c.url])),
   };
 }
@@ -294,6 +299,11 @@ async function emitOut(run: EmitSource, ir: IR): Promise<void> {
 async function editSource(db: DatabaseSync, projectId: string): Promise<EmitSource> {
   const ws = workspaceOf(projectId);
   return { db, projectId, ws, pages: JSON.parse(await readFile(join(ws, "pages.json"), "utf8")) as PageRef[] };
+}
+
+// The emit options the editor renders its canvas and partial updates with (asset map incl. uploads, page urls).
+export async function editorEmit(db: DatabaseSync, projectId: string): Promise<Pick<RenderOpts, "assetMap" | "pageUrls">> {
+  return emitOpts(await editSource(db, projectId));
 }
 
 // The editor's document (SQLite snapshot once adopted, else ir.json migrated) and its display view (compileV2).
@@ -342,32 +352,36 @@ async function materializeDocument(db: DatabaseSync, projectId: string, ir: IR):
   await emitOut(src, ir);
 }
 
+// The job's checkpoint (ir.json) through migrateIR: v2 is only validated (no capture evidence needed) and upgraded
+// (E2 §9), v1 is migrated — in memory, a plain read writes nothing. `converted`: the loader changed it (v1, or v2 with
+// pre-E2 behaviors), so ir.json, out/ (old data-behavior HTML, old runtime) and the graph are not this document's yet.
+async function readCheckpoint(src: EmitSource): Promise<{ ir: IR; converted: boolean }> {
+  const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
+  if ((raw as { version?: unknown } | null)?.version !== 2) return { ir: migrateIR(raw, await loadCaptures(src)), converted: true };
+  const ir = migrateIR(raw, []);
+  return { ir, converted: ir !== raw }; // upgradeDocument returns the same object when there is nothing to upgrade
+}
+
 export function projectDocuments(db: DatabaseSync) {
-  const migrated = new Set<string>(); // projects whose last loadInitial (this store) read a v1 checkpoint
+  const converted = new Set<string>(); // projects whose last loadInitial (this store) read a converted checkpoint
   return documentStore(db, (projectId, ir) => materializeDocument(db, projectId, ir), {
-    // v2 is only validated (no capture evidence needed); v1 is migrated in memory — a plain read writes nothing
     loadInitial: async (projectId) => {
-      const src = await editSource(db, projectId);
-      const raw: unknown = JSON.parse(await readFile(join(src.ws, "ir.json"), "utf8"));
-      migrated.delete(projectId);
-      if ((raw as { version?: unknown } | null)?.version === 2) return migrateIR(raw, []);
-      const ir = migrateIR(raw, await loadCaptures(src));
-      migrated.add(projectId);
-      return ir;
+      const read = await readCheckpoint(await editSource(db, projectId));
+      if (read.converted) converted.add(projectId); else converted.delete(projectId);
+      return read.ir;
     },
-    // Adopting a v1 checkpoint is the one-time migration (E1 §6): the QA scored on the v1 output goes stale until
-    // "Chạy lại QA", and ir.json becomes the v2 mirror (so it never counts as a migration again). out/ is unchanged.
+    // Adopting a converted checkpoint is its one-time migration (E1 §6, E2 §9), materialized like a step: the QA
+    // scored on the old output goes stale until "Chạy lại QA", ir.json becomes the v2 mirror (so it never converts
+    // again), out/ + the graph are re-emitted (data-c, the new runtime).
     onAdopt: async (projectId, ir) => {
-      if (!migrated.has(projectId)) return;
-      const ws = workspaceOf(projectId);
-      if (existsSync(join(ws, "qa.json"))) await markQaStale(ws);
-      await writeJsonAtomic(join(ws, "ir.json"), ir);
+      if (converted.has(projectId)) await materializeDocument(db, projectId, ir);
     },
     isBusy: isQueuedOrActive,
     onUserEdit: (projectId) => closeOutstandingFixes(db, projectId),
     // ponytail: each step parses the capture.json files twice (here and in materialize); cache per project if steps get slow
     captures: async (projectId) => loadCaptures(await editSource(db, projectId)),
     mirror: async (projectId, ir) => writeJsonAtomic(join(workspaceOf(projectId), "ir.json"), ir),
+    upgrade: upgradeDocument,
   });
 }
 
@@ -392,10 +406,13 @@ export async function previewDocument(db: DatabaseSync, projectId: string): Prom
   return { doc, fidelity: stored ?? refreshFidelity(doc.fidelity ?? [], doc, captures) };
 }
 
-// Scores every section x bp of out/ and writes qa.json (tmp -> rename).
+// Scores every section x bp of out/, then the behaviour pass of the same qa task (R3), and writes qa.json (tmp -> rename).
 async function scoreAll(run: Run, ir: IR): Promise<SectionScore[]> {
-  const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir: join(run.ws, "out"), ir, captures: await loadCaptures(run) });
-  await writeJsonAtomic(join(run.ws, "qa.json"), { scores } satisfies QaFile);
+  const outDir = join(run.ws, "out");
+  const scores = await run.deps.scoreSections(run.handle, { workspaceDir: run.ws, outDir, ir, captures: await loadCaptures(run) });
+  const behavior = await run.deps.checkBehavior(run.handle, { outDir, ir, signal: run.signal }); // a pause throws: nothing written
+  if (behavior.length) log(run, "info", `QA hành vi: ${behavior.filter((b) => b.ok).length}/${behavior.length} component đạt`);
+  await writeJsonAtomic(join(run.ws, "qa.json"), { scores, behavior } satisfies QaFile);
   return scores;
 }
 
@@ -569,8 +586,13 @@ async function runQa(run: Run): Promise<boolean> {
   const rescore = tasks.some((t) => t.key === "rescore"); // the key is in the db: also right after an interrupt + resume
   emit(run.projectId, { type: "phase", phase: "qa" });
   for (const t of tasks) startTask(run.db, run.projectId, t);
-  await projectDocuments(run.db).ensureMaterialized(run.projectId, true); // an adopted document's failed step: out/ repaired first
-  const scores = await scoreAll(run, await loadIr(run));
+  // adopted: a failed step's out/ repaired first, a pre-E2 snapshot committed upgraded (a new revision: re-read)
+  if (await projectDocuments(run.db).ensureMaterialized(run.projectId, true)) run.ir = undefined;
+  const ir = await loadIr(run);
+  // not adopted: a converted checkpoint (E2 §9) gets its ir.json and out/ first — both QA passes score the document's
+  // own output (data-c, the new runtime), never the old one
+  if ((await readCheckpoint(run)).converted && !(await checkpointIr(run, ir))) await emitOut(run, ir);
+  const scores = await scoreAll(run, run.ir!);
   const minBy = new Map<string, number>();
   for (const s of scores) {
     const k = `${s.pageId}:${s.sectionId}`;
@@ -672,7 +694,7 @@ function setPaused(db: DatabaseSync, projectId: string): void {
 export async function runProject(db: DatabaseSync, projectId: string, opts: RunOpts = {}): Promise<void> {
   const { url, cfg } = loadProject(db, projectId);
   const ws = workspaceOf(projectId);
-  const deps = { openBrowser, capturePage, nameSections, fixAll, scoreSections, ...opts.deps };
+  const deps = { openBrowser, capturePage, nameSections, fixAll, scoreSections, checkBehavior, ...opts.deps };
   const { user, pass } = opts.credentials ?? {};
   setRunSecrets(projectId, [user ?? "", pass ?? ""]);
   setStatus(db, projectId, "running");

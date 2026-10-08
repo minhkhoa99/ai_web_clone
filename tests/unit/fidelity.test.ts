@@ -4,7 +4,7 @@ import { migrateIR } from "@/core/ir-migrate";
 import type { IRNodeV2, IRV2, FidelityItem } from "@/core/ir-v2";
 import type { CaptureNode, PageCapture } from "@/core/capture";
 import type { Interaction } from "@/core/interactions";
-import { buildFidelity, refreshFidelity, styleTargetFidelity, MAX_FIDELITY_ITEMS } from "@/core/fidelity";
+import { buildFidelity, refreshFidelity, MAX_FIDELITY_ITEMS } from "@/core/fidelity";
 
 const n = (tag: string, children: CaptureNode[] = [], extra: Partial<CaptureNode> = {}): CaptureNode =>
   ({ tag, attrs: {}, bbox: [0, 0, 100, 50], style: {}, children, ...extra });
@@ -32,13 +32,12 @@ const cap = (over: Partial<PageCapture> = {}): PageCapture => ({
 const irOf = (c: PageCapture): IRV2 => migrateIR(buildIR([c]), [c]);
 const find = (items: FidelityItem[], feature: string) => items.filter((x) => x.feature === feature);
 
-test("a captured carousel is only partial and anchored to its node", () => {
+test("a captured carousel becomes a guessed component: one partial component item anchored to its node", () => {
   const c = cap({ interactions: [ix("carousel", "#car", "captured")] });
   const items = buildFidelity([c], irOf(c));
-  const carousel = items.find((x) => x.feature === "carousel");
-  expect(carousel?.status).toBe("partial");
-  expect(carousel?.nodeId).toBe("p1:0.1.0.0");
-  expect(carousel?.sourceRef).toBe("p1:0.1.0.0");
+  expect(find(items, "carousel")).toEqual([]); // the component item covers it
+  const component = find(items, "component");
+  expect(component.map((x) => [x.status, x.nodeId, x.sourceRef])).toEqual([["partial", "p1:0.1.0.0", "p1:0.1.0.0"]]); // "next" has no aria-label/class
 });
 
 test("failed or skipped interactions never become supported", () => {
@@ -49,7 +48,7 @@ test("failed or skipped interactions never become supported", () => {
   const items = buildFidelity([c], irOf(c));
   for (const kind of ["menu", "modal", "hover", "carousel"]) expect(find(items, kind).map((x) => x.status)).toEqual(["unsupported"]);
   expect(find(items, "modal")[0]!.nodeId).toBe("p1:0.1.0.1");
-  expect(find(items, "tab")[0]!.status).toBe("partial"); // JS runtime is generic: markup + capture is not proof
+  expect(find(items, "tab")[0]!.status).toBe("unsupported"); // no tablist: no component, nothing runs it
   expect(items.some((x) => x.status === "supported" && x.feature !== "sticky")).toBe(false);
 });
 
@@ -123,11 +122,12 @@ test("deleting the clone node keeps the item anchored by sourceRef", () => {
   const ir = irOf(c);
   const before: FidelityItem[] = [...buildFidelity([c], ir), { pageId: "p1", feature: "style-target", status: "unsupported", nodeId: "p1:0.1.0.0", note: "x" }];
   const after = removeNode(ir, "p1:0.1.0.0");
-  // Re-derived from the capture the carousel has no clone counterpart any more (worse, not gone); without captures it is carried.
-  for (const [items, status] of [[refreshFidelity(before, after, [c]), "unsupported"], [refreshFidelity(before, after, []), "partial"]] as const) {
-    const carousel = items.find((x) => x.feature === "carousel");
-    expect(carousel).toMatchObject({ status, sourceRef: "p1:0.1.0.0" });
-    expect(carousel?.nodeId).toBeUndefined();
+  // Re-derived from the capture the carousel (its component deleted with the node) has no clone counterpart any more:
+  // worse, not gone. Carried items (no captures) keep their anchor by sourceRef.
+  const carousel = refreshFidelity(before, after, [c]).find((x) => x.feature === "carousel");
+  expect(carousel).toMatchObject({ status: "unsupported", sourceRef: "p1:0.1.0.0" });
+  expect(carousel?.nodeId).toBeUndefined();
+  for (const items of [refreshFidelity(before, after, [c]), refreshFidelity(before, after, [])]) {
     const target = items.find((x) => x.feature === "style-target");
     expect(target).toMatchObject({ sourceRef: "p1:0.1.0.0" });
     expect(target?.nodeId).toBeUndefined();
@@ -150,12 +150,4 @@ test("node-anchored findings are bounded per page and feature with a summary", (
   expect(sticky[0]!.status).toBe("unsupported");
   expect(sticky.at(-1)).toMatchObject({ status: "partial" }); // worst of the 10 omitted, not of the listed ones
   expect(sticky.at(-1)!.note).toContain("10");
-});
-
-test("unrepresentable editor style targets become unsupported style-target items", () => {
-  const items = styleTargetFidelity("p1", ["#i3k:hover (max-width:767.98px)", "#zz (min-width:500px)", "p1:0.1 [onclick]"], (el) => (el === "i3k" ? "p1:0.1.0" : undefined));
-  expect(items).toEqual([
-    { pageId: "p1", feature: "style-target", status: "unsupported", nodeId: "p1:0.1.0", sourceRef: "p1:0.1.0", note: expect.stringContaining(":hover") },
-    { pageId: "p1", feature: "style-target", status: "unsupported", note: expect.stringContaining("(min-width:500px)") },
-  ]);
 });

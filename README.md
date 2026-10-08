@@ -68,6 +68,8 @@ npx serve tests/fixtures/site3 -l 5050   # 3 trang, header dùng chung
 npx serve tests/fixtures/site2 -l 5051   # menu / tab / modal / carousel / hover
 # hoặc
 npx serve tests/fixtures/site1 -l 5052   # landing page 1 trang
+# hoặc
+npx serve tests/fixtures/site4 -l 5054   # swiper / slick / scroll-snap / tabs / accordion / modal / dropdown hover / video
 ```
 
 Rồi trong app:
@@ -102,6 +104,15 @@ Kết quả mong đợi với site mẫu: mọi section đạt từ 95% trở l�
 - Ngưỡng QA nên để 95%. Trên 98% form hiện cảnh báo: section gần đúng cũng phải qua vòng sửa AI (tốn token).
 - Muốn xem trình duyệt đang làm gì: ở Clone mới bật **Hiện trình duyệt khi chạy** (mặc định chạy nền). Cửa sổ chỉ để xem, không đổi fingerprint hay vượt anti-bot. `CDP_URL` vẫn được ưu tiên nếu có.
 - Provider hết quota (`AI_QUOTA`, HTTP 402), sai key (`AI_AUTH`) hoặc sai base URL/model (`AI_BAD_CONFIG`): tool dừng mọi lời gọi AI còn lại nhưng project vẫn `completed` (tên section mặc định, section chưa đạt để đỏ); banner Tiến độ nêu lý do.
+
+### 4.4 Component tương tác
+
+Carousel, tabs, accordion, modal, dropdown/menu và video được nhận diện lúc clone và chạy bằng `js/runtime.js` riêng của tool (không chạy lại script gốc như Swiper/Slick).
+
+- **Editor → panel Component**: chọn một component để sửa danh sách mục (**Thêm**, nhân bản, xoá, đổi thứ tự lên/xuống), và cấu hình theo loại, ví dụ carousel: **Tự chạy** (autoplay), khoảng thời gian, **Chuyển cảnh** (transition), **Mũi tên**, **Pagination**.
+- **Đánh dấu là component…**: biến một vùng tĩnh thành component (wizard chọn loại và gán vai trò). **Bỏ hành vi**: gỡ component, giữ HTML tĩnh.
+- Component do clone đoán ra được gắn nhãn **Nhận diện khi clone**; project cũ (v1) hiện **Chuyển từ hành vi cũ (v1)**.
+- **Preview**: tab **Checklist độ phủ** có thêm danh sách **QA hành vi component** (autoplay, đóng/mở, chuyển tab... đã chạy thật hay chưa). Tab **Fidelity** nâng mức tin cậy của component khi QA hành vi đạt.
 
 ## 5. Biến môi trường
 
@@ -160,6 +171,9 @@ npm run build       # build production, phải 0 warning
 
 - Chỉ chạy local: server bind 127.0.0.1 và kiểm tra Host (chống DNS rebinding). Các request thay đổi dữ liệu phải có body JSON và Origin cùng host (chống CSRF).
 - Trang clone được phục vụ với CSP chỉ cho phép `js/runtime.js` của chính bản clone. Asset tải về chỉ giữ đuôi media an toàn và được phục vụ trong sandbox.
+- Component tương tác dùng runtime riêng (`js/runtime.js`): script gốc của site không bao giờ được chạy lại trong bản clone. CSP chỉ cho phép đúng file này.
+- Embed video chỉ nhận `youtube-nocookie.com` và `player.vimeo.com` (`frame-src` của trang có embed bị giới hạn đúng hai host đó).
+- `data-c-cfg` (cấu hình component) chỉ chứa số, boolean, enum và id node; không có chuỗi tự do hay mã.
 - API key và thông tin đăng nhập được mã hoá AES-256-GCM, không ghi log và không gửi cho AI.
 - Không giải CAPTCHA, không stealth/giả fingerprint, không vượt anti-bot.
 

@@ -26,6 +26,7 @@ export const Codes = {
   DOCUMENT_MATERIALIZE_FAILED: "DOCUMENT_MATERIALIZE_FAILED",
   NOTHING_TO_UNDO: "NOTHING_TO_UNDO",
   NOTHING_TO_REDO: "NOTHING_TO_REDO",
+  UPLOAD_INVALID: "UPLOAD_INVALID",
 } as const;
 
 export type Code = keyof typeof Codes;

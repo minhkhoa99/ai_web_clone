@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>Site Four</title><link rel="icon" href="data:,">
+<style>
+  body { margin: 0; font-family: sans-serif; } section { padding: 16px; }
+  .swiper { width: 900px; overflow: hidden; } .swiper-wrapper { display: flex; } .swiper-slide { flex-shrink: 0; height: 120px; background: rgb(220, 220, 255); }
+  .swiper-pagination-bullet { display: inline-block; width: 8px; height: 8px; background: #999; } .swiper-pagination-bullet-active { background: #000; }
+  .slick-list { overflow: hidden; width: 600px; } .slick-track { display: flex; } .slick-slide { width: 300px; height: 80px; flex-shrink: 0; }
+  .snap { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; width: 300px; } .snap > div { flex: 0 0 300px; height: 80px; scroll-snap-align: start; }
+  [role=tabpanel][hidden] { display: none; } .sub { display: none; } .has-sub:hover .sub { display: block; }
+  #dlg[hidden] { display: none; } #dlg { position: fixed; inset: 20%; background: #fff; border: 1px solid #000; }
+</style></head>
+<body>
+<header id="top"><button id="open-dlg" aria-haspopup="dialog" aria-controls="dlg">Mở hộp thoại</button>
+  <nav><ul><li class="has-sub"><a href="#x" aria-haspopup="true">Sản phẩm</a><ul class="sub"><li>A</li><li>B</li></ul></li></ul></nav></header>
+<section id="sw"><div class="swiper" id="swiper-a"><div class="swiper-wrapper">
+  <div class="swiper-slide">S1</div><div class="swiper-slide">S2</div><div class="swiper-slide">S3</div><div class="swiper-slide">S4</div></div>
+  <button class="swiper-button-prev">‹</button><button class="swiper-button-next">›</button>
+  <div class="swiper-pagination"><span class="swiper-pagination-bullet"></span><span class="swiper-pagination-bullet"></span><span class="swiper-pagination-bullet"></span><span class="swiper-pagination-bullet"></span></div></div></section>
+<section id="sw2"><div class="swiper" id="swiper-hidden"><div class="swiper-wrapper"><div class="swiper-slide">H1</div><div class="swiper-slide">H2</div></div></div></section>
+<section id="sl"><div id="slick-a"><div class="slick-list"><div class="slick-track">
+  <div class="slick-slide slick-cloned" data-slick-index="-1">K3</div><div class="slick-slide slick-current" data-slick-index="0">K1</div>
+  <div class="slick-slide" data-slick-index="1">K2</div><div class="slick-slide" data-slick-index="2">K3</div>
+  <div class="slick-slide slick-cloned" data-slick-index="3">K1</div></div></div>
+  <button class="slick-prev">Prev</button><button class="slick-next">Next</button></div></section>
+<section id="sn"><div class="snap" id="snap"><div>N1</div><div>N2</div><div>N3</div></div><button aria-label="Next slide">›</button></section>
+<section id="tb"><div role="tablist"><button role="tab" aria-selected="true" aria-controls="tp1">Một</button><button role="tab" aria-selected="false" aria-controls="tp2">Hai</button></div>
+  <div role="tabpanel" id="tp1">Nội dung một</div><div role="tabpanel" id="tp2" hidden>Nội dung hai</div></section>
+<section id="ac"><div class="faq"><details><summary>Hỏi 1</summary><p>Đáp 1</p></details><details><summary>Hỏi 2</summary><p>Đáp 2</p></details></div>
+  <div class="more"><button aria-expanded="false" aria-controls="ap">Thêm</button><div id="ap" hidden>Nội dung thêm</div></div></section>
+<section id="vd"><video poster="poster.png" muted loop controls></video><iframe title="Video" src="https://www.youtube-nocookie.com/embed/abc123" width="320" height="180"></iframe></section>
+<footer id="ft"><div id="dlg" role="dialog" hidden><p>Hộp thoại</p><button data-close aria-label="Đóng">×</button></div></footer>
+<script src="swiper-mini.js"></script><script src="slick-mini.js"></script>
+<script>
+  MiniSwiper(document.getElementById("swiper-a"), { slidesPerView: 1, spaceBetween: 10, loop: true, speed: 400, effect: "slide", direction: "horizontal",
+    autoplay: { delay: 3000 }, breakpoints: { 768: { slidesPerView: 2, spaceBetween: 20 }, 1440: { slidesPerView: 3, spaceBetween: 30 } } });
+  MiniSwiper(document.getElementById("swiper-hidden"), { slidesPerView: 1, spaceBetween: 0, loop: false, autoplay: { delay: 1500 } }, false);
+  miniSlick(document.getElementById("slick-a"), { slidesToShow: 2, autoplay: false, infinite: true, speed: 300, fade: false, vertical: false, responsive: [{ breakpoint: 768, settings: { slidesToShow: 1 } }] });
+  const dlg = document.getElementById("dlg");
+  document.getElementById("open-dlg").addEventListener("click", () => { dlg.hidden = false; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") dlg.hidden = true; });
+</script></body></html>

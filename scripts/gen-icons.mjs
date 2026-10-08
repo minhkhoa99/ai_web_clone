@@ -12,6 +12,8 @@ export const NAMES = [
   // common
   "search", "refresh", "open_in_new", "content_copy", "visibility", "visibility_off", "expand_more", "chevron_right",
   "chevron_left", "close", "check", "remove", "more_vert", "arrow_forward", "undo", "redo", "save",
+  // editor Component panel (E2 §7: keyboard reorder)
+  "arrow_upward", "arrow_downward",
   // status
   "check_circle", "cancel", "pause_circle", "warning", "lock", "error", "schedule", "draft",
   // project actions
@@ -24,6 +26,12 @@ export const NAMES = [
   "phone_iphone", "tablet_mac", "desktop_windows", "view_column_2", "opacity", "compare", "layers",
   // code viewer
   "folder", "folder_open", "description", "html", "css", "javascript", "data_object", "format_list_numbered", "wrap_text",
+  // visual editor E3a (layer tree types, upload)
+  "title", "link", "touch_app", "input", "movie", "shapes", "widgets", "crop_square", "upload",
+  // visual editor E3b (zoom)
+  "zoom_in", "zoom_out", "fit_screen",
+  // visual editor E3b (insert panel)
+  "text_fields", "text_snippet", "add_box", "view_week", "view_agenda", "grid_view", "view_carousel", "tab", "expand_circle_down", "web_asset",
   // sitemap
   "unfold_more", "unfold_less",
 ];

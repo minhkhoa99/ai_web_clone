@@ -132,10 +132,10 @@ export async function blockNavigationAway(page: Page, homeUrl: string): Promise<
 
 // page.evaluate ignores setDefaultTimeout: a page script that never settles would hang the run, so the
 // evaluate races a Node timer. The losing evaluate settles (rejects) when its page closes.
-export async function withEvalTimeout<R>(page: Page, what: string, evaluation: Promise<R>): Promise<R> {
+export async function withEvalTimeout<R>(page: Page, what: string, evaluation: Promise<R>, ms = EVAL_TIMEOUT_MS): Promise<R> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new AppError(Codes.BROWSER_CRASH, `${what} timed out after ${EVAL_TIMEOUT_MS / 1000}s`, { url: page.url() })), EVAL_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new AppError(Codes.BROWSER_CRASH, `${what} timed out after ${ms / 1000}s`, { url: page.url() })), ms);
   });
   try {
     return await Promise.race([evaluation, timeout]);

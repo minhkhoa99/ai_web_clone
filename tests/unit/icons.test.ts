@@ -5,9 +5,9 @@ import { FILE_OF, NAMES } from "../../scripts/gen-icons.mjs";
 import { ICONS } from "@/app/_ui/icons.gen";
 import { Icon } from "@/app/_ui/Icon";
 
-test("icons.gen.ts holds exactly the spec §1.5 subset (72 names), each a non-empty SVG path", () => {
-  expect(NAMES).toHaveLength(72);
-  expect(new Set(NAMES).size).toBe(72);
+test("icons.gen.ts holds exactly the spec §1.5 subset (96 names), each a non-empty SVG path", () => {
+  expect(NAMES).toHaveLength(96);
+  expect(new Set(NAMES).size).toBe(96);
   expect(Object.keys(ICONS).sort()).toEqual([...NAMES].sort());
   // Case-insensitive: some Material Symbols 0.47.5 files start with a relative "m" moveto,
   // equivalent to "M" at the start of a path since the current point begins at (0,0).

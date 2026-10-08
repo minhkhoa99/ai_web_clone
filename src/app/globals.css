@@ -748,14 +748,102 @@ select.full { width: 100%; min-height: 38px; }
 
 /* === Screen: editor === */
 .editor-toolbar { display: flex; align-items: center; gap: var(--s-sm); flex-wrap: wrap; }
-.editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-lg); align-items: start; }
-@media (max-width: 1099px) { .editor-grid { grid-template-columns: minmax(0, 1fr); } }
 .editor-sections { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
-.editor-shell { overflow: hidden; }
-/* GrapesJS theme on the Stitch tokens (spec §3.8) */
-.editor-shell .gjs-one-bg { background-color: var(--c-surface-low); }
-.editor-shell .gjs-two-color { color: var(--c-text-2); }
-.editor-shell .gjs-three-bg { background-color: var(--c-surface-high); color: var(--c-text); }
-.editor-shell .gjs-four-color, .editor-shell .gjs-four-color-h:hover { color: var(--c-primary); }
-.editor-shell .gjs-pn-panel, .editor-shell .gjs-blocks-c, .editor-shell .gjs-sm-sector, .editor-shell .gjs-layer, .editor-shell .gjs-block { border-color: var(--c-border); }
-.editor-shell .gjs-editor, .editor-shell .gjs-pn-btn, .editor-shell .gjs-block, .editor-shell .gjs-sm-sector-title, .editor-shell .gjs-layer-name { font: var(--t-label-md); }
+.ve-left .editor-sections { max-height: 20vh; } /* the Section card under the layer tree leaves the tree its room */
+/* E2 §7 Component panel (no mockup: existing tokens / _ui components) */
+.cmp-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.cmp-fieldset:empty { display: none; }
+.cmp-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-sm); }
+.cmp-head p { flex-basis: 100%; margin: 0; }
+.cmp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.cmp-item { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, auto); align-items: center; gap: 4px; padding: 2px 4px; border-radius: var(--r-sm); }
+.cmp-item[draggable="true"] { cursor: grab; }
+.cmp-item.is-drag { opacity: 0.5; }
+.cmp-item:hover { background-color: var(--c-surface-high); }
+.cmp-item-pick { display: flex; align-items: center; gap: var(--s-sm); min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: var(--t-body-md); text-align: start; cursor: pointer; }
+.cmp-item-pick:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+.cmp-thumb { flex: none; border-radius: 4px; background-color: var(--c-surface-high); background-repeat: no-repeat; width: 48px; height: 32px; }
+.cmp-bp { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-sm); }
+.cmp-form input[type="number"], .cmp-form select, .cmp-wizard select { width: 100%; }
+.cmp-error { color: var(--c-danger); }
+.cmp-actions { display: flex; flex-wrap: wrap; gap: var(--s-sm); }
+/* === Screen: visual editor (E3) === */
+.ve { display: flex; flex-direction: column; gap: var(--s-sm); min-width: 0; }
+.ve-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: var(--s-sm); height: calc(100vh - 210px); min-height: 480px; }
+.ve-left, .ve-right { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--s-sm); padding: var(--s-sm); }
+.ve-pane { position: relative; min-width: 0; min-height: 0; overflow: auto; background: var(--c-surface-lowest); border: 1px solid var(--c-border); border-radius: var(--r-md); }
+.ve-stage { position: relative; margin: 0 auto; }
+.ve-stage iframe { display: block; border: 0; background: #fff; }
+.ve-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.ve-zoom > span { min-width: 44px; text-align: center; }
+.ve-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.ve-hover { position: absolute; outline: 1px solid var(--c-accent); }
+.ve-label { position: absolute; left: 0; bottom: 100%; font: var(--t-label-sm); background: var(--c-accent); color: var(--c-on-accent); padding: 1px 4px; white-space: nowrap; }
+.ve-label-in { bottom: auto; top: 0; }
+.ve-selected { position: absolute; outline: 2px solid var(--c-accent-strong); }
+.ve-parent { position: absolute; outline: 1px dashed var(--c-text-3); }
+.ve-margin { position: absolute; background: color-mix(in srgb, var(--c-warn) 25%, transparent); }
+.ve-padding { position: absolute; background: color-mix(in srgb, var(--c-success) 25%, transparent); }
+.ve-layers { display: flex; flex-direction: column; gap: var(--s-sm); min-height: 0; flex: 1; }
+.ve-layer-list { position: relative; flex: 1; min-height: 160px; overflow: auto; }
+.ve-layer { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 4px; font: var(--t-label-sm); border-radius: var(--r-sm); cursor: default; }
+.ve-layer:hover { background: var(--c-surface-high); }
+.ve-layer.is-selected { background: var(--c-surface-highest); color: var(--c-primary); }
+.ve-layer-list:focus-visible .ve-layer.is-selected { outline: 1px solid var(--c-accent); outline-offset: -1px; }
+.ve-layer.is-dimmed { opacity: 0.55; }
+.ve-layer .icon-btn { width: 20px; height: 20px; padding: 2px; flex: none; }
+.ve-layer-name { flex: 1; min-width: 0; }
+.ve-layer input { flex: 1; min-width: 0; min-height: 20px; padding: 0 4px; }
+.ve-assets { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; max-height: 240px; overflow: auto; }
+.ve-assets button { width: 100%; aspect-ratio: 1; padding: 0; border: 1px solid var(--c-border); background: var(--c-surface); border-radius: var(--r-sm); cursor: pointer; }
+.ve-assets img { width: 100%; height: 100%; object-fit: contain; display: block; }
+[data-ui="ui_editor_style_state"] .seg-item { min-width: 0; padding: 5px 4px; }
+.ve-fields { gap: 6px; }
+.ve-field { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 2px 4px; }
+.ve-field input { width: 100%; min-width: 0; }
+.ve-field-source { grid-column: 2 / -1; display: flex; }
+.ve-field > [role="alert"] { grid-column: 1 / -1; }
+.ve-field-name { font: var(--t-label-sm); color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-field.is-compact { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 2px; }
+.ve-field.is-compact .ve-field-name { cursor: ew-resize; user-select: none; }
+.ve-field.is-compact input { font: var(--t-label-sm); min-height: 24px; padding: 2px; text-align: center; }
+.ve-box, .ve-box-inner { display: grid; grid-template-areas: ". t ." "l c r" ". b ."; grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 4px; padding: 6px; border: 1px dashed var(--c-border); border-radius: var(--r-sm); }
+.ve-box-inner { grid-area: c; grid-template-columns: 44px minmax(0, 1fr) 44px; background: var(--c-surface-low); }
+.ve-box-top { grid-area: t; } .ve-box-right { grid-area: r; } .ve-box-bottom { grid-area: b; } .ve-box-left { grid-area: l; }
+.ve-free { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 4px; }
+.ve-free input { min-width: 0; }
+/* R9: up to 1099px the side panels are drawers over the canvas area (not modal: no backdrop, the canvas stays usable),
+   opened from the toolbar — below it, so a drawer never covers its own toggle; the grid clips the closed ones (no
+   sideways page scroll) without becoming a scroll container */
+.ve-drawer-toggle { display: none; gap: 2px; }
+@media (max-width: 1099px) {
+  .ve-grid { grid-template-columns: minmax(0, 1fr); position: relative; overflow: clip; }
+  .ve-drawer-toggle { display: inline-flex; }
+  .ve-left, .ve-right { position: absolute; top: 0; bottom: 0; width: min(320px, 85%); z-index: 40; background: var(--c-surface-low); border: 1px solid var(--c-border); visibility: hidden; transition: transform 0.15s, visibility 0.15s; }
+  .ve-left { left: 0; transform: translateX(-100%); }
+  .ve-right { right: 0; transform: translateX(100%); }
+  .ve-left.is-open, .ve-right.is-open { visibility: visible; transform: none; box-shadow: 0 0 24px rgb(0 0 0 / 0.5); }
+  .ve-layers { min-height: 220px; } /* search + the list's 160px: a short drawer scrolls instead of the Section card overlapping the tree */
+}
+@media (prefers-reduced-motion: reduce) { .ve-left, .ve-right { transition: none; } }
+.ve-capture { position: fixed; inset: 0; z-index: 50; cursor: grabbing; }
+.ve-insert { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ve-insert-item { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-surface); color: var(--c-text); font: var(--t-label-sm); cursor: grab; touch-action: none; user-select: none; }
+.ve-insert-item:hover { background: var(--c-surface-high); }
+.ve-drop { position: absolute; background: color-mix(in srgb, var(--c-primary) 15%, transparent); outline: 2px solid var(--c-primary); }
+.ve-drop.is-bad { background: color-mix(in srgb, var(--c-danger) 15%, transparent); outline-color: var(--c-danger); }
+.ve-drop.is-bad .ve-label { background: var(--c-danger-strong); color: var(--c-on-danger); }
+.ve-guide { position: absolute; outline: 1px solid var(--c-danger); }
+.ve-measure { position: absolute; outline: 1px dashed var(--c-warn); }
+.ve-measure .ve-label { background: var(--c-warn); color: var(--c-on-warn); bottom: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.ve-handle { position: absolute; width: 8px; height: 8px; background: var(--c-bg); border: 2px solid var(--c-primary); pointer-events: auto; }
+.ve-handle.is-n, .ve-handle.is-s { cursor: ns-resize; } .ve-handle.is-e, .ve-handle.is-w { cursor: ew-resize; }
+.ve-handle.is-ne, .ve-handle.is-sw { cursor: nesw-resize; } .ve-handle.is-nw, .ve-handle.is-se { cursor: nwse-resize; }
+.ve-spacing-handle { position: absolute; background: var(--c-success); border-radius: 2px; pointer-events: auto; cursor: grab; }
+.ve-spacing-handle.is-gap { background: color-mix(in srgb, var(--c-accent) 60%, transparent); }
+/* E3b R17: edit-main mode — the bar above the canvas, a dashed frame around the open instance */
+.ve-center { display: flex; flex-direction: column; gap: var(--s-sm); min-width: 0; min-height: 0; }
+.ve-center > .ve-pane { flex: 1; }
+.ve-main-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--c-warn); border-radius: var(--r-md); background: var(--c-surface-high); }
+.ve-main-bar > span { flex: 1; min-width: 0; }
+.ve-main-frame { position: absolute; outline: 2px dashed var(--c-warn); outline-offset: 2px; pointer-events: none; }

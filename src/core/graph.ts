@@ -9,6 +9,7 @@ import { compileV2 } from "./emit-html";
 import type { IR, Layout } from "./ir";
 import type { LegacyIR as View, LegacyIRNode as IRNode, LegacySection as Section } from "./ir-legacy";
 import type { Interaction } from "./interactions";
+import { findTrigger, indexById } from "./ir-build";
 
 // Bounded result sizes for the per-section context queries and for listing layouts — a query
 // never returns an unbounded list. `interactions` mirrors spec §1's 300/page cap; `tokens` and
@@ -28,12 +29,11 @@ function declValues(style: StyleSet): string[] {
   ];
 }
 
-type SectionIndex = { classes: Set<string>; attrValues: string[]; behaviors: Set<string>; nodeIds: Set<string> };
+type SectionIndex = { classes: Set<string>; attrValues: string[]; nodeIds: Set<string> };
 
 function indexSubtree(root: IRNode): SectionIndex {
   const classes = new Set<string>();
   const attrValues: string[] = [];
-  const behaviors = new Set<string>();
   const nodeIds = new Set<string>();
   const walk = (n: IRNode): void => {
     nodeIds.add(n.id);
@@ -42,11 +42,10 @@ function indexSubtree(root: IRNode): SectionIndex {
     if (n.states?.focus) classes.add(n.states.focus);
     if (n.states?.active) classes.add(n.states.active);
     for (const v of Object.values(n.attrs)) attrValues.push(v);
-    if (n.behavior) behaviors.add(n.behavior);
     for (const child of n.children) walk(child);
   };
   walk(root);
-  return { classes, attrValues, behaviors, nodeIds };
+  return { classes, attrValues, nodeIds };
 }
 
 function usedClasses(idx: SectionIndex, classes: View["classes"]): Record<string, StyleSet> {
@@ -94,6 +93,19 @@ export function writeGraph(db: DatabaseSync, projectId: string, doc: IR, assets:
     for (const layout of ir.layouts) for (const pageId of layout.pageIds) insertEdge.run(projectId, pageId, layout.id, "USES_LAYOUT");
 
     const linkedInteractions = new Set<string>();
+    // A captured behavior interaction triggers the section holding its trigger node (resolved on the page with its
+    // sections in place, as the capture saw it).
+    const sectionOf = new Map(ir.sections.map((s) => [s.id, s.root]));
+    const triggerIds = new Map<string, string>();
+    for (const page of ir.pages) {
+      const expand = (n: IRNode): IRNode => n.tag === "#section" ? (sectionOf.get(n.attrs["data-section"] ?? "") ?? n) : { ...n, children: n.children.map(expand) };
+      const tree = expand(page.shell), byId = indexById(tree, new Map());
+      for (const it of interactions) {
+        if (it.pageId !== page.id || it.status !== "captured" || it.kind === "hover" || it.kind === "form") continue;
+        const hit = findTrigger(tree, byId, it.trigger);
+        if (hit) triggerIds.set(it.id, hit.id);
+      }
+    }
     for (const section of ir.sections) {
       const idx = sectionIndex.get(section.id)!;
       const declVals = [...idx.classes].flatMap((cls) => declValues(ir.classes[cls] ?? { base: {} }));
@@ -113,7 +125,7 @@ export function writeGraph(db: DatabaseSync, projectId: string, doc: IR, assets:
         insertEdge.run(projectId, section.id, `asset:${relPath}`, "USES_ASSET");
       }
       for (const interaction of interactions) {
-        if (idx.behaviors.has(interaction.id)) {
+        if (idx.nodeIds.has(triggerIds.get(interaction.id) ?? "")) {
           insertEdge.run(projectId, section.id, interaction.id, "TRIGGERS");
           linkedInteractions.add(interaction.id);
         }

@@ -2,6 +2,8 @@ import type { CaptureNode, PageCapture } from "./capture";
 import type { Decl, StyleSet } from "./dedupe";
 import { AppError, Codes } from "./errors";
 import { buildFidelity, capFidelity } from "./fidelity";
+import { alignChildren, isLoopClone } from "./ir-build";
+import type { InteractiveSpec } from "./interactive";
 import type { LegacyIR, LegacyIRNode, LegacyPage, LegacySection } from "./ir-legacy";
 
 export type NodeStyles = {
@@ -25,6 +27,7 @@ export type IRNodeV2 = {
   box?: Partial<Record<1440 | 768 | 375, [number, number, number, number]>>;
   component?: { id: string; role: "main" | "instance"; sourceId?: string; overrides?: string[] };
   behavior?: string;
+  interactive?: InteractiveSpec;
 };
 export type FidelityItem = {
   pageId: string;
@@ -58,19 +61,27 @@ type Boxes = Map<string, Partial<Record<1440 | 768 | 375, { tag: string; bbox: C
 
 export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
   const boxes: Boxes = new Map();
+  const quiet = new Set<string>(); // "id|bp": a loop clone / text node a keyed parent left without counterpart (no box note)
   const available = new Map(captures.map((capture) => [capture.pageId, new Set(capture.breakpoints.map((entry) => entry.bp))]));
+  // Boxes follow the IR's own breakpoint alignment (alignChildren: by slide key where toDraft keyed the children,
+  // else by path), so a slide's 768/375 box is its own even when the duplicate counts differ.
   for (const capture of captures) {
-    for (const { bp, dom } of capture.breakpoints) {
-      if (bp !== 1440 && bp !== 768 && bp !== 375) continue;
-      const visit = (node: CaptureNode, path: string): void => {
-        const id = `${capture.pageId}:${path}`;
-        const entry = boxes.get(id) ?? {};
-        entry[bp] = { tag: node.tag, bbox: node.bbox };
-        boxes.set(id, entry);
-        node.children.forEach((child, i) => visit(child, `${path}.${i}`));
-      };
-      visit(dom, "0");
-    }
+    const primary = capture.breakpoints.find((b) => b.bp === 1440) ?? capture.breakpoints[0];
+    if (!primary) continue;
+    type At = [bp: number, node: CaptureNode | undefined];
+    const visit = (node: CaptureNode, path: string, at: At[]): void => {
+      const id = `${capture.pageId}:${path}`;
+      const entry = boxes.get(id) ?? {};
+      for (const [bp, n] of [[primary.bp, node] as At, ...at]) if (n && (bp === 1440 || bp === 768 || bp === 375)) entry[bp] = { tag: n.tag, bbox: n.bbox };
+      boxes.set(id, entry);
+      const kids = at.map(([bp, o]): [number, (CaptureNode | undefined)[] | undefined] => {
+        const a = o && alignChildren(node, o);
+        if (a?.keyed) node.children.forEach((c, i) => { if (!a.kids[i] && (c.tag === "#text" || isLoopClone(c))) quiet.add(`${capture.pageId}:${path}.${i}|${bp}`); });
+        return [bp, o && (a?.kids ?? o.children)];
+      });
+      node.children.forEach((child, i) => visit(child, `${path}.${i}`, kids.map(([bp, k]): At => [bp, k?.[i]])));
+    };
+    visit(primary.dom, "0", capture.breakpoints.filter((b) => b !== primary).map((b): At => [b.bp, b.dom]));
   }
 
   const classOf = (name: string): StyleSet => {
@@ -122,14 +133,15 @@ export function toV2(legacy: LegacyIR, captures: PageCapture[]): IRV2 {
       result.fidelity.push({ pageId: page.id, feature: "capture-box", status: "partial", breakpoint: bp, note: `missing capture at ${bp}` });
     }
   }
-  const check = (node: IRNodeV2, pageId: string): void => {
+  const check = (node: IRNodeV2, pageId: string, skip: ReadonlySet<number> = new Set()): void => {
     const matches = boxes.get(node.id);
+    const mute = new Set([...skip, ...([768, 375] as const).filter((bp) => quiet.has(`${node.id}|${bp}`))]); // and its subtree
     for (const bp of [1440, 768, 375] as const) {
-      if (!available.get(pageId)?.has(bp) || node.tag === "#section") continue;
+      if (!available.get(pageId)?.has(bp) || node.tag === "#section" || mute.has(bp)) continue;
       if (matches?.[bp]?.tag === node.tag) continue;
       result.fidelity.push({ pageId, feature: "capture-box", status: "partial", nodeId: node.id, breakpoint: bp, sourceRef: node.id, note: `capture path or tag mismatch at ${bp}` });
     }
-    for (const child of node.children) check(child, pageId);
+    for (const child of node.children) check(child, pageId, mute);
   };
   for (const page of result.pages) check(page.shell, page.id);
   for (const section of result.sections) check(section.root, section.pageId);
