@@ -32,6 +32,7 @@ Reply with JSON only: {"reply": string, "commands": [...]}
 {"op":"updateComponent"|"updateCarousel","id":string,"patch":{field:value}} — only a component of COMPONENTS, only its listed config fields
 {"op":"addComponentItem"|"addCarouselSlide","id":string,"from"?:string,"index":number} | {"op":"removeComponentItem"|"removeCarouselSlide","id":string,"itemId":string}
 {"op":"moveComponentItem","id":string,"itemId":string,"index":number}
+CSS values are strings ("0.5", "2"), not numbers. updateCarousel, addCarouselSlide and removeCarouselSlide apply only to a carousel.
 Rules: every id, parentId, itemId and from is a node of OUTLINE not marked "chỉ đọc"; never delete, move or duplicate a
 section root. Style edits go to the breakpoint the user is looking at: target ${targetOf(bp)}, unless they ask for every
 screen size ("base"). OUTLINE lines are: id · tag · type · name · "text" · W×H; "… +N con" folds children you can read with
@@ -61,10 +62,13 @@ export class ChatRefusal extends Error {}
 
 const nodeId = z.string().min(1).max(200);
 const index = z.number().int().min(0);
-const target = z.union([z.enum(["base", "hover", "focus", "active", "before", "after"]), z.literal(768), z.literal(375)]);
+// The model may send a breakpoint as a string ("768") and a CSS number as a number (0.5, 2): both are coerced here,
+// nothing else is (true, objects and non-finite numbers stay refused).
+const target = z.union([z.enum(["base", "hover", "focus", "active", "before", "after"]), z.literal(768), z.literal(375), z.literal("768").transform((): 768 => 768), z.literal("375").transform((): 375 => 375)]);
+const cssValue = z.union([z.string(), z.null(), z.number().finite().transform((n) => String(n))]);
 const patch = z.record(z.string(), z.unknown());
 const commandSchema = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("setStyle"), id: nodeId, target, changes: z.record(z.string(), z.string().nullable()) }),
+  z.object({ op: z.literal("setStyle"), id: nodeId, target, changes: z.record(z.string(), cssValue) }),
   z.object({ op: z.literal("setText"), id: nodeId, text: z.string() }),
   z.object({ op: z.literal("setAttribute"), id: nodeId, name: z.string(), value: z.string().nullable() }),
   z.object({ op: z.literal("setHidden"), id: nodeId, hidden: z.boolean() }),

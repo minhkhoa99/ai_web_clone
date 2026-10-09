@@ -78,3 +78,16 @@ test("stray prose around the JSON object is tolerated (constraints review focus 
   expect(out.commands).toEqual([{ op: "setHidden", id: "b", hidden: true }]);
   expect(refusal("không có JSON nào")).toMatch(/not JSON/);
 });
+
+test("numeric CSS values become strings and '768'/'375' targets become numbers; other types are still refused", () => {
+  const out = parseChatReply(reply([{ op: "setStyle", id: "a", target: "768", changes: { opacity: 0.5, "z-index": 2, color: "red", width: null } }]), scope());
+  expect(out.commands).toEqual([{ op: "setStyle", id: "a", target: 768, changes: { opacity: "0.5", "z-index": "2", color: "red", width: null } }]);
+  expect(refusal(reply([{ op: "setStyle", id: "a", target: "375", changes: { opacity: true } }]))).not.toBe("accepted");
+  expect(refusal(reply([{ op: "setStyle", id: "a", target: "base", changes: { opacity: { x: 1 } } }]))).not.toBe("accepted");
+  expect(refusal(reply([{ op: "setStyle", id: "a", target: "999", changes: { opacity: "1" } }]))).not.toBe("accepted");
+});
+
+test("system prompt says CSS values are strings and the carousel aliases apply only to a carousel", () => {
+  expect(systemPrompt(1440)).toContain("CSS values are strings");
+  expect(systemPrompt(1440)).toContain("only to a carousel");
+});
