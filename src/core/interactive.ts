@@ -109,6 +109,10 @@ export const PATCHABLE: Record<InteractiveKind, readonly string[]> = {
   carousel: ["active", "autoplay", "interval", "loop", "direction", "transition", "speed", "slidesPerView", "gap", "arrows", "pagination"],
   tabs: ["active"], accordion: ["multiple", "items"], modal: ["closeOn", "closeButton"], dropdown: ["openOn"], menu: ["openOn"], video: ["autoplay", "muted", "loop", "controls"],
 };
+// E2 §8 / E4 §3: arrows / pagination / closeButton name role nodes — structure, so the AI never patches them
+// (qa-fix.ts keeps its own copy for now: R1 of the E4 plan).
+export const AI_NOT_PATCHABLE: ReadonlySet<string> = new Set(["arrows", "pagination", "closeButton"]);
+export const aiPatchable = (kind: InteractiveKind): string[] => PATCHABLE[kind].filter((k) => !AI_NOT_PATCHABLE.has(k));
 const OPTIONAL = new Set(["arrows", "pagination", "closeButton"]); // null = drop
 export function patchSpec(spec: InteractiveSpec, patch: Record<string, unknown>): InteractiveSpec {
   if (!patch || typeof patch !== "object" || Array.isArray(patch) || !Object.keys(patch).length) invalid("patch must be a non-empty object");
