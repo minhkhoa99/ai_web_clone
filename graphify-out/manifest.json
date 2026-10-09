@@ -180,9 +180,51 @@
     "semantic_hash": "9a171034c96984a69d10624a390c133f"
   },
   "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-10-09-e4-ai-chat-design.md": {
-    "mtime": 1791527447.3133967,
-    "seen": 1791527591.1067276,
-    "ast_hash": "aa0e1e45b26ec99d698021878573df88",
-    "semantic_hash": "aa0e1e45b26ec99d698021878573df88"
+    "mtime": 1791533843.1807761,
+    "seen": 1791534500.5178711,
+    "ast_hash": "5368404a1c0476e9ace7ace64fe6fd47",
+    "semantic_hash": "5368404a1c0476e9ace7ace64fe6fd47"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-09-27-e1-document-model-design.md": {
+    "mtime": 1791425298.6359446,
+    "seen": 1791534500.5178444,
+    "ast_hash": "293603370dd4c07a47ed894b957fdaa4",
+    "semantic_hash": "293603370dd4c07a47ed894b957fdaa4"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-09-27-e1-document-model.md": {
+    "mtime": 1791425298.625274,
+    "seen": 1791534500.5178535,
+    "ast_hash": "b4c0affc63ea3533aec3909c57958aaf",
+    "semantic_hash": "b4c0affc63ea3533aec3909c57958aaf"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-10-02-e2-interactive-components-design.md": {
+    "mtime": 1791425298.6379678,
+    "seen": 1791534500.5178578,
+    "ast_hash": "00f9d36ba8be02570a6c54c3cfca21ca",
+    "semantic_hash": "00f9d36ba8be02570a6c54c3cfca21ca"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-10-02-e2-interactive-components.md": {
+    "mtime": 1791425298.6283152,
+    "seen": 1791534500.5178604,
+    "ast_hash": "dcd85314f5957bf7cb833c00c9067375",
+    "semantic_hash": "dcd85314f5957bf7cb833c00c9067375"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-10-07-e3-visual-editor-design.md": {
+    "mtime": 1791425298.6389909,
+    "seen": 1791534500.5178628,
+    "ast_hash": "7d904ed8b773cda0bd14d2847980bea0",
+    "semantic_hash": "7d904ed8b773cda0bd14d2847980bea0"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-10-07-e3a-visual-editor-core.md": {
+    "mtime": 1791425298.6283152,
+    "seen": 1791534500.517865,
+    "ast_hash": "1efabae9638fa38f61d1ca69cea7da60",
+    "semantic_hash": "1efabae9638fa38f61d1ca69cea7da60"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-10-07-e3b-visual-editor-advanced.md": {
+    "mtime": 1791425298.6339307,
+    "seen": 1791534500.5178668,
+    "ast_hash": "1c6276e910f01462d973de6d25b2730f",
+    "semantic_hash": "1c6276e910f01462d973de6d25b2730f"
   }
 }
