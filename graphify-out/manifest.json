@@ -1,9 +1,9 @@
 {
   "D:\\ai_web_clone\\docs\\superpowers\\design\\stitch-screens.md": {
-    "mtime": 1790447903.454821,
-    "seen": 1790448151.8613174,
-    "ast_hash": "a0470917e8c7444e7af5f02c26887744",
-    "semantic_hash": "a0470917e8c7444e7af5f02c26887744"
+    "mtime": 1791526745.734789,
+    "seen": 1791527591.1066592,
+    "ast_hash": "cfe2a07b87a9c884f75d0852b6535d94",
+    "semantic_hash": "cfe2a07b87a9c884f75d0852b6535d94"
   },
   "D:\\ai_web_clone\\docs\\superpowers\\design\\stitch\\code-viewer.html": {
     "mtime": 1790121553.3763802,
@@ -172,5 +172,17 @@
     "seen": 1790448151.8613174,
     "ast_hash": "3f91bb3255c1e6dac9f8b098bf28b6ab",
     "semantic_hash": "3f91bb3255c1e6dac9f8b098bf28b6ab"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\plans\\2026-10-09-e4-ai-chat.md": {
+    "mtime": 1791520646.8700848,
+    "seen": 1791527591.1067128,
+    "ast_hash": "9a171034c96984a69d10624a390c133f",
+    "semantic_hash": "9a171034c96984a69d10624a390c133f"
+  },
+  "D:\\ai_web_clone\\docs\\superpowers\\specs\\2026-10-09-e4-ai-chat-design.md": {
+    "mtime": 1791527447.3133967,
+    "seen": 1791527591.1067276,
+    "ast_hash": "aa0e1e45b26ec99d698021878573df88",
+    "semantic_hash": "aa0e1e45b26ec99d698021878573df88"
   }
 }

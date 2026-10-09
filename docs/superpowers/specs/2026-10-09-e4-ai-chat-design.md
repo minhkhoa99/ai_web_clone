@@ -199,3 +199,28 @@ Tab thứ 4 ở rail phải (Style / Component / Hiệu ứng / **AI**). Dùng `
 - AI sửa main component, shell, trang khác.
 - Lệnh `promoteLayout`, `detachComponent`, `resetOverride`, `convertToComponent`, `unwrapComponent`.
 - Chat ngoài màn editor; cộng tác nhiều người.
+
+## 11. Rulings khi triển khai E4 (2026-10-09)
+
+Từ plan `docs/superpowers/plans/2026-10-09-e4-ai-chat.md` (R1–R12) và review từng task, chép lại để spec khớp code:
+- R1: bảng `chat_messages` tạo lười trong `chat-store.ts` (`CREATE TABLE IF NOT EXISTS` lần đầu mỗi kết nối), không thêm vào `MIGRATIONS` của `db.ts`; ngân sách đọc bằng `chatBudget()` (cùng công thức `usageOf` của gateway); `aiPatchable` export mới từ `interactive.ts`, `qa-fix.ts` giữ bản cục bộ.
+- R2: `POST …/editor/chat` trả 200 cho mọi lượt đã chạy (`ok | answer | refused | error | cancelled | stale`, nằm trong body, đều ghi vào chat). Lỗi HTTP chỉ khi request sai (400 `VALIDATION`), không có project/trang (404), `BAD_STATE` / `CHAT_BUSY` (409); các lỗi này không ghi chat. Client: `stale` → banner "Tải lại" sẵn có.
+- R3: Huỷ = `POST …/editor/chat/cancel` abort `AbortController` của lượt (không phụ thuộc Next có abort `request.signal` khi client ngắt). POST gốc vẫn trả kết quả thật: `cancelled` nếu abort trước commit, `ok` nếu commit đã xong.
+- R4: `CommandBus.settled(): Promise<boolean>` (true khi hàng đợi rỗng và không dừng; false khi bus dừng vì reload/retry) và `CommandBus.adopt(revision): boolean` (bus rỗng → nhận revision của bước AI, bỏ cửa sổ gộp `last`). Client gửi chat sau khi flush ô Style đang gõ + chữ inline và `settled()`.
+- R5: sau lượt `ok` giữ các node đang chọn còn tồn tại; không còn node nào thì chọn node mới tạo đầu tiên (hàm thuần `selectionAfter`, chạy một lần khi index trang đổi sau lượt). Kể cả khi trước đó không chọn gì thì vẫn chọn node mới tạo đầu tiên.
+- R6: `created_at INTEGER DEFAULT (unixepoch())` như `document_history` (spec §4 ghi TEXT).
+- R7: `reply` dài hơn 1 000 ký tự bị cắt, không coi là lỗi (không tốn một lần sửa).
+- R8: phạm vi tính trên cây đã resolve (selection có thể là id `instance:` của canvas), nhưng `allowed` chỉ gồm id có thật trong cây lưu của các section đó; node sinh từ main hiện trong OUTLINE kèm nhãn "chỉ đọc (thuộc main)".
+- R9: đã dùng đủ 5 lần tool thì các lần gọi sau gửi không kèm `tools`; tool call thừa trong một phản hồi bị bỏ.
+- R10: `onUserEdit` (đóng fix task còn dở) chạy cả cho `source = "ai_editor"` (§1); test E1 "ai_editor commits do not" đổi theo.
+- R11: `SegOption` thêm `ui?: string` → `data-ui` của nút tab, để tab AI mang `ui_editor_ai_tab`.
+- R12: lượt bị từ chối ghi `reply` = "AI chưa tạo được thay đổi hợp lệ: <lý do>" (lý do từ validate, có thể tiếng Anh, ≤ 500 ký tự).
+- `findText` trả mảng JSON `[{id, text, readOnly?}]` thay cho mảng dòng OUTLINE (chuỗi JSON của dòng OUTLINE thoát dấu nháy nên không khớp được văn bản cần tìm); node sinh từ main mang `readOnly: true`.
+- Schema trả lời của AI ép số CSS hữu hạn thành chuỗi và target `"768"` / `"375"` thành số (chỉ ở schema AI; core vẫn validate CSS); prompt nói rõ giá trị là chuỗi và alias carousel chỉ áp dụng cho carousel.
+- Lượt đọc tài liệu bằng `loadDocument` (có adopt) thay vì `readDocument` như chữ ở §1: cùng một tài liệu khi editor đã adopt; nếu có nâng cấp đang chờ thì lượt thành `stale`.
+- Panel chat tải lại danh sách tin khi một lượt kết thúc, nên kết quả vẫn hiện dù đã chuyển tab giữa chừng.
+- Huỷ trước khi request được gửi đi thì huỷ ở client (không gửi request nào).
+- Sau lượt `ok`, nếu trước đó không chọn node nào thì chọn node mới tạo đầu tiên.
+- View-only: ẩn "Hoàn tác lượt này", vô hiệu "Xoá hội thoại".
+- `CHAT_BUSY` thêm vào `ERROR_HINTS`; `tests/unit/error-hints.test.ts` cho phép nó là mã chỉ dùng ở API.
+- Giới hạn đã biết: Huỷ tới server sau khi POST đã rời client nhưng trước khi lượt đăng ký thì bị mất; đóng tab không dừng lượt (không nối `request.signal`), lượt chạy tiếp tối đa 5 phút; hết giờ được ghi là "Đã huỷ."; xoá project giữa lượt có thể để lại hàng chat (append muộn).
