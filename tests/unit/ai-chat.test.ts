@@ -143,14 +143,47 @@ test("tools: results go back as TOOL_RESULTS; after 5 calls tools are no longer 
   expect(JSON.parse(calls[2]!.messages.at(-1)!.content.replace(/^TOOL_RESULTS /, ""))).toHaveLength(2);
 });
 
-test("errors: budget / config map to status error with code; AI_TOO_LARGE retries once at half context", async () => {
+test("errors: budget / config map to status error with code", async () => {
   expect(await runChatTurn(input(), deps([new AppError("BUDGET_EXCEEDED", "x")]))).toMatchObject({ status: "error", code: "BUDGET_EXCEEDED", reply: "Hết ngân sách token của project." });
   expect((await runChatTurn(input(), deps([new AppError("AI_BAD_CONFIG", "no provider")]))).reply).toMatch(/Cài đặt AI/);
+});
+
+// a scope whose OUTLINE (~21k chars at scale 1) is cut at scale 0.5 (12k), so a halved retry is measurably smaller
+function bigScope(): ChatScope {
+  const s = scope();
+  const kids = Array.from({ length: 600 }, (_, k) => node(`n${k}`, [], { name: `Khối số ${k}` }));
+  const root = node("r", kids);
+  const nodes = new Map<string, IRNodeV2>([["r", root]]);
+  const parent = new Map<string, string>();
+  for (const c of kids) { nodes.set(c.id, c); parent.set(c.id, "r"); }
+  return { ...s, nodes, parent, allowed: new Set(nodes.keys()), sectionOf: new Map([...nodes.keys()].map((k) => [k, "S"])), focus: [], components: new Map() };
+}
+const size = (o: Parameters<TurnDeps["generate"]>[0]) => JSON.stringify(o.messages).length;
+
+test("AI_TOO_LARGE: one retry at half context (strictly smaller request); a second one is an error with its code", async () => {
+  const big = () => ({ ...input(), scope: bigScope() });
   const d = deps([new AppError("AI_TOO_LARGE", "big"), text(reply([]))]);
-  expect((await runChatTurn(input(), d)).status).toBe("answer");
-  const [first, second] = d.generate.mock.calls.map((c) => JSON.stringify(c[0].messages).length);
-  expect(second).toBeLessThanOrEqual(first!);
-  expect((await runChatTurn(input(), deps([new AppError("AI_TOO_LARGE", "big"), new AppError("AI_TOO_LARGE", "big")]))).status).toBe("error");
+  expect((await runChatTurn(big(), d)).status).toBe("answer");
+  const [first, second] = d.generate.mock.calls.map((c) => size(c[0]));
+  expect(first).toBeGreaterThan(20_000);
+  expect(second!).toBeLessThan(first! * 0.7);
+  const twice = await runChatTurn(big(), deps([new AppError("AI_TOO_LARGE", "big"), new AppError("AI_TOO_LARGE", "big")]));
+  expect(twice).toMatchObject({ status: "error", code: "AI_TOO_LARGE" });
+  expect(twice.reply).toMatch(/context/);
+});
+
+test("AI_TOO_LARGE is not a fix and grants one extra call", async () => {
+  const bad = () => text(reply([{ op: "setText", id: "elsewhere", text: "x" }]));
+  const good = text(reply([{ op: "setHidden", id: "b", hidden: true }]));
+  // 2 refusals (both fixes used), then TOO_LARGE, then ok: TOO_LARGE did not count as a fix
+  const d1 = deps([bad(), bad(), new AppError("AI_TOO_LARGE", "big"), good]);
+  expect((await runChatTurn(input(), d1)).status).toBe("ok");
+  expect(d1.generate).toHaveBeenCalledTimes(4);
+  // 5 tool calls + 3 attempts use the 8 calls; with TOO_LARGE the 9th is allowed
+  const tool = (): GenerateResult => ({ text: "", tokens: 1, toolCalls: [{ name: "findText", args: { query: "a" } }] });
+  const d2 = deps([tool(), tool(), tool(), tool(), tool(), new AppError("AI_TOO_LARGE", "big"), bad(), bad(), good]);
+  expect((await runChatTurn(input(), d2)).status).toBe("ok");
+  expect(d2.generate).toHaveBeenCalledTimes(9);
 });
 
 test("abort: before a call or during one -> cancelled, no commands", async () => {
@@ -170,5 +203,7 @@ test("never more than 8 generate calls", async () => {
   const d = deps([tool(), tool(), tool(), tool(), tool(), notJson(), notJson(), notJson(), notJson()]);
   const out = await runChatTurn(input(), d);
   expect(out.status).toBe("refused");
-  expect(d.generate.mock.calls.length).toBeLessThanOrEqual(CHAT_LIMITS.generateCalls);
+  expect(out.reply).toBe("AI chưa tạo được thay đổi hợp lệ: reply is not JSON");
+  expect(d.generate).toHaveBeenCalledTimes(CHAT_LIMITS.generateCalls);
+  expect(CHAT_LIMITS.generateCalls).toBe(8);
 });
