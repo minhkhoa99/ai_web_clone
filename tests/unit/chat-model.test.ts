@@ -36,4 +36,6 @@ test("selectionAfter: keeps live ids (same array when nothing died); none left -
   expect(selectionAfter(prev, (x) => x !== "b", ["n"])).toEqual(["a"]);
   expect(selectionAfter(prev, (x) => x === "n", ["n", "m"])).toEqual(["n"]);
   expect(selectionAfter(prev, () => false, [])).toEqual([]);
+  expect(selectionAfter([], (x) => x !== "n", ["n", "m"])).toEqual(["m"]); // nothing was selected: the first created node that exists
+  expect(selectionAfter([], () => true, [])).toEqual([]);
 });

@@ -28,7 +28,7 @@ export const canUndoTurn = (m: ChatRow, revision: number, canUndo: boolean): boo
 // R5: the selected nodes that still exist (the same array when none died), else the first created node that exists.
 export function selectionAfter(prev: string[], alive: (id: string) => boolean, created: readonly string[]): string[] {
   const kept = prev.filter(alive);
-  if (kept.length === prev.length) return prev;
+  if (prev.length && kept.length === prev.length) return prev;
   if (kept.length) return kept;
   const first = created.find(alive);
   return first ? [first] : [];

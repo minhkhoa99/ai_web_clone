@@ -144,6 +144,7 @@ test("carousel: 'thêm một slide' → addCarouselSlide, một Undo xoá nó; A
   await expect.poll(() => lastAssistant(page).innerText(), { timeout: 30_000 }).toContain("AI chưa tạo được thay đổi hợp lệ");
   expect((await payload()).revision).toBe(rev);
   await page.getByRole("button", { name: "Hoàn tác", exact: true }).click(); // remove the inserted carousel
+  await expect.poll(() => canvas(page).locator('[data-c="carousel"]').count(), { timeout: 30_000 }).toBe(0); // committed before the page goes
   await page.close();
 });
 
@@ -167,10 +168,27 @@ test("Huỷ giữa lượt → không có bước mới; trong lúc AI chạy De
   // another tab commits while the AI thinks
   rev = (await payload()).revision;
   script.push({ ...reply([{ op: "setHidden", id: node.id, hidden: true }]), delayMs: 3000 });
+  const before = aiCalls;
   await ask(page, "ẩn tiêu đề");
-  await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: rev, commands: [{ op: "setName", id: node.id, name: "Tab khác" }] }) });
+  await expect.poll(() => aiCalls, { timeout: 30_000 }).toBeGreaterThan(before); // the turn is waiting on the model: the other tab commits now
+  const other = await fetch(`${app!.base}/api/projects/${projectId}/editor/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseRevision: rev, commands: [{ op: "setName", id: node.id, name: "Tab khác" }] }) });
+  expect(other.status).toBe(200);
   await expect.poll(() => page.locator('[data-ui="ui_editor_stale_banner"]').count(), { timeout: 30_000 }).toBe(1);
   expect(await h1.isVisible()).toBe(true);
+  await page.close();
+});
+
+test("lượt đang chạy khi chuyển sang tab Style và quay lại: trả lời vẫn hiện trong danh sách", { timeout: 120_000 }, async () => {
+  const page = await open();
+  await canvas(page).locator("h1").click();
+  await aiTab(page).click();
+  script.push({ ...reply([], "Chỉ trả lời, không sửa."), delayMs: 3000 });
+  await ask(page, "tiêu đề này là gì?");
+  await page.locator('[data-ui="ui_editor_ai_cancel"]').waitFor();
+  await page.locator('[data-ui="ui_editor_right_tabs"]').getByRole("tab", { name: "Style" }).click(); // the panel unmounts mid-turn
+  await page.locator('[data-ui="ui_editor_right_tabs"]').getByRole("tab", { name: "AI" }).click(); // a new panel, the turn still running
+  await expect.poll(() => lastAssistant(page).innerText(), { timeout: 30_000 }).toContain("Chỉ trả lời, không sửa.");
+  expect(await page.locator('[data-ui="ui_editor_ai_input"]').isDisabled()).toBe(false);
   await page.close();
 });
 

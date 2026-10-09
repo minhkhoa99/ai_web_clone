@@ -27,6 +27,8 @@ export function ChatPanel({ projectId, revision, canUndo, scope, editable, editi
   const [note, setNote] = useState("");
   const list = useRef<HTMLUListElement>(null);
   const loadingOlder = useRef(false);
+  const mounted = useRef(true); // a turn can finish after the user left this tab: nothing is set on an unmounted panel
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     let off = false;
@@ -39,6 +41,22 @@ export function ChatPanel({ projectId, revision, canUndo, scope, editable, editi
     }, (e: unknown) => !off && setNote(errorText(e)));
     return () => { off = true; };
   }, [projectId]);
+
+  // a turn ended (busy true -> false, also one that started before this panel mounted): its two rows come from the server
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    const was = wasBusy.current;
+    wasBusy.current = busy;
+    if (!was || busy) return;
+    let off = false;
+    api<Listing>(`/api/projects/${projectId}/editor/chat`).then((l) => {
+      if (off) return;
+      setMessages((m) => { const first = l.messages[0]?.seq; return first === undefined ? m : [...m.filter((x) => x.seq < first), ...l.messages]; });
+      setBudget({ tokensUsed: l.tokensUsed, tokenBudget: l.tokenBudget });
+      requestAnimationFrame(() => list.current?.scrollTo({ top: list.current.scrollHeight }));
+    }, () => undefined);
+    return () => { off = true; };
+  }, [busy, projectId]);
 
   const older = async () => {
     if (!more || loadingOlder.current || !messages[0]) return;
@@ -55,11 +73,7 @@ export function ChatPanel({ projectId, revision, canUndo, scope, editable, editi
     if (!t || busy || lock) return;
     setNote("");
     const r = await onSend(t);
-    if (!r) return;
-    setText("");
-    setMessages((m) => [...m, r.user, r.message]);
-    setBudget({ tokensUsed: r.tokensUsed, tokenBudget: r.tokenBudget });
-    requestAnimationFrame(() => list.current?.scrollTo({ top: list.current.scrollHeight }));
+    if (r && mounted.current) setText(""); // the rows themselves arrive with the busy -> idle refetch above
   };
   const clear = async () => {
     if (!confirm("Xoá toàn bộ hội thoại AI của project này? Lịch sử Undo không bị ảnh hưởng.")) return;
@@ -79,7 +93,7 @@ export function ChatPanel({ projectId, revision, canUndo, scope, editable, editi
                 {m.status === "error" && <Link href="/settings/ai" className="t-label-md">Cài đặt AI</Link>}
                 {m.status === "ok" && <Badge tone="primary">{m.commands} thay đổi</Badge>}
                 {m.tokens > 0 && <span className="t-label-md text-3">{fmtInt(m.tokens)} token</span>}
-                {canUndoTurn(m, revision, canUndo) && <Button data-ui="ui_editor_ai_undo" icon="undo" onClick={onUndo} disabled={busy}>Hoàn tác lượt này</Button>}
+                {editable && canUndoTurn(m, revision, canUndo) && <Button data-ui="ui_editor_ai_undo" icon="undo" onClick={onUndo} disabled={busy}>Hoàn tác lượt này</Button>}
               </div>
             )}
           </li>
@@ -100,7 +114,7 @@ export function ChatPanel({ projectId, revision, canUndo, scope, editable, editi
         {warn
           ? <Badge tone="warn" data-ui="ui_editor_ai_tokens">{tokenText}</Badge>
           : <span className="t-label-md text-3" data-ui="ui_editor_ai_tokens">{tokenText}</span>}
-        <Button data-ui="ui_editor_ai_clear" variant="ghost" icon="delete" onClick={() => void clear()} disabled={busy || !messages.length}>Xoá hội thoại</Button>
+        <Button data-ui="ui_editor_ai_clear" variant="ghost" icon="delete" onClick={() => void clear()} disabled={busy || !messages.length || !editable}>Xoá hội thoại</Button>
       </div>
       {note && <p role="alert" className="t-body-sm">{note}</p>}
     </section>

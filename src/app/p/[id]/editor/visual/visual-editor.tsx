@@ -126,6 +126,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // every panel, gesture, shortcut and inline edit reads `index`: while a main is open, its instance without refs
   const index: DocIndex = useMemo(() => (open ? mainView(raw, open) : raw), [raw, open]);
   const [aiBusy, setAiBusy] = useState(false);
+  const cancelRequested = useRef(false); // Huỷ / the view-only switch pressed before the request left: nothing is sent
   const chatCreated = useRef<string[] | null>(null); // R5: the created ids of the last ok turn, until the new index is built
   // live gets aiBusy too (read at call time by run / startEdit)
   const live = useRef({ data, index, raw, open, selection, bp, zoom, editable, aiBusy: false });
@@ -187,7 +188,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     }
   };
 
-  const cancelChat = () => { void api(`/api/projects/${id}/editor/chat/cancel`, { method: "POST" }).catch(() => {}); };
+  const cancelChat = () => { cancelRequested.current = true; void api(`/api/projects/${id}/editor/chat/cancel`, { method: "POST" }).catch(() => {}); };
   const onChatResult = (r: ChatTurnResult) => {
     if (r.status === "stale") return say({ type: "stale", revision: r.revision });
     if (r.status !== "ok") { setMsg(r.reply); return; }
@@ -204,10 +205,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     if (!b || !d) { setMsg("Editor chưa sẵn sàng."); return null; }
     styleFlush.current?.();
     endEdit.current?.();
+    cancelRequested.current = false;
     live.current.aiBusy = true;
     setAiBusy(true);
     try {
       if (!(await b.settled())) { setMsg("Thay đổi trước chưa lưu được — xử lý thông báo rồi gửi lại."); return null; }
+      if (cancelRequested.current || !live.current.editable) { setMsg("Đã huỷ"); return null; } // cancelled while the queue drained: no turn
       const r = await api<ChatTurnResult>(`/api/projects/${id}/editor/chat`, { body: { text, baseRevision: b.revision, pageId: d.page.id, selection: live.current.selection.slice(0, 50), breakpoint: live.current.bp } });
       onChatResult(r);
       return r;
