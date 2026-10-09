@@ -128,7 +128,12 @@ export function parseChatReply(text: string, scope: ChatScope): { reply: string;
     }
   }
   const parsed = replySchema.safeParse(raw);
-  if (!parsed.success) throw new ChatRefusal(parsed.error.message.slice(0, 500));
+  if (!parsed.success) {
+    // the first issue as "path: message" (a raw JSON dump of the issues would reach the user's bubble)
+    const first = parsed.error.issues[0];
+    const where = first?.path.map(String).join(".");
+    throw new ChatRefusal((first ? (where ? `${where}: ${first.message}` : first.message) : "reply does not match the schema").slice(0, 500));
+  }
   for (const c of parsed.data.commands) check(c, scope);
   return { reply: parsed.data.reply.trim().slice(0, CHAT_LIMITS.replyChars), commands: parsed.data.commands };
 }

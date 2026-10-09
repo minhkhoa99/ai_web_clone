@@ -50,7 +50,7 @@ beforeAll(async () => {
 afterAll(async () => { await browser?.close(); await site?.close(); await new Promise((r) => ai?.close(r)); app?.stop(); db?.close(); if (tmp) await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); });
 
 type Tree = { id: string; tag: string; text?: string; styles?: { base: Record<string, string>; bp: Record<string, Record<string, string>> }; children: Tree[] };
-type Payload = { revision: number; page: { sections: { id: string; root: Tree }[] } };
+type Payload = { revision: number; page: { id: string; sections: { id: string; root: Tree }[] } };
 const canvas = (page: Page): FrameLocator => page.frameLocator('[data-ui="ui_editor_canvas_frame"]');
 const payload = async (): Promise<Payload> => (await (await fetch(`${app!.base}/api/projects/${projectId}/editor`)).json()) as Payload;
 const walk = (n: Tree): Tree[] => [n, ...n.children.flatMap(walk)];
@@ -190,6 +190,45 @@ test("lượt đang chạy khi chuyển sang tab Style và quay lại: trả l�
   await expect.poll(() => lastAssistant(page).innerText(), { timeout: 30_000 }).toContain("Chỉ trả lời, không sửa.");
   expect(await page.locator('[data-ui="ui_editor_ai_input"]').isDisabled()).toBe(false);
   await page.close();
+});
+
+const chatUrl = () => `${app!.base}/api/projects/${projectId}/editor/chat`;
+const chatBody = (p: Payload) => JSON.stringify({ text: "ẩn tiêu đề", baseRevision: p.revision, pageId: p.page.id, selection: [], breakpoint: 1440 });
+const post = (body: string, signal?: AbortSignal) => fetch(chatUrl(), { method: "POST", headers: { "content-type": "application/json" }, body, ...(signal && { signal }) });
+const serverBusy = async () => ((await (await fetch(chatUrl())).json()) as { busy: boolean }).busy;
+
+test("lượt đang chạy mà request không thuộc tab này (tab khác, mồ côi): tab AI khoá ô nhập, hiện 'AI đang sửa…' + Huỷ; Huỷ → cancelled, không bước mới, ô nhập mở lại", { timeout: 120_000 }, async () => {
+  const p = await payload(), node = await h1Node();
+  script.push({ ...reply([{ op: "setHidden", id: node.id, hidden: true }]), delayMs: 20_000 });
+  const before = aiCalls;
+  const turn = post(chatBody(p)).then((r) => r.json() as Promise<{ status: string }>); // held by this test process, like a request a reloaded page left behind
+  await expect.poll(() => aiCalls, { timeout: 30_000 }).toBeGreaterThan(before);
+  const page = await open();
+  await aiTab(page).click();
+  await expect.poll(() => input(page).isDisabled(), { timeout: 30_000 }).toBe(true);
+  await page.locator('[data-ui="ui_editor_ai_cancel"]').waitFor({ timeout: 30_000 });
+  expect(await page.getByText("AI đang sửa…").count()).toBeGreaterThan(0);
+  expect(await page.locator('[data-ui="ui_editor_ai_send"]').count()).toBe(0);
+  await page.locator('[data-ui="ui_editor_ai_cancel"]').click();
+  expect((await turn).status).toBe("cancelled");
+  await expect.poll(() => input(page).isDisabled(), { timeout: 30_000 }).toBe(false);
+  await expect.poll(() => page.locator('[data-ui="ui_editor_ai_cancel"]').count()).toBe(0);
+  await expect.poll(() => lastAssistant(page).innerText(), { timeout: 30_000 }).toContain("Đã huỷ");
+  expect((await payload()).revision).toBe(p.revision); // no new History step
+  await page.close();
+});
+
+test("đóng kết nối của request chat (đóng tab) huỷ lượt: server hết busy ngay, không chờ model", { timeout: 120_000 }, async () => {
+  const p = await payload(), node = await h1Node();
+  script.push({ ...reply([{ op: "setHidden", id: node.id, hidden: true }]), delayMs: 40_000 });
+  const before = aiCalls, ac = new AbortController();
+  const turn = post(chatBody(p), ac.signal).catch(() => null);
+  await expect.poll(() => aiCalls, { timeout: 30_000 }).toBeGreaterThan(before);
+  expect(await serverBusy()).toBe(true);
+  ac.abort();
+  await turn;
+  await expect.poll(serverBusy, { timeout: 15_000 }).toBe(false); // the model's reply is still 25+ s away
+  expect((await payload()).revision).toBe(p.revision);
 });
 
 test("Sửa main / view-only tắt ô nhập, lịch sử vẫn đọc; hết ngân sách tắt ô nhập; 768 drawer; Xoá hội thoại", { timeout: 240_000 }, async () => {

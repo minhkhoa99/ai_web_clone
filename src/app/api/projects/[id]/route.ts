@@ -5,6 +5,7 @@ import { clearChat } from "@/core/chat-store";
 import { tx } from "@/core/db";
 import { forget } from "@/core/event-log";
 import { stopAndWait } from "@/core/jobs";
+import { cancelTurn } from "@/app/_server/chat";
 import { getDb } from "@/app/_server/db";
 import { ApiError, handle, requireProject, type IdCtx } from "@/app/_server/http";
 import { exclusive, forgetCredentials } from "@/app/_server/session";
@@ -25,6 +26,7 @@ export function DELETE(req: Request, { params }: IdCtx) {
     const ws = resolve(root, id);
     if (!ws.startsWith(root + sep)) throw new ApiError(400, "VALIDATION", "workspace path escapes the workspace root");
     if (!(await stopAndWait(id, STOP_WAIT_MS))) throw new ApiError(409, "PROJECT_BUSY", "Đang dừng project, thử xoá lại sau vài giây.");
+    cancelTurn(id); // a running AI chat turn would keep spending the (now unbudgeted) provider tokens
     await exclusive(id, async () => {
       forgetCredentials(db, id);
       await rm(ws, { recursive: true, force: true, maxRetries: 3 });

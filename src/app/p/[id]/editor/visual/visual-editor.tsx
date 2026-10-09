@@ -127,6 +127,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const index: DocIndex = useMemo(() => (open ? mainView(raw, open) : raw), [raw, open]);
   const [aiBusy, setAiBusy] = useState(false);
   const cancelRequested = useRef(false); // Huỷ / the view-only switch pressed before the request left: nothing is sent
+  const chatSent = useRef(false); // this tab's chat request has left: only then is the project-wide cancel ours to post
   const chatCreated = useRef<string[] | null>(null); // R5: the created ids of the last ok turn, until the new index is built
   // live gets aiBusy too (read at call time by run / startEdit)
   const live = useRef({ data, index, raw, open, selection, bp, zoom, editable, aiBusy: false });
@@ -188,7 +189,12 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     }
   };
 
-  const cancelChat = () => { cancelRequested.current = true; void api(`/api/projects/${id}/editor/chat/cancel`, { method: "POST" }).catch(() => {}); };
+  // the cancel route is project-wide: before this tab's request is sent the flag above is enough (posting it could cancel
+  // another tab's turn)
+  const cancelChat = () => {
+    cancelRequested.current = true;
+    if (chatSent.current) void api(`/api/projects/${id}/editor/chat/cancel`, { method: "POST" }).catch(() => {});
+  };
   const onChatResult = (r: ChatTurnResult) => {
     if (r.status === "stale") return say({ type: "stale", revision: r.revision });
     if (r.status !== "ok") { setMsg(r.reply); return; }
@@ -211,6 +217,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     try {
       if (!(await b.settled())) { setMsg("Thay đổi trước chưa lưu được — xử lý thông báo rồi gửi lại."); return null; }
       if (cancelRequested.current || !live.current.editable) { setMsg("Đã huỷ"); return null; } // cancelled while the queue drained: no turn
+      chatSent.current = true;
       const r = await api<ChatTurnResult>(`/api/projects/${id}/editor/chat`, { body: { text, baseRevision: b.revision, pageId: d.page.id, selection: live.current.selection.slice(0, 50), breakpoint: live.current.bp } });
       onChatResult(r);
       return r;
@@ -218,6 +225,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
       setMsg(errorText(e));
       return null;
     } finally {
+      chatSent.current = false;
       live.current.aiBusy = false;
       setAiBusy(false);
     }

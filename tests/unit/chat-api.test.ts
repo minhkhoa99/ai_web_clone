@@ -12,6 +12,7 @@ import type { IRNodeV2 } from "@/core/ir-v2";
 import { createProject, enqueue, projectDocuments } from "@/core/jobs";
 import { listMessages } from "@/core/chat-store";
 import type { ChatTurnResult } from "@/core/ai-chat";
+import { chatBusy } from "@/app/_server/chat";
 import { getDb } from "@/app/_server/db";
 import * as chat from "@/app/api/projects/[id]/editor/chat/route";
 import * as cancel from "@/app/api/projects/[id]/editor/chat/cancel/route";
@@ -181,4 +182,56 @@ test("GET lists messages with the budget; DELETE clears; validation 400; unknown
   await send(id, { baseRevision: rev });
   expect((await project.DELETE(req("DELETE"), ctx(id))).status).toBe(200);
   expect(listMessages(getDb(), id)).toEqual([]);
+});
+
+test("deleting the project during a running turn cancels it and leaves no chat rows (final review I2)", async () => {
+  const id = await seed();
+  const rev = (await docOf(id)).revision;
+  let started!: () => void;
+  const running = new Promise<void>((r) => { started = r; });
+  gen.mockImplementationOnce((_db, opts) => new Promise((_res, rej) => { started(); opts.signal!.addEventListener("abort", () => rej(new Error("aborted"))); }));
+  const first = send(id, { baseRevision: rev });
+  await running;
+  const del = await project.DELETE(req("DELETE"), ctx(id));
+  expect(del.status).toBe(200);
+  const done = await first;
+  if (done.status === 200) expect(((await done.json()) as ChatTurnResult).status).toBe("cancelled"); // else 404: the project was already gone
+  expect(listMessages(getDb(), id)).toEqual([]);
+  expect(chatBusy(id)).toBe(false); // the turn is registered no more
+});
+
+test("a project that vanishes under a turn: the late ending writes no chat rows (final review I2)", async () => {
+  const id = await seed();
+  const rev = (await docOf(id)).revision;
+  gen.mockImplementationOnce(async () => {
+    const db = getDb();
+    for (const t of ["tasks", "nodes", "edges", "document_state", "document_history"]) db.prepare(`DELETE FROM ${t} WHERE project_id=?`).run(id);
+    db.prepare("DELETE FROM projects WHERE id=?").run(id);
+    return answer([], "muộn");
+  });
+  expect((await send(id, { baseRevision: rev })).status).toBe(404);
+  expect(listMessages(getDb(), id)).toEqual([]);
+});
+
+test("clear chat needs an editable project (final review M3)", async () => {
+  const id = await seed();
+  const rev = (await docOf(id)).revision;
+  gen.mockResolvedValueOnce(answer([], "ok"));
+  await send(id, { baseRevision: rev });
+  getDb().prepare("UPDATE projects SET status='running' WHERE id=?").run(id);
+  expect((await chat.DELETE(req("DELETE"), ctx(id))).status).toBe(409);
+  expect(listMessages(getDb(), id)).toHaveLength(2);
+  getDb().prepare("UPDATE projects SET status='completed' WHERE id=?").run(id);
+  expect((await chat.DELETE(req("DELETE"), ctx(id))).status).toBe(200);
+  expect(listMessages(getDb(), id)).toEqual([]);
+});
+
+test("a zod refusal reaches the user's bubble as 'path: message', not a JSON dump (final review M1)", async () => {
+  const id = await seed();
+  const rev = (await docOf(id)).revision;
+  gen.mockResolvedValue({ text: JSON.stringify({ reply: 5, commands: [] }), tokens: 3 });
+  const r = (await (await send(id, { baseRevision: rev })).json()) as ChatTurnResult;
+  expect(r.status).toBe("refused");
+  expect(r.reply).toMatch(/^AI chưa tạo được thay đổi hợp lệ: reply: /);
+  expect(r.reply).not.toMatch(/\[\s*\{|"code"/);
 });

@@ -40,7 +40,7 @@ export function POST(req: Request, { params }: IdCtx) {
     requireEditable(db, requireProject(db, id));
     const controller = beginTurn(id);
     try {
-      return Response.json(await runTurn(db, id, body, controller));
+      return Response.json(await runTurn(db, id, body, controller, req.signal));
     } finally {
       endTurn(id, controller);
     }
@@ -52,7 +52,7 @@ export function DELETE(req: Request, { params }: IdCtx) {
   return handle(req, async () => {
     const { id } = await params;
     const db = getDb();
-    requireProject(db, id);
+    requireEditable(db, requireProject(db, id));
     if (chatBusy(id)) throw new ApiError(409, "CHAT_BUSY", "Đang có một lượt chat — chờ xong hoặc Huỷ rồi xoá.");
     clearChat(db, id);
     return Response.json({ ok: true });

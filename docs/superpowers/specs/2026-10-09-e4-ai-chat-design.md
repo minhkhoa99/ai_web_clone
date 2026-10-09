@@ -223,4 +223,10 @@ Từ plan `docs/superpowers/plans/2026-10-09-e4-ai-chat.md` (R1–R12) và revie
 - Sau lượt `ok`, nếu trước đó không chọn node nào thì chọn node mới tạo đầu tiên.
 - View-only: ẩn "Hoàn tác lượt này", vô hiệu "Xoá hội thoại".
 - `CHAT_BUSY` thêm vào `ERROR_HINTS`; `tests/unit/error-hints.test.ts` cho phép nó là mã chỉ dùng ở API.
-- Giới hạn đã biết: Huỷ tới server sau khi POST đã rời client nhưng trước khi lượt đăng ký thì bị mất; đóng tab không dừng lượt (không nối `request.signal`), lượt chạy tiếp tối đa 5 phút; hết giờ được ghi là "Đã huỷ."; xoá project giữa lượt có thể để lại hàng chat (append muộn).
+- Tab AI đọc cờ `busy` của GET: lượt chạy mà request không thuộc tab này (tab khác, request mồ côi) làm ô nhập khoá, hiện "AI đang sửa…" + Huỷ (Huỷ gọi route cancel của project, do người dùng chủ động); trong lúc đó GET được hỏi lại mỗi ~2 s (một request một lúc, dừng khi unmount / khi tab tự chạy lượt / khi server báo hết busy), rồi tải lại tin nhắn từ chính phản hồi đó.
+- Xoá project gọi `cancelTurn(id)` trước `exclusive(...)`; ngoài ra `runTurn` không ghi hàng chat khi project không còn (404 `NOT_FOUND`).
+- `req.signal` của POST chat được nối vào `AbortSignal.any` của lượt (cạnh Huỷ và 5 phút): đóng tab / ngắt kết nối thì lượt bị huỷ (Next 16 có truyền abort; e2e "đóng kết nối của request chat" kiểm chứng).
+- Huỷ ở client chỉ POST `…/chat/cancel` sau khi request chat của tab đó đã được gửi đi; trước đó cờ `cancelRequested` là đủ (tránh huỷ nhầm lượt của tab khác).
+- "Xoá hội thoại" (DELETE chat) cần project sửa được (`requireEditable`, như các route ghi khác).
+- Lỗi schema của AI được báo theo issue đầu tiên dạng `path: message` (≤ 500 ký tự), không phải mảng JSON thô.
+- Giới hạn đã biết: Huỷ tới server sau khi POST đã rời client nhưng trước khi lượt đăng ký thì bị mất; hết giờ được ghi là "Đã huỷ."

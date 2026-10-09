@@ -55,6 +55,16 @@ test("refuses: not JSON, forbidden ops, out-of-scope / read-only refs, section r
   expect(refusal(reply(Array.from({ length: 51 }, () => ({ op: "setHidden", id: "b", hidden: true }))))).not.toBe("accepted");
 });
 
+test("a schema error is named by its first issue as 'path: message', not a raw JSON dump (final review M1)", () => {
+  const bad = refusal(JSON.stringify({ reply: 7, commands: [] }));
+  expect(bad).toMatch(/^reply: .+/);
+  expect(bad).not.toMatch(/^\s*\[|"code"|"path"/);
+  const nested = refusal(reply([{ op: "setText", text: "x" }]));
+  expect(nested).toMatch(/^commands\.0\.id: .+/);
+  expect(nested.length).toBeLessThanOrEqual(500);
+  expect(refusal(JSON.stringify([1, 2]))).not.toMatch(/^\s*\[/); // a root-level issue has no path to show
+});
+
 test("a long reply is cut to 1 000 chars, not refused (R7); [] commands is a plain answer", () => {
   const out = parseChatReply(reply([], "x".repeat(1500)), scope());
   expect(out.reply).toHaveLength(CHAT_LIMITS.replyChars);

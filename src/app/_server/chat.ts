@@ -46,7 +46,8 @@ const STALE_TEXT = "Trang đã đổi trong lúc AI làm — tải lại rồi g
 const RELOAD = new Set(["STALE_REVISION", "PROJECT_BUSY", "BAD_STATE"]);
 type Outcome = { status: ChatStatus; reply: string; tokens: number; code?: string; commands: EditorCommand[] };
 
-export async function runTurn(db: DatabaseSync, projectId: string, body: ChatBody, controller: AbortController): Promise<ChatTurnResult> {
+// `requestSignal` (the POST's req.signal): a closed tab or dropped connection aborts the turn like Huỷ does.
+export async function runTurn(db: DatabaseSync, projectId: string, body: ChatBody, controller: AbortController, requestSignal?: AbortSignal): Promise<ChatTurnResult> {
   const store = projectDocuments(db);
   const doc = await store.loadDocument(projectId);
   const page = doc.pages.find((p) => p.id === body.pageId);
@@ -54,7 +55,7 @@ export async function runTurn(db: DatabaseSync, projectId: string, body: ChatBod
   let outcome: Outcome = { status: "stale", reply: STALE_TEXT, tokens: 0, commands: [] };
   let step: (EditResult & { affected?: Affected }) | undefined;
   if (doc.revision === body.baseRevision) {
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(CHAT_LIMITS.turnMs)]);
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(CHAT_LIMITS.turnMs), ...(requestSignal ? [requestSignal] : [])]);
     const ran: TurnOutcome = await runChatTurn(
       { scope: chatScope(doc, body.pageId, body.selection), bp: body.breakpoint, pagePath: page.path, text: body.text, history: recentTurns(db, projectId, CHAT_LIMITS.historyTurns) },
       {
@@ -79,6 +80,8 @@ export async function runTurn(db: DatabaseSync, projectId: string, body: ChatBod
       }
     }
   }
+  // the project was deleted under the turn: no orphan chat rows (the delete route cancels the turn first, this covers its tail)
+  if (!db.prepare("SELECT 1 AS x FROM projects WHERE id=?").get(projectId)) throw new ApiError(404, "NOT_FOUND", `project ${projectId} not found`);
   const count = step ? outcome.commands.length : 0;
   const rows = appendTurn(db, projectId, { pageId: body.pageId, text: body.text, reply: outcome.reply, status: outcome.status, ...(step && { revision: step.revision }), commands: count, tokens: outcome.tokens });
   console.info(`chat: ${count} lệnh, ${outcome.tokens} token, ${outcome.status}`); // never the texts (spec §4)
