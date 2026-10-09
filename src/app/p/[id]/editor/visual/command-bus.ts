@@ -41,6 +41,27 @@ export class CommandBus {
   get pending(): number { return this.queue.length + (this.busy ? 1 : 0); }
   get revision(): number { return this.rev; }
 
+  // R4 (E4): resolved when the queue drains (true) or the bus stops for a reload / retry (false)
+  private waiters: ((ok: boolean) => void)[] = [];
+  settled(): Promise<boolean> {
+    if (this.stop !== "none") return Promise.resolve(false);
+    if (!this.pending) return Promise.resolve(true);
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+  // E4: an AI step committed outside the bus (one batch, revision +1): an idle bus continues from it. The coalesce
+  // window ends (the step in between is not this cell's).
+  adopt(revision: number): boolean {
+    if (this.pending || this.stop !== "none") return false;
+    this.rev = revision;
+    this.last = undefined;
+    return true;
+  }
+  private wake(): void {
+    if (this.stop === "none" && this.pending) return;
+    const ok = this.stop === "none";
+    for (const w of this.waiters.splice(0)) w(ok);
+  }
+
   push(op: Op): boolean {
     if (this.stop === "reload") { this.say({ type: "stale" }); return false; }
     if (this.queue.length >= BUS_LIMITS.queue) { this.say({ type: "full" }); return false; }
@@ -58,9 +79,9 @@ export class CommandBus {
   }
 
   private async pump(): Promise<void> {
-    if (this.busy || this.stop !== "none") return;
+    if (this.busy || this.stop !== "none") { if (!this.busy) this.wake(); return; }
     const op = this.queue.shift();
-    if (!op) return;
+    if (!op) { this.wake(); return; }
     this.busy = true;
     const at = this.pushedAt.get(op) ?? this.now(), key = op.kind === "commands" ? op.coalesceKey : undefined;
     const coalesce = key !== undefined && this.last?.key === key && this.last.revision === this.rev && at - this.last.at <= BUS_LIMITS.coalesceMs;
@@ -105,6 +126,7 @@ export class CommandBus {
       this.stop = "retry";
       this.say({ type: "failed", op, message });
     }
+    this.wake();
   }
   private say(e: BusEvent): void {
     try { this.emit(e); } catch (err) { console.error(err); } // a UI handler bug must not wedge or replay the queue

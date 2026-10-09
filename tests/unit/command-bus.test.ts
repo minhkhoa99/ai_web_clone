@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { CommandBus, type BusEvent, type Op, type SendBody, type StepResult } from "@/app/p/[id]/editor/visual/command-bus";
 
 const deferred = () => {
@@ -137,4 +137,59 @@ test("E3b R3: the same coalesceKey pushed within 1.5 s of the previous one, at t
   now = 4200; bus.push({ kind: "undo", label: "Hoàn tác" }); await tick();
   now = 4300; bus.push(style("a|base|font-size")); await tick();
   expect(calls.map((c) => c.coalesce ?? false)).toEqual([false, true, true, false, false, false, false]);
+});
+
+// E4 (R4): settled() / adopt()
+const stepOk = (revision: number): StepResult => ({ revision, createdIds: [], canUndo: true, canRedo: false });
+const hideOp = (label: string): Op => ({ kind: "commands", label, commands: [{ op: "setHidden", id: "a", hidden: true }] });
+
+test("E4 settled(): resolves true once the queue drains; false when the bus stopped for a reload", async () => {
+  let release!: () => void;
+  const send = vi.fn(() => new Promise<StepResult>((r) => { release = () => r(stepOk(2)); }));
+  const bus = new CommandBus(1, "home", send, () => {});
+  expect(await bus.settled()).toBe(true); // idle
+  bus.push(hideOp("a"));
+  const done = bus.settled();
+  release();
+  expect(await done).toBe(true);
+  expect(bus.revision).toBe(2);
+  const stale = new CommandBus(1, "home", async () => { throw Object.assign(new Error("stale"), { code: "STALE_REVISION" }); }, () => {});
+  stale.push(hideOp("b"));
+  expect(await stale.settled()).toBe(false);
+  expect(await stale.settled()).toBe(false); // stopped: answers at once
+});
+
+test("E4 adopt(revision): an idle bus takes the AI step's revision and drops the coalesce window; a busy or stopped one refuses", async () => {
+  const seen: number[] = [];
+  const bus = new CommandBus(1, "home", async (_op, body) => { seen.push(body.baseRevision); return stepOk(body.baseRevision + 1); }, () => {});
+  expect(bus.adopt(5)).toBe(true);
+  bus.push(hideOp("a"));
+  await bus.settled();
+  expect(seen).toEqual([5]);
+  let hold!: () => void;
+  const busy = new CommandBus(1, "home", () => new Promise<StepResult>((r) => { hold = () => r(stepOk(2)); }), () => {});
+  busy.push(hideOp("a"));
+  expect(busy.adopt(9)).toBe(false);
+  hold();
+  await busy.settled();
+  expect(busy.revision).toBe(2);
+  const stopped = new CommandBus(1, "home", async () => { throw Object.assign(new Error("stale"), { code: "STALE_REVISION" }); }, () => {});
+  stopped.push(hideOp("c"));
+  await stopped.settled();
+  expect(stopped.adopt(9)).toBe(false);
+});
+
+test("E4 settled(): a waiter on a queue of several ops waits for the last; a network failure (retry stop) answers false, not hanging", async () => {
+  const ds: ReturnType<typeof deferred>[] = [];
+  const bus = new CommandBus(1, "home", () => { const d = deferred(); ds.push(d); return d.promise; }, () => {});
+  bus.push(hideOp("a"));
+  bus.push(hideOp("b"));
+  let state: boolean | undefined;
+  void bus.settled().then((v) => { state = v; });
+  ds[0]!.resolve(stepOk(2));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  expect(state).toBeUndefined(); // one op still queued / in flight
+  ds[1]!.reject(new Error("offline"));
+  expect(await bus.settled()).toBe(false);
+  expect(state).toBe(false);
 });
