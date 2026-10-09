@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { config } from "@/core/config";
+import { clearChat } from "@/core/chat-store";
 import { tx } from "@/core/db";
 import { forget } from "@/core/event-log";
 import { stopAndWait } from "@/core/jobs";
@@ -29,6 +30,7 @@ export function DELETE(req: Request, { params }: IdCtx) {
       await rm(ws, { recursive: true, force: true, maxRetries: 3 });
       tx(db, () => {
         for (const table of ["tasks", "nodes", "edges", "document_state", "document_history"]) db.prepare(`DELETE FROM ${table} WHERE project_id=?`).run(id);
+        clearChat(db, id);
         db.prepare("DELETE FROM projects WHERE id=?").run(id);
       });
       forget(id); // the event ring of a deleted project

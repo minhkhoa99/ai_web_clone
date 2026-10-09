@@ -15,9 +15,11 @@ test("ERROR_HINTS is exactly the spec §4 table", () => {
     for (const [, code] of codes!.matchAll(/`([A-Z_]+)`/g)) expected[code!] = hint!;
   }
   expect(Object.keys(expected).length).toBeGreaterThan(15);
-  expect(ERROR_HINTS).toEqual(expected);
+  // E4 adds one API-only hint beyond the hardening spec's table (CHAT_BUSY, E4 Task 6)
+  expect(ERROR_HINTS).toEqual({ ...expected, CHAT_BUSY: ERROR_HINTS.CHAT_BUSY });
+  expect(ERROR_HINTS.CHAT_BUSY).toMatch(/chat AI/);
   // every table code the engine raises is a real Codes key (the others are API-only codes)
-  const apiOnly = ["PROJECT_BUSY", "BAD_STATE"];
+  const apiOnly = ["PROJECT_BUSY", "BAD_STATE", "CHAT_BUSY"];
   for (const code of Object.keys(ERROR_HINTS)) expect(code in Codes || apiOnly.includes(code), code).toBe(true);
   expect(hintFor("AI_QUOTA")).toBe(ERROR_HINTS.AI_QUOTA);
   expect([hintFor("NOPE"), hintFor("constructor"), hintFor(null)]).toEqual([undefined, undefined, undefined]);

@@ -248,15 +248,15 @@ test("invalid or oversized steps are refused before anything is written", async 
   expect(historyRows(db, "p")).toBe(0);
 });
 
-test("user commits and Undo/Redo run the manual-edit hook inside the commit; ai_editor commits do not", async () => {
+test("user and ai_editor commits and Undo/Redo run the manual-edit hook inside the commit (E4 R10)", async () => {
   const seen: string[] = [];
   const { store } = setup(":memory:", { onUserEdit: (id) => seen.push(id) });
   await store.commitCommands("p", 0, setText("a"), "ai_editor");
-  expect(seen).toEqual([]);
+  expect(seen).toEqual(["p"]);
   await store.commitCommands("p", 1, setText("b"), "user");
   await store.undoDocument("p", 2);
   await store.redoDocument("p", 3);
-  expect(seen).toEqual(["p", "p", "p"]);
+  expect(seen).toEqual(["p", "p", "p", "p"]);
 });
 
 const fakeOpen = async (): Promise<BrowserHandle> => ({ context: {} as BrowserHandle["context"], close: async () => {} });

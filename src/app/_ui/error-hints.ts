@@ -4,6 +4,7 @@ const LOGIN = "Cần đăng nhập. Mở cửa sổ, tự xử lý, rồi Tiếp
 const SKIPPED = "Đã bỏ qua theo giới hạn an toàn.";
 
 export const ERROR_HINTS: Record<string, string> = {
+  CHAT_BUSY: "Đang có một lượt chat AI khác cho project này — chờ nó xong hoặc bấm Huỷ.",
   AI_QUOTA: "Provider hết credit/quota. Nạp thêm hoặc đổi provider ở Cài đặt AI, rồi Chạy lại QA / Tiếp tục.",
   AI_AUTH: "API key sai hoặc không có quyền. Sửa ở Cài đặt AI.",
   AI_BAD_CONFIG: "Base URL / model không hợp lệ hoặc request bị từ chối. Kiểm tra Cài đặt AI (Test kết nối).",

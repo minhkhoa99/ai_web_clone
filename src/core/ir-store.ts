@@ -22,7 +22,7 @@ export type Materialize = (projectId: string, ir: IRV2) => Promise<void>;
 export type StoreHooks = {
   loadInitial: (projectId: string) => Promise<IRV2>; // the job's checkpoint (ir.json through migrateIR), adopted once
   isBusy?: (projectId: string) => boolean; // a queued/active job owns the project's files
-  onUserEdit?: (projectId: string) => void; // runs inside the step's transaction
+  onUserEdit?: (projectId: string) => void; // runs inside every step's transaction (user and ai_editor)
   captures?: (projectId: string) => Promise<PageCapture[]>; // the capture evidence Fidelity is re-derived from
   mirror?: (projectId: string, ir: IRV2) => Promise<void>; // writes the document file only (a Fidelity-only change); default: materialize
   onAdopt?: (projectId: string, ir: IRV2) => Promise<void>; // once, after the checkpoint became the document (serialized with output writes)
@@ -144,7 +144,7 @@ export function documentStore(db: DatabaseSync, materialize: Materialize, hooks:
         db.prepare("DELETE FROM document_history WHERE project_id=? AND seq<=?").run(id, out.cursor - MAX_HISTORY_STEPS);
       }
       db.prepare("UPDATE document_state SET ir_json=?,revision=?,cursor=? WHERE project_id=?").run(JSON.stringify({ ...out.ir, fidelity, revision }), revision, out.cursor, id);
-      if (source === "user") hooks.onUserEdit?.(id);
+      hooks.onUserEdit?.(id); // a user or AI-chat step (E4 R10): outstanding fix tasks must not overwrite it on resume
       return { revision, createdIds: out.createdIds, ...flags(id, out.cursor) };
     }, true);
     await materializeOrThrow(id, { revision: result.revision, createdIds: result.createdIds }); // the client keeps the step's result
