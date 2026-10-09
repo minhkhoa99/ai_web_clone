@@ -209,6 +209,15 @@ Screens: `screen_history`, `screen_new_clone`, `screen_settings_ai`, `screen_sit
 | `ui_editor_insert_panel` | `feat_editor`, `feat_ir` | E3 §3 panel "Thêm": 16 mẫu (Text, Tiêu đề, Đoạn văn, Ảnh, Nút, Link, Khung trống, Flex hàng/cột, Grid 2/3 cột, Section trống = `<section>` trong section hiện tại (R7), Carousel/Tabs/Accordion/Modal mẫu) — `createNode` (+ `convertToComponent` `new:0/<path>` cùng batch, R2) qua `POST …/editor/commands`, một mẫu = một bước Undo, node mới được chọn | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_insert_item` | `feat_editor`, `feat_ir` | E3 §3 một mẫu: nhấp = chèn sau node đang chọn (gốc section: cuối section); kéo ≥ 4 px vào canvas = vạch chèn `ui_editor_drop_indicator` (đỏ + lý do khi bị cấm, không gửi gì); Esc / mất focus / cuộn canvas = huỷ | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_right_tabs` | `feat_editor` | E3 §4 tab Style / Component / Hiệu ứng | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_tab` | `feat_editor` | E4 §5 tab "AI" thứ 4 của rail phải; ở view-only là tab duy nhất (chỉ đọc) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_messages` | `feat_editor` | E4 §5 danh sách tin chat (user / AI, badge trạng thái, "N thay đổi", token), cuộn lên đầu tải tin cũ | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_undo` | `feat_editor` | E4 §5 "Hoàn tác lượt này" — chỉ khi bước của lượt vẫn là bước mới nhất | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_scope` | `feat_editor` | E4 §5 chip phạm vi "Phạm vi: section … (+N)" / "Cả trang" | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_input` | `feat_editor` | E4 §5 ô yêu cầu (Enter gửi, Shift+Enter xuống dòng, ≤ 2 000 ký tự); tắt khi view-only / Sửa main / hết ngân sách | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_send` | `feat_editor` | E4 §5 nút Gửi | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_cancel` | `feat_editor` | E4 §5 nút Huỷ khi AI đang sửa (`POST …/editor/chat/cancel`) | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_tokens` | `feat_editor` | E4 §5 "Token: đã dùng / ngân sách", cảnh báo từ 90 % | không có trong mockup, dùng token/component sẵn có | build |
+| `ui_editor_ai_clear` | `feat_editor` | E4 §5 "Xoá hội thoại" (xác nhận; không đụng History) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_hover_box` | `feat_editor` | E3 §2 khung hover + nhãn `tag · tên · W×H` | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_selection_box` | `feat_editor` | E3 §2 khung chọn đậm (nhiều khi Shift) | không có trong mockup, dùng token/component sẵn có | build |
 | `ui_editor_spacing` | `feat_editor` | E3 §2 vùng margin/padding của node đang chọn | không có trong mockup, dùng token/component sẵn có | build |

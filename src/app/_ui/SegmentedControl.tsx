@@ -3,7 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { Badge } from "./Badge";
 import { Icon, type IconName } from "./Icon";
 
-export type SegOption<T extends string> = { value: T; label: ReactNode; icon?: IconName; count?: number; disabled?: boolean; tone?: "warn" };
+export type SegOption<T extends string> = { value: T; label: ReactNode; icon?: IconName; count?: number; disabled?: boolean; tone?: "warn"; ui?: string };
 type Props<T extends string> = {
   label: string;
   options: SegOption<T>[];
@@ -45,6 +45,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
             key={o.value}
             type="button"
             data-value={o.value}
+            data-ui={o.ui}
             disabled={o.disabled}
             className={`seg-item${o.tone ? ` tone-${o.tone}` : ""}`}
             {...(tabs ? { role: "tab", "aria-selected": on, tabIndex: on ? 0 : -1 } : { "aria-pressed": on })}

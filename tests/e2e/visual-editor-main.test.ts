@@ -110,3 +110,18 @@ test("E3b edit main: Sửa main on an instance; H hides the h3 of every card in 
   await expect.poll(() => bar.count()).toBe(0);
   await page.close();
 });
+
+test("E4: while editing main the AI input is off with its note; Xong turns it back on", { timeout: 120_000 }, async () => {
+  const roots = (await allNodes()).filter((x) => x.component?.role === "instance" && x.children.some((c) => c.tag === "h3"));
+  const h3 = roots[1]!.children.find((c) => c.tag === "h3")!.id;
+  const page = await open();
+  await canvas(page).locator(`[data-ir-id="${h3}"]`).click();
+  await page.locator('[data-ui="ui_editor_edit_main"]').click();
+  await page.locator('[data-ui="ui_editor_ai_tab"]').click();
+  const input = page.locator('[data-ui="ui_editor_ai_input"]');
+  await expect.poll(() => input.isDisabled()).toBe(true);
+  expect(await page.getByText("Đang sửa main component — bấm Xong để chat.").count()).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Xong" }).click();
+  await expect.poll(() => input.isDisabled()).toBe(false);
+  await page.close();
+});

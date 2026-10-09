@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
+import type { ChatTurnResult } from "@/core/ai-chat";
 import type { CanvasPayload } from "@/core/editor-canvas";
 import type { PanelComponent } from "@/core/interactive";
 import type { EditorCommand } from "@/core/ir-command";
@@ -20,6 +21,8 @@ import { IconButton } from "@/app/_ui/IconButton";
 import { SegmentedControl } from "@/app/_ui/SegmentedControl";
 import { ComponentPanel } from "../component-panel/component-panel";
 import { Canvas, type CanvasHandle } from "./canvas";
+import { ChatPanel } from "./chat-panel";
+import { scopeLabel, selectionAfter } from "./chat-model";
 import { CommandBus, type BusEvent, type Op, type StepResult } from "./command-bus";
 import { EffectsCard, ElementPanel } from "./element-panel";
 import { fitZoom, handlesFor, wheelZoom, ZOOM, zoomStep } from "./gestures";
@@ -35,7 +38,8 @@ import { useGestures } from "./use-gestures";
 
 export type EditorData = CanvasPayload & { revision: number; canUndo: boolean; canRedo: boolean; interactives: PanelComponent[]; shot: string; assets: LibraryAsset[] };
 type Halt = { kind: "stale" | "unwritten" | "failed"; text: string };
-type RightTab = "style" | "component" | "effects";
+type RightTab = "style" | "component" | "effects" | "ai";
+const AI_BUSY = "AI đang sửa — chờ hoặc bấm Huỷ";
 type CommandsOp = Extract<Op, { kind: "commands" }>;
 const DONE: Record<Op["kind"], string> = { commands: "Đã lưu — điểm QA cần chạy lại", undo: "Đã hoàn tác — điểm QA cần chạy lại", redo: "Đã làm lại — điểm QA cần chạy lại" };
 type Drawn = { tag: string; id?: string; text?: string; attrs?: Record<string, string>; children?: Drawn[] };
@@ -121,8 +125,11 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const open = editMain && raw.get(editMain)?.node.component?.role === "instance" ? editMain : null;
   // every panel, gesture, shortcut and inline edit reads `index`: while a main is open, its instance without refs
   const index: DocIndex = useMemo(() => (open ? mainView(raw, open) : raw), [raw, open]);
-  const live = useRef({ data, index, raw, open, selection, bp, zoom, editable });
-  live.current = { data, index, raw, open, selection, bp, zoom, editable };
+  const [aiBusy, setAiBusy] = useState(false);
+  const chatCreated = useRef<string[] | null>(null); // R5: the created ids of the last ok turn, until the new index is built
+  // live gets aiBusy too (read at call time by run / startEdit)
+  const live = useRef({ data, index, raw, open, selection, bp, zoom, editable, aiBusy: false });
+  live.current = { data, index, raw, open, selection, bp, zoom, editable, aiBusy: live.current.aiBusy };
 
   const drift = useRef(false); // the frame no longer matches the server: reload once the queue drains
   const send = (op: Op, body: object) => api<StepResult>(`/api/projects/${id}/editor/${op.kind}`, { body });
@@ -180,6 +187,39 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     }
   };
 
+  const cancelChat = () => { void api(`/api/projects/${id}/editor/chat/cancel`, { method: "POST" }).catch(() => {}); };
+  const onChatResult = (r: ChatTurnResult) => {
+    if (r.status === "stale") return say({ type: "stale", revision: r.revision });
+    if (r.status !== "ok") { setMsg(r.reply); return; }
+    bus.current?.adopt(r.revision);
+    chatCreated.current = r.createdIds;
+    applyResult({ revision: r.revision, createdIds: r.createdIds, canUndo: r.canUndo, canRedo: r.canRedo, ...(r.affected && { affected: r.affected }) }, true);
+    setSaved(true);
+    setMsg("AI đã sửa — điểm QA cần chạy lại");
+    if (drift.current && !bus.current?.pending) { drift.current = false; refetch(); }
+  };
+  // R4: what was typed goes first (Style debounce, open inline text), then the bus drains, then the turn at its revision
+  const sendChat = async (text: string): Promise<ChatTurnResult | null> => {
+    const b = bus.current, d = live.current.data;
+    if (!b || !d) { setMsg("Editor chưa sẵn sàng."); return null; }
+    styleFlush.current?.();
+    endEdit.current?.();
+    live.current.aiBusy = true;
+    setAiBusy(true);
+    try {
+      if (!(await b.settled())) { setMsg("Thay đổi trước chưa lưu được — xử lý thông báo rồi gửi lại."); return null; }
+      const r = await api<ChatTurnResult>(`/api/projects/${id}/editor/chat`, { body: { text, baseRevision: b.revision, pageId: d.page.id, selection: live.current.selection.slice(0, 50), breakpoint: live.current.bp } });
+      onChatResult(r);
+      return r;
+    } catch (e) {
+      setMsg(errorText(e));
+      return null;
+    } finally {
+      live.current.aiBusy = false;
+      setAiBusy(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     api<EditorData>(`/api/projects/${id}/editor${pageId ? `?page=${encodeURIComponent(pageId)}` : ""}`).then(
@@ -211,6 +251,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   // ids become the main's (toMain refuses what cannot be one, nothing sent)
   const run = (op: Op): boolean => {
     if (!live.current.editable) { setMsg(VIEW_ONLY); return false; }
+    if (live.current.aiBusy) { setMsg(AI_BUSY); return false; }
     setMsg("");
     if (!bus.current) { setMsg("Editor chưa sẵn sàng."); return false; }
     const root = live.current.open;
@@ -248,6 +289,7 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
   const startEdit = (nid: string): boolean => {
     const { index: ix, data: d } = live.current;
     if (!live.current.editable) return true; // R9 view-only: a double click selects, never edits
+    if (live.current.aiBusy) { setMsg(AI_BUSY); return true; }
     const e = ix.get(nid), el = canvas.current?.element(nid);
     if (!e || !el || !d || !isTextHost(e.node)) return false;
     const why = guard(ix, d.interactives, nid, "edit");
@@ -389,11 +431,19 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
     live.current.editable = false; // closed now, not at the next render
     setEditMain(null); // R18: view-only leaves the edit-main mode (what was typed above went to the main)
     setLocked(true);
+    if (live.current.aiBusy) cancelChat();
     if (inRight) toggles.current.left?.focus();
     setDrawer((d) => (d === "right" ? null : d));
     setLeft("layers");
   }, [viewOnly]); // gestures.cancelGesture and the refs only: no stale state
   useEffect(() => { if (!narrow) setDrawer(null); }, [narrow]); // wide again: the panels are columns
+  // R5: once the page index reflects the turn, keep the live selection or select the first created node
+  useEffect(() => {
+    const made = chatCreated.current;
+    if (!made) return;
+    chatCreated.current = null;
+    setSelection((s) => selectionAfter(s, (x) => raw.has(x), made));
+  }, [raw]);
   // R18: the instance is gone -> leave; a selection in another instance of the same component moves the open instance
   // there (same main); any other selection outside it leaves
   useEffect(() => {
@@ -455,13 +505,13 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
           <IconButton icon="zoom_in" label="Phóng to" onClick={() => setZoom((z) => zoomStep(z, 1))} disabled={zoom >= ZOOM.max} />
           <IconButton icon="fit_screen" label="Vừa khung" onClick={fit} />
         </div>
-        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading || !editable} />
-        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading || !editable} />
+        <IconButton icon="undo" label="Hoàn tác" onClick={() => run({ kind: "undo", label: "Hoàn tác" })} disabled={!data?.canUndo || !!halt || loading || !editable || aiBusy} />
+        <IconButton icon="redo" label="Làm lại" onClick={() => run({ kind: "redo", label: "Làm lại" })} disabled={!data?.canRedo || !!halt || loading || !editable || aiBusy} />
         <span className="t-label-md text-2" data-ui="ui_editor_save_state" aria-live="polite">{pending > 0 ? "Đang lưu…" : "Đã lưu"}</span>
         <span role="status" className="t-label-md text-2">{msg}</span>
         <span className="ve-drawer-toggle" data-ui="ui_editor_drawer_toggle">
           {drawerToggle("left", "Layers")}
-          {editable && drawerToggle("right", "bảng Style")}
+          {drawerToggle("right", editable ? "bảng Style" : "bảng AI")}
         </span>
         {saved && <Link href={`/p/${id}/preview`}>Mở Preview</Link>}
       </div>
@@ -527,15 +577,17 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
         ) : <div className="ve-pane" data-ui="ui_editor_canvas_chrome" />}
         </div>
         <aside id="ve-right" ref={(el) => { panels.current.right = el; }} tabIndex={-1} className={`ve-right panel${drawer === "right" ? " is-open" : ""}`} aria-label="Bảng Style">
+          <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={editable ? tab : "ai"} onChange={setTab}
+            options={editable
+              ? [{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }, { value: "ai", label: "AI", ui: "ui_editor_ai_tab" }]
+              : [{ value: "ai", label: "AI", ui: "ui_editor_ai_tab" }]} />
           {editable && <>
-          <SegmentedControl<RightTab> label="Bảng bên phải" semantics="tabs" data-ui="ui_editor_right_tabs" value={tab} onChange={setTab}
-            options={[{ value: "style", label: "Style" }, { value: "component", label: "Component" }, { value: "effects", label: "Hiệu ứng" }]} />
           {data && tab === "style" && (selection[0] && index.get(selection[0]) ? (<>
             <StylePanel key={selection[0]} node={index.get(selection[0])!.node} element={canvas.current?.element(selection[0]) ?? null} bp={bp} fonts={data.fonts} flushRef={styleFlush}
               onBatch={(b, label, extra) => batch(b, label, extra)} onMessage={setMsg} />
             <ElementPanel projectId={id} index={index} entry={index.get(selection[0])!} element={canvas.current?.element(selection[0]) ?? null} bp={bp} assets={data.assets} onBatch={batch}
               onUploaded={(a) => setData((d) => d && { ...d, assets: [a, ...d.assets.filter((x) => x.key !== a.key)] })} onMessage={setMsg} canEdit={() => live.current.editable}
-              onEditMain={(r) => { setEditMain(r); setMsg("Đang sửa main component"); }} />
+              onEditMain={(r) => { if (live.current.aiBusy) return setMsg(AI_BUSY); setEditMain(r); setMsg("Đang sửa main component"); }} />
           </>) : <p className="t-body-sm text-2">Chọn một phần tử trên canvas hoặc trong Layers.</p>)}
           {/* the main's nodes have no component of their own here (toMain refuses component ops): Xong first */}
           {data && tab === "component" && open && <p className="t-body-sm text-2">Đang sửa main component — bấm Xong để dùng panel Component.</p>}
@@ -558,6 +610,11 @@ export function VisualEditor({ projectId: id, initialPage }: { projectId: string
               }} />
           )}
           </>}
+          {data && (tab === "ai" || !editable) && (
+            <ChatPanel projectId={id} revision={data.revision} canUndo={data.canUndo} scope={scopeLabel(raw, data.page.sections, selection)}
+              editable={editable} editingMain={!!open} busy={aiBusy}
+              onSend={sendChat} onCancel={cancelChat} onUndo={() => run({ kind: "undo", label: "Hoàn tác" })} />
+          )}
         </aside>
       </div>
       {gesture && <div className="ve-capture" {...gestures.capture} />}
