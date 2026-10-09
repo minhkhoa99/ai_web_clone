@@ -1,8 +1,10 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { IRNodeV2 } from "@/core/ir-v2";
 import type { ChatScope } from "@/core/ai-chat-scope";
 import type { ChatRow } from "@/core/chat-store";
-import { CHAT_LIMITS, ChatRefusal, chatMessages, parseChatReply, systemPrompt } from "@/core/ai-chat";
+import { CHAT_LIMITS, ChatRefusal, chatMessages, parseChatReply, runChatTurn, systemPrompt, type TurnDeps } from "@/core/ai-chat";
+import { AppError } from "@/core/errors";
+import type { GenerateResult } from "@/core/gateway";
 
 const node = (id: string, children: IRNodeV2[] = [], extra: Partial<IRNodeV2> = {}): IRNodeV2 => ({ id, tag: "div", type: "container", attrs: {}, children, styles: { base: {}, bp: {}, state: {}, pseudo: {} }, ...extra });
 // a hand-made scope: section root "r" > "a", "b"; "instance:1:x:y" is a generated (read-only) node; "car" a carousel
@@ -90,4 +92,83 @@ test("numeric CSS values become strings and '768'/'375' targets become numbers; 
 test("system prompt says CSS values are strings and the carousel aliases apply only to a carousel", () => {
   expect(systemPrompt(1440)).toContain("CSS values are strings");
   expect(systemPrompt(1440)).toContain("only to a carousel");
+});
+
+const input = () => ({ scope: scope(), bp: 1440 as const, pagePath: "/", text: "đổi màu", history: [] });
+const deps = (replies: (GenerateResult | Error)[], dryRun: TurnDeps["dryRun"] = () => {}) => {
+  const generate = vi.fn(async (_o: Parameters<TurnDeps["generate"]>[0]) => { const r = replies.shift(); if (!r) throw new Error("no more replies"); if (r instanceof Error) throw r; return r; });
+  return { generate, dryRun: vi.fn(dryRun), signal: new AbortController().signal };
+};
+const text = (t: string, tokens = 10): GenerateResult => ({ text: t, tokens });
+
+test("ok: valid commands pass the dry-run -> status ok with the commands and summed tokens", async () => {
+  const d = deps([text(reply([{ op: "setStyle", id: "a", target: "base", changes: { color: "red" } }]), 7)]);
+  const out = await runChatTurn(input(), d);
+  expect(out).toMatchObject({ status: "ok", reply: "Đã sửa", tokens: 7 });
+  expect(out.commands).toHaveLength(1);
+  expect(d.dryRun).toHaveBeenCalledOnce();
+});
+
+test("answer: [] commands -> no dry-run, status answer", async () => {
+  const d = deps([text(reply([], "Nút màu xanh."))]);
+  expect(await runChatTurn(input(), d)).toMatchObject({ status: "answer", reply: "Nút màu xanh.", commands: [] });
+  expect(d.dryRun).not.toHaveBeenCalled();
+});
+
+test("a refusal goes back to the AI (parse or dry-run), at most 2 fixes, then status refused", async () => {
+  const bad = text(reply([{ op: "setText", id: "elsewhere", text: "x" }]));
+  const good = text(reply([{ op: "setHidden", id: "b", hidden: true }]));
+  const d1 = deps([bad, good]);
+  expect((await runChatTurn(input(), d1)).status).toBe("ok");
+  const second = d1.generate.mock.calls[1]![0].messages.at(-1)!.content;
+  expect(second).toMatch(/^Lệnh bị từ chối: .*elsewhere/);
+  let n = 0;
+  const d2 = deps([good, good, good], () => { n++; throw new AppError("IR_PATCH_INVALID", "css not allowed"); });
+  const out = await runChatTurn(input(), d2);
+  expect(out.status).toBe("refused");
+  expect(out.reply).toMatch(/^AI chưa tạo được thay đổi hợp lệ: css not allowed/);
+  expect(n).toBe(3);
+  expect(d2.generate).toHaveBeenCalledTimes(3);
+});
+
+test("tools: results go back as TOOL_RESULTS; after 5 calls tools are no longer offered (R9)", async () => {
+  const call = (k: number): GenerateResult => ({ text: "", tokens: 1, toolCalls: Array.from({ length: k }, () => ({ name: "readNode", args: { id: "a" } })) });
+  const d = deps([call(3), call(3), text(reply([]))]);
+  const out = await runChatTurn(input(), d);
+  expect(out.status).toBe("answer");
+  const calls = d.generate.mock.calls.map((c) => c[0]);
+  expect(calls[0]!.tools?.map((t) => t.name)).toEqual(["readNode", "readSubtree", "findText"]);
+  expect(calls[1]!.messages.at(-1)!.content).toMatch(/^TOOL_RESULTS /);
+  expect(calls[2]!.tools).toBeUndefined(); // 3 + 2 (of the second 3) = 5 used
+  expect(JSON.parse(calls[2]!.messages.at(-1)!.content.replace(/^TOOL_RESULTS /, ""))).toHaveLength(2);
+});
+
+test("errors: budget / config map to status error with code; AI_TOO_LARGE retries once at half context", async () => {
+  expect(await runChatTurn(input(), deps([new AppError("BUDGET_EXCEEDED", "x")]))).toMatchObject({ status: "error", code: "BUDGET_EXCEEDED", reply: "Hết ngân sách token của project." });
+  expect((await runChatTurn(input(), deps([new AppError("AI_BAD_CONFIG", "no provider")]))).reply).toMatch(/Cài đặt AI/);
+  const d = deps([new AppError("AI_TOO_LARGE", "big"), text(reply([]))]);
+  expect((await runChatTurn(input(), d)).status).toBe("answer");
+  const [first, second] = d.generate.mock.calls.map((c) => JSON.stringify(c[0].messages).length);
+  expect(second).toBeLessThanOrEqual(first!);
+  expect((await runChatTurn(input(), deps([new AppError("AI_TOO_LARGE", "big"), new AppError("AI_TOO_LARGE", "big")]))).status).toBe("error");
+});
+
+test("abort: before a call or during one -> cancelled, no commands", async () => {
+  const c = new AbortController();
+  c.abort();
+  const d = { ...deps([text(reply([]))]), signal: c.signal };
+  expect(await runChatTurn(input(), d)).toMatchObject({ status: "cancelled", commands: [] });
+  expect(d.generate).not.toHaveBeenCalled();
+  const c2 = new AbortController();
+  const d2 = { ...deps([]), signal: c2.signal, generate: vi.fn(async (_o: Parameters<TurnDeps["generate"]>[0]): Promise<GenerateResult> => { c2.abort(); throw new Error("aborted"); }) };
+  expect((await runChatTurn(input(), d2)).status).toBe("cancelled");
+});
+
+test("never more than 8 generate calls", async () => {
+  const tool = (): GenerateResult => ({ text: "", tokens: 1, toolCalls: [{ name: "findText", args: { query: "a" } }] });
+  const notJson = () => text("không phải JSON");
+  const d = deps([tool(), tool(), tool(), tool(), tool(), notJson(), notJson(), notJson(), notJson()]);
+  const out = await runChatTurn(input(), d);
+  expect(out.status).toBe("refused");
+  expect(d.generate.mock.calls.length).toBeLessThanOrEqual(CHAT_LIMITS.generateCalls);
 });

@@ -1,12 +1,14 @@
 // E4: one chat turn of the editor's AI. The prompt (§2), the reply parser and command checks (§3) and the turn loop
 // (§1, Task 4). Pure but for the injected `generate` / `dryRun`; no I/O of its own.
 import { z } from "zod";
-import { componentList, nodeDetail, outlineText, SCOPE_LIMITS, type ChatBp, type ChatScope } from "./ai-chat-scope";
+import { CHAT_TOOLS, callChatTool, componentList, nodeDetail, outlineText, SCOPE_LIMITS, type ChatBp, type ChatScope } from "./ai-chat-scope";
 import type { ChatRow, ChatStatus } from "./chat-store";
 import type { Affected } from "./editor-canvas";
-import type { ChatMessage } from "./gateway";
+import { AppError, Codes } from "./errors";
+import type { ChatMessage, GenerateOptions, GenerateResult } from "./gateway";
 import { aiPatchable } from "./interactive";
 import { COMMAND_LIMITS, type EditorCommand, type NodeDraft } from "./ir-command";
+import { fitRequest } from "./naming";
 
 export const CHAT_LIMITS = { textChars: 2000, replyChars: 1000, historyTurns: 6, historyChars: 1000, toolCalls: 5, fixes: 2, generateCalls: 8, requestTokens: 60_000, turnMs: 5 * 60_000, selection: 50, echoChars: 2000 } as const;
 export type ChatInput = { scope: ChatScope; bp: ChatBp; pagePath: string; text: string; history: readonly ChatRow[] };
@@ -129,4 +131,66 @@ export function parseChatReply(text: string, scope: ChatScope): { reply: string;
   if (!parsed.success) throw new ChatRefusal(parsed.error.message.slice(0, 500));
   for (const c of parsed.data.commands) check(c, scope);
   return { reply: parsed.data.reply.trim().slice(0, CHAT_LIMITS.replyChars), commands: parsed.data.commands };
+}
+
+export type TurnDeps = {
+  generate: (opts: Pick<GenerateOptions, "messages" | "tools" | "signal">) => Promise<GenerateResult>;
+  dryRun: (commands: EditorCommand[]) => void; // throws AppError IR_PATCH_INVALID when the core refuses the batch
+  signal: AbortSignal;
+};
+export type TurnOutcome = { status: "ok" | "answer" | "refused" | "error" | "cancelled"; reply: string; commands: EditorCommand[]; tokens: number; code?: string };
+
+export const CANCELLED_TEXT = "Đã huỷ.";
+const ERRORS: Record<string, string> = {
+  BUDGET_EXCEEDED: "Hết ngân sách token của project.",
+  AI_BAD_CONFIG: "Chưa cấu hình model vai trò Code hoặc cấu hình sai — mở Cài đặt AI.",
+  AI_AUTH: "API key sai hoặc không có quyền — sửa ở Cài đặt AI.",
+  AI_QUOTA: "Provider hết credit/quota — đổi provider ở Cài đặt AI.",
+  AI_RATE_LIMIT: "Provider đang giới hạn tốc độ — thử lại sau.",
+  AI_TOO_LARGE: "Yêu cầu vượt giới hạn context của model — chọn ít phần tử hơn hoặc model lớn hơn.",
+};
+export const chatErrorText = (code: string): string => ERRORS[code] ?? "AI lỗi hoặc trả lời sai định dạng — thử gửi lại.";
+
+// E4 §1/§3: one message -> at most one batch. Read-only tools (<= 5 calls, then no more offered: R9), the reply parsed
+// and dry-run; a refusal goes back to the AI (<= 2 fixes); AI_TOO_LARGE retries once at half the context. <= 8 calls
+// (+1 after AI_TOO_LARGE). Never throws for an AI or abort failure: the outcome says what happened.
+export async function runChatTurn(input: ChatInput, deps: TurnDeps): Promise<TurnOutcome> {
+  let tokens = 0, toolCalls = 0, fixes = 0, scale = 1, calls: number = CHAT_LIMITS.generateCalls, shrunk = false;
+  let turns: ChatMessage[] = [];
+  const end = (status: TurnOutcome["status"], reply: string, code?: string): TurnOutcome => ({ status, reply, commands: [], tokens, ...(code && { code }) });
+  for (let call = 0; call < calls; call++) {
+    if (deps.signal.aborted) return end("cancelled", CANCELLED_TEXT);
+    const req = fitRequest((s) => [...chatMessages(input, s * scale), ...turns], [], CHAT_LIMITS.requestTokens);
+    let res: GenerateResult;
+    try {
+      res = await deps.generate({ messages: req.messages, ...(toolCalls < CHAT_LIMITS.toolCalls && { tools: CHAT_TOOLS }), signal: deps.signal });
+    } catch (e) {
+      if (deps.signal.aborted) return end("cancelled", CANCELLED_TEXT);
+      if (e instanceof AppError && e.code === Codes.AI_TOO_LARGE && !shrunk) { shrunk = true; scale = 0.5; calls++; continue; }
+      const code = e instanceof AppError ? e.code : Codes.AI_BAD_RESPONSE;
+      return end("error", chatErrorText(code), code);
+    }
+    tokens += res.tokens;
+    if (res.toolCalls?.length && toolCalls < CHAT_LIMITS.toolCalls) {
+      const asked = res.toolCalls.slice(0, CHAT_LIMITS.toolCalls - toolCalls);
+      const results = asked.map((tc) => ({ name: tc.name, result: callChatTool(input.scope, input.bp, tc.name, tc.args) }));
+      toolCalls += asked.length;
+      turns = [...turns, { role: "assistant", content: `${res.text}\nTOOL_CALLS ${JSON.stringify(asked)}`.trim() }, { role: "user", content: `TOOL_RESULTS ${JSON.stringify(results)}` }];
+      continue;
+    }
+    let parsed: { reply: string; commands: EditorCommand[] };
+    try {
+      parsed = parseChatReply(res.text, input.scope);
+      if (parsed.commands.length) deps.dryRun(parsed.commands);
+    } catch (e) {
+      const why = e instanceof ChatRefusal ? e.message : e instanceof AppError && e.code === Codes.IR_PATCH_INVALID ? e.message.slice(0, 500) : undefined;
+      if (why === undefined) throw e;
+      if (++fixes > CHAT_LIMITS.fixes) return end("refused", `AI chưa tạo được thay đổi hợp lệ: ${why}`);
+      turns = [...turns, { role: "assistant", content: res.text.slice(0, CHAT_LIMITS.echoChars) }, { role: "user", content: `Lệnh bị từ chối: ${why}. Trả lại JSON đã sửa.` }];
+      continue;
+    }
+    if (!parsed.commands.length) return end("answer", parsed.reply || "(AI không trả lời gì)");
+    return { status: "ok", reply: parsed.reply || "Đã sửa.", commands: parsed.commands, tokens };
+  }
+  return end("refused", "AI chưa trả lời xong trong giới hạn số lần gọi.");
 }
